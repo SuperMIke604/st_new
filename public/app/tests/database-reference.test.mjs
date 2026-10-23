@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {referenceUpdate,referenceSheetText,referencePreviewRows,referencePagination} from '../database-reference.js';
+const database=()=>({mate:{type:'chatSheets'},sheet_0:{name:'人物',content:[[null,'姓名','状态'],[null,'甲','正常']]}});
+test('upstream operations skip invalid targets, repair JSON, and extend update rows',()=>{
+ let result=referenceUpdate('<dataUpdate>{"operations":[{"action":"insert","sheet":"missing"},{"action":"update","sheet":0,"row":2,"data":{"0":"乙"}}]}</dataUpdate>',database());
+ assert.equal(result.changed,true);assert.equal(result.data.sheet_0.content[3][1],'乙');assert.ok(result.feedback.length);
+ result=referenceUpdate('<dataUpdate>{"operations":[{"action":"update","sheet":0,"row":0,"data":{"1":"多行\n内容"}}]}</dataUpdate>',database());assert.equal(result.data.sheet_0.content[1][2],'多行\n内容');
+});
+test('upstream readable format, diff search and pagination',()=>{
+ assert.equal(referenceSheetText('人物',['姓名','状态'],[[null,'甲','正常']]),'### 人物\n- 姓名: 甲\n  - 状态: 正常');
+ const old=database(),table={key:'sheet_0',headers:old.sheet_0.content[0],rows:[[null,'乙','正常']]};
+ const rows=referencePreviewRows(table,{diffMode:true,search:'乙',previousData:old});assert.equal(rows.length,1);assert.equal(rows[0].diffType,'modified');assert.equal(rows[0].changedCols[1],true);
+ assert.deepEqual(referencePagination(1,3),[1,2,3]);
+});
+
+import { databaseSettings, fillMessages, migrateLegacySettings } from '../database.js';
+test('reference defaults, settings import/export fields and prompt tag processing survive adapters',()=>{
+ const defaults=databaseSettings();assert.equal(defaults.autoUpdateFrequency,0);assert.equal(defaults.updateBatchSize,1);assert.equal(defaults.summaryTableMaxEntries,10);assert.equal(defaults.autoHideMessages,true);assert.equal(defaults.maxTokens,120000);assert.equal(defaults.temperature,.9);assert.equal(defaults.inject,false);
+ const source={autoUpdateEnabled:true,autoUpdateFrequency:5,updateBatchSize:8,removeTags:'think',userMessageTags:'user|context',apiMode:'custom',apiConfig:{useMainApi:false,url:'http://localhost',model:'test',max_tokens:50000,temperature:.7},charCardPrompts:[{name:'原预设',prompt:[{role:'USER',content:'$0\n$1\n$4'}],overviewTemplate:JSON.stringify(database())}],currentPromptIndex:0};
+ const settings=migrateLegacySettings(source);assert.equal(settings.auto,true);assert.equal(settings.autoUpdateFrequency,5);assert.equal(settings.updateBatchSize,8);assert.equal(settings.apiConfig.url,source.apiConfig.url);assert.equal(settings.maxTokens,50000);
+ const messages=fillMessages(settings,database(),[{is_user:true,mes:'<think>secret</think>hello'}],0,0,'world');assert.ok(messages[0].content.includes('<context><user>hello</user></context>'));assert.ok(!messages[0].content.includes('secret'));assert.ok(messages[0].content.includes('Columns:'));
+});

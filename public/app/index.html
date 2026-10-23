@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN" data-palette="paper">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+  <meta name="theme-color" content="#f3eee4">
+  <meta name="color-scheme" content="light">
+  <title>SillyTavern</title>
+  <link rel="icon" href="data:,">
+  <script src="./theme-init.js"></script>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="./vendor/showdown.min.js"></script>
+  <script defer src="./vendor/purify.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <nav id="top-actions" aria-label="常用功能"></nav>
+    <span id="save-status" role="status" hidden>连接中</span>
+  </header>
+  <main id="conversation">
+    <section id="message-list" aria-label="聊天记录" tabindex="0"></section>
+    <form id="composer" hidden>
+      <button type="button" id="tools-toggle" class="icon-button" aria-label="对话工具" title="对话工具"></button>
+      <div id="composer-tools" class="composer-tools" hidden></div>
+      <textarea id="message-input" aria-label="消息" placeholder="写下你的下一句…" rows="1" enterkeyhint="enter"></textarea>
+      <button type="button" id="stop-button" class="icon-button" aria-label="停止生成" title="停止生成" hidden></button>
+      <button type="submit" id="send-button" class="send-button" aria-label="发送消息" title="发送"></button>
+      <div id="composer-status" role="status" hidden></div>
+    </form>
+  </main>
+  <dialog id="panel" aria-labelledby="panel-title">
+    <header class="panel-header"><div><small id="panel-kicker">工作空间</small><h1 id="panel-title"></h1></div><button id="close-panel" class="icon-button" aria-label="关闭面板"></button></header>
+    <div id="panel-body"></div>
+  </dialog>
+  <div id="notification" role="status" hidden></div>
+  <noscript>请启用 JavaScript 后使用此页面。</noscript>
+</body>
+</html>

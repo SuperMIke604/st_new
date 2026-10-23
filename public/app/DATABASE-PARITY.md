@@ -1,0 +1,26 @@
+# 数据管理迁移基准与验证
+
+参考仓库 SuperMIke604/data_table，提交 a9e295d32b2e691d9ae4399bf0b2b3c3fe922205。
+
+## 不改处理逻辑的迁移
+
+- database-defaults.js：原始 DEFAULT_SETTINGS、DEFAULT_CHAR_CARD_PROMPT。
+- database-reference.js：原函数 repairAIJson、parseDataUpdate、applyOperations、formatTableToReadable、buildTableDataTextForDollar0、extractDataFromMessage、_dpGetDisplayRows、_dpPaginationRange，函数体直接提取不改写。
+- 配置支持原字段的导入导出：自动更新、跳过最新N层、每次更新楼层数、总结数量、删除标签、用户消息标签、API、指令预设和每份预设模板、世界书来源及启用条目。
+- 手动更新按范围一次处理AI楼层，带对应用户上下文；自动更新按参考楼层规则触发，首次包含0楼。
+- $0/$1/$4使用参考表格格式、对话前缀、标签移除/包裹和世界书参考内容。
+- 原生接口承接API调用、设置保存、头像/角色、世界书读取和聊天快照保存；不依赖TavernHelper或加载原插件。
+- 整理后隐藏通过原生消息 is_system 字段实现。
+- 数据概览保留在数据预览，管理入口包含状态与操作、AI指令预设、API与连接、世界书参考、数据与模板。
+
+## 用户已明确要求的例外
+
+- 不进行数据库到世界书的同步写入。
+- 数据预览不提供搜索和填入输入框；删除位于标题行；字段原位编辑。
+- 所有UI使用独立前端面板和主题，不复用插件的浮动窗口样式。
+
+## 验证边界
+
+79项自动测试通过，包含参考JSON修复、容错增量更新、原配置默认值/迁移、标签加工和预览差异/分页。
+已在内存模拟服务检查管理入口、参数保存和API/世界书面板。尚未调用真实服务商验证120000输出上限，是否支持取决于服务商。
+宿主替代接口并不等于逐行移植全部插件代码；浮动窗口管理、斜杠命令及TavernHelper调用由原生前端接口替代。
