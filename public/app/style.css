@@ -365,3 +365,5 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .home-character-grid .home-character h3{font-size:14px;line-height:1.6;font-weight:500}
 #back-latest{left:auto;right:18px;transform:none;width:max-content;max-width:120px;min-height:30px;padding:5px 11px;border-radius:8px;font-size:12px;box-shadow:0 2px 8px #0001}
 @media(max-width:700px){.home-view .welcome{padding:12px 8px;margin:16px auto}.home-character-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.home-recent h2{font-size:15px;margin-bottom:12px}#back-latest{bottom:100px;right:14px}}
+
+.home-character .portrait-missing{position:relative}.home-character .portrait-missing::after{content:"图片暂不可用";display:grid;place-items:center;position:absolute;inset:0;font-size:12px;color:var(--muted)}

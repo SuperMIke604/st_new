@@ -6,7 +6,7 @@ export class ApiError extends Error {
 export class TavernAPI {
     constructor() { this.readCache = new Map(); this.csrf = ''; this.saveQueue = Promise.resolve(); }
     async connect() {
-        const response = await fetch('/csrf-token', { credentials: 'same-origin', cache: 'no-store' });
+        const response = await fetch('/csrf-token', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
@@ -45,8 +45,16 @@ export class TavernAPI {
         const bundle = await this.post('/api/settings/get');
         return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings };
     }
+    async bootstrapSettings() {
+        try {
+            const bundle = await this.post('/api/plugins/st-new-updater/bootstrap', {}, { signal: AbortSignal.timeout(15000) });
+            return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings };
+        } catch (error) { if (error.status !== 404) throw error;
+            const bundle = await this.post('/api/settings/get', {}, { signal: AbortSignal.timeout(15000) });
+            return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings }; }
+    }
     async loadConnections() {
-        const response = await fetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store' });
+        const response = await fetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (response.status === 404) return null;
         if (!response.ok) throw new ApiError('无法读取连接配置，已停止载入，避免回退地址。', response.status);
         try { return await response.json(); } catch { throw new Error('连接配置文件损坏，请恢复备份，未使用默认地址覆盖。'); }
@@ -56,6 +64,21 @@ export class TavernAPI {
         const encoded = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
         const result = await this.post('/api/files/upload', { name: 'independent-frontend-connections.json', data: encoded });
         if (!result?.path) throw new Error('连接配置保存失败。');
+    }
+    async loadPresetSelection() {
+        const response = await fetch('/user/files/independent-frontend-preset.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        if (response.status === 404) return null;
+        if (!response.ok) throw new ApiError('无法读取服务端预设选择，请重试', response.status);
+        const value = await response.json();
+        if (value?.version !== 1 || typeof value.name !== 'string' || !value.name.trim()) throw Error('服务端预设选择文件损坏，请重新选择并保存预设');
+        return value;
+    }
+    async savePresetSelection(value) {
+        const bytes = new TextEncoder().encode(JSON.stringify(value));
+        const result = await this.post('/api/files/upload', { name: 'independent-frontend-preset.json', data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')) });
+        if (!result?.path) throw Error('预设选择未保存');
+        const saved = await this.loadPresetSelection();
+        if (saved?.name !== value.name) throw Error('预设选择保存核验失败，请重试');
     }
     // The native endpoint replaces the entire settings file. Read fresh and patch
     // only owned fields, serializing writes so UI operations cannot race.

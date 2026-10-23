@@ -12,11 +12,11 @@ preset.extensions = { regex_scripts: [
     { scriptName: '显示替换测试', findRegex: '/雨停了/g', replaceString: '天晴了', placement: [2], markdownOnly: true, trimStrings: [] },
     { scriptName: '发送替换测试', findRegex: '/测试输入/g', replaceString: '处理后的输入', placement: [1], promptOnly: true, trimStrings: [] },
 ] };
-const presets = new Map([['Default', preset]]);
+const presets = new Map([['Default', preset], ['Second', structuredClone(preset)]]);
 const avatars = ['user-default.png'];
 const worldBooks = new Map([['测试世界', { entries: { 0: { uid: 0, comment: '书店背景', key: ['书店'], constant: true, content: '书店今天下雨', position: 0 } } }]]);
 const fixtureSecrets = new Map();
-let connectionFile = null;
+let connectionFile = null; let presetFile = null; let startupMode = {};
 let settings = { username: '旅人', user_avatar: 'user-default.png', oai_settings: {}, untouched: { value: 'preserve' },
     power_user: { personas: { 'user-default.png': '旅人' }, persona_descriptions: { 'user-default.png': { description: '寻找旧书的人' } } },
     independent_frontend: { lastCharacter: 'fixture.png', preset: 'Default', worlds: ['测试世界'], lastChats: { 'fixture.png': '1000楼测试' }, connection: { source: 'custom', url: 'http://127.0.0.1:8766/mock', model: 'local-test' } } };
@@ -32,7 +32,8 @@ function json(response, value, code = 200) { response.writeHead(code, { 'Content
 http.createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1:8766');
     if (url.pathname === '/csrf-token') return json(response, { token: 'fixture-csrf' });
-    if (url.pathname === '/user/files/independent-frontend-connections.json') return connectionFile ? json(response, connectionFile) : json(response, { error: 'missing' }, 404);
+    if (url.pathname === '/user/files/independent-frontend-preset.json') { if (!presetFile) { response.writeHead(404); return response.end(); } return json(response, presetFile); }
+    if (url.pathname === '/user/files/independent-frontend-connections.json') { if (startupMode.delay) await new Promise(resolve => setTimeout(resolve, startupMode.delay)); if (startupMode.failConnections) return json(response, { error: 'simulated connection failure' }, 500); return connectionFile ? json(response, connectionFile) : json(response, { error: 'missing' }, 404); }
     if (url.pathname === '/test-results') return json(response, metrics);
     if (url.pathname === '/thumbnail') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); return response.end('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="20" fill="#dde7d5"/><text x="25" y="53" fill="#597151" font-size="35">林</text></svg>'); }
     if (request.method === 'POST') {
@@ -46,13 +47,16 @@ http.createServer(async (request, response) => {
             body = Object.fromEntries([...form].filter(([, value]) => typeof value === 'string')); metrics.avatarUploads = (metrics.avatarUploads || 0) + 1;
         } else body = raw ? JSON.parse(raw) : {};
         switch (url.pathname) {
+            case '/test/startup-mode': startupMode = body; return json(response, { ok: true });
+            case '/api/plugins/st-new-updater/recent': metrics.recentRequests = (metrics.recentRequests || 0) + 1; return json(response, [{ avatar: 'fixture.png', file_name: '最新聊天.jsonl', characterName: '林' }]);
+            case '/api/chats/recent': return json(response, [{ avatar: 'fixture.png', file_name: '最新聊天.jsonl' }]);
             case '/test/database-mode': databaseMode = body.mode; return json(response, { ok: true });
-            case '/api/files/upload': connectionFile = JSON.parse(Buffer.from(body.data, 'base64').toString('utf8')); return json(response, { path: 'files/independent-frontend-connections.json' });
+            case '/api/files/upload': { const value = JSON.parse(Buffer.from(body.data, 'base64').toString('utf8')); if (body.name === 'independent-frontend-preset.json') presetFile = value; else connectionFile = value; return json(response, { path: 'files/' + body.name }); }
             case '/api/settings/get': return json(response, { settings: JSON.stringify(settings), openai_setting_names: [...presets.keys()], openai_settings: [...presets.values()].map(value => JSON.stringify(value)) });
             case '/api/presets/save': presets.set(body.name, body.preset); return json(response, { name: body.name });
             case '/api/presets/delete': presets.delete(body.name); return json(response, { ok: true });
             case '/api/settings/save': settings = body; metrics.settingsSaves++; metrics.nativeFieldsPreserved = settings.untouched?.value === 'preserve'; return json(response, { result: 'ok' });
-            case '/api/characters/all': return json(response, [...fixtureCards.values()]);
+            case '/api/characters/all': metrics.characterListRequests = (metrics.characterListRequests || 0) + 1; return json(response, [...fixtureCards.values()]);
             case '/api/characters/get': return json(response, fixtureCards.get(body.avatar_url));
             case '/api/characters/create': { const avatar = `created-${fixtureCards.size}.png`; fixtureCards.set(avatar, { avatar, name: body.ch_name, data: { name: body.ch_name, description: body.description, first_mes: body.first_mes } }); return json(response, avatar); }
             case '/api/characters/edit-avatar': return json(response, { ok: true });

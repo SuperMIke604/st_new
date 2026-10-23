@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { init, validateManifest } from './index.mjs';
+import { init, validateManifest, listRecentCharacters } from './index.mjs';
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
 test('manifest rejects traversal, server paths and missing entrypoints', () => {
@@ -27,4 +27,17 @@ test('confirmed installs replace only frontend; corrupt downloads preserve previ
         assert.equal((await run()).code, 500); assert.equal(await fs.readFile('public/app/index.html', 'utf8'), 'old');
         corrupt = false; const installed = await run(); assert.equal(installed.body.ok, true, JSON.stringify(installed)); assert.equal(await fs.readFile('public/app/index.html', 'utf8'), 'new index.html'); assert.equal(await fs.readFile('private-data', 'utf8'), 'keep');
     } finally { process.chdir(cwd); globalThis.fetch = fetcher; await fs.rm(root, { recursive: true, force: true }); }
+});
+
+
+test('recent role index uses directory metadata only and returns six unique roles', async () => {
+    const entry = name => ({ name, isFile: () => true }); let stats = 0;
+    const dirs = { characters: path.resolve('characters'), chats: path.resolve('chats') };
+    const io = {
+        readdir: async folder => folder === dirs.characters ? Array.from({ length: 8 }, (_, i) => entry(`role${i}.png`)) : [entry('old.jsonl'), entry('new.jsonl')],
+        stat: async file => { stats++; return { mtimeMs: Number(file.match(/role(\d)/)[1]) * 10 + (file.endsWith('new.jsonl') ? 2 : 1) }; },
+        readFile: async () => { throw Error('Chat contents must never be read'); }
+    };
+    const result = await listRecentCharacters(dirs, io);
+    assert.equal(result.length, 6); assert.equal(result[0].avatar, 'role7.png'); assert.equal(result[0].file_name, 'new.jsonl'); assert.equal(stats, 16);
 });

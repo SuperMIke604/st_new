@@ -20,8 +20,38 @@ async function download(url) {
     for await (const chunk of response.body) { size += chunk.length; if (size > 8000000) throw Error('下载文件过大'); chunks.push(chunk); }
     return Buffer.concat(chunks);
 }
+// No chat contents or PNG metadata are read to build the home list.
+export async function listRecentCharacters(directories, io = fs) {
+    const cards = (await io.readdir(directories.characters, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith('.png'));
+    const recent = [];
+    for (const card of cards) {
+        const folder = path.join(directories.chats, card.name.slice(0, -4));
+        let files; try { files = await io.readdir(folder, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        let newest = null;
+        for (const file of files) {
+            if (!file.isFile() || !file.name.endsWith('.jsonl')) continue;
+            try { const stat = await io.stat(path.join(folder, file.name)); if (!newest || stat.mtimeMs > newest.last_mes) newest = { avatar: card.name, file_name: file.name, last_mes: stat.mtimeMs, characterName: card.name.slice(0, -4) }; }
+            catch (error) { if (error.code !== 'ENOENT') throw error; }
+        }
+        if (newest) recent.push(newest);
+    }
+    return recent.sort((a, b) => b.last_mes - a.last_mes).slice(0, 6);
+}
 export async function init(router) {
     const publicDir = path.resolve('public'); const target = path.join(publicDir, 'app'); let installing = false;
+    router.post('/recent', async (request, response) => {
+        try { response.json(await listRecentCharacters(request.user.directories)); }
+        catch (error) { response.status(500).json({ error: error.message }); }
+    });
+    router.post('/bootstrap', async (request, response) => {
+        try {
+            const directories = request.user.directories;
+            const settings = await fs.readFile(path.join(directories.root, 'settings.json'), 'utf8');
+            const names = (await fs.readdir(directories.openAI_Settings)).filter(name => name.endsWith('.json')).sort((a, b) => a.localeCompare(b));
+            const openai_settings = await Promise.all(names.map(name => fs.readFile(path.join(directories.openAI_Settings, name), 'utf8')));
+            response.json({ settings, openai_settings, openai_setting_names: names.map(name => name.slice(0, -5)) });
+        } catch (error) { response.status(500).json({ error: error.message }); }
+    });
     router.post('/status', (_request, response) => response.json({ available: true }));
     router.post('/install', async (request, response) => {
         if (installing) return response.status(409).json({ error: '正在安装更新' });

@@ -1,3 +1,5 @@
+import { RecentCharacters } from './home-data.js';
+import { PresetSelection } from './preset-selection.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
 import { TavernAPI, readEvents } from './api.js';
@@ -22,6 +24,8 @@ installSelects();
 
 const $ = id => document.getElementById(id);
 const api = new TavernAPI();
+const presetSelection = new PresetSelection(api);
+const recentCharacters = new RecentCharacters(api);
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 let panelDirty = false;
 let panelRevision = 0;
@@ -74,12 +78,20 @@ function assertViewable() { if (state.loading) throw new Error('正在切换聊�
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
     settings.extension_settings ||= {};
-    return settings.independent_frontend = settings.extension_settings.independent_frontend ||= settings.independent_frontend || {};
+    const own = settings.independent_frontend = settings.extension_settings.independent_frontend ||= settings.independent_frontend || {};
+    if (presetSelection.name !== null) own.preset = presetSelection.name;
+    return own;
 }
 async function saveOwn(patch) {
-    if (patch.preset) { try { localStorage.setItem(`independent-preset:${state.settings.username || 'default'}`, patch.preset); } catch {} }
+    if (Object.hasOwn(patch, 'preset')) {
+        await presetSelection.save(patch.preset);
+        state.own.preset = presetSelection.name;
+        patch = { ...patch }; delete patch.preset;
+        if (!Object.keys(patch).length) return;
+    }
     state.settings = await api.patchSettings(settings => { Object.assign(settingsOwn(settings), patch); settings.extension_settings.independent_frontend = settings.independent_frontend; });
     state.own = settingsOwn(state.settings);
+    if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     api.readCache.clear();
     const persisted = settingsOwn((await api.settings()).settings);
     for (const key of Object.keys(patch)) if (JSON.stringify(persisted[key]) !== JSON.stringify(patch[key])) throw new Error('设置保存后核验失败，请重试。');
@@ -103,7 +115,10 @@ function presets() {
     });
 }
 function selectPreset() {
-    state.preset = copy(presets().find(p => p.name === state.own.preset)?.data || presets()[0]?.data || {});
+    const selected = presets().find(p => p.name === presetSelection.name);
+    state.preset = copy(selected?.data || {});
+    state.presetMissing = !selected;
+    if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
 function synchronize() {
 
@@ -217,11 +232,12 @@ function welcome() {
     welcome.append(action('选择角色', () => navigation(), 'card', 'primary'));
     $('composer').hidden = true;
     document.body.classList.add('home-view');
-    const recentRequest = state.ready ? (homeRecentRequest || api.post('/api/chats/recent', { max: 1000 })) : null;
-    if (state.ready) homeRecentRequest = null;
+    const recentRequest = state.homeReady ? (homeRecentRequest || loadRecentCharacters()) : null;
+    if (state.homeReady) homeRecentRequest = null;
     const drawRecent = chats => {
         if (!recent.isConnected || !Array.isArray(chats)) return;
         recent.replaceChildren(el('h2', '', '最近使用的角色'));
+        if (!chats.some(chat => chat.avatar)) recent.append(el('p', 'note', '暂无最近使用的角色，可在下方选择角色。'));
         const grid = el('div', 'home-character-grid'); recent.append(grid);
         const seen = new Set();
         for (const chat of chats) {
@@ -231,8 +247,10 @@ function welcome() {
             const name = character?.name || chat.characterName || chat.avatar.replace(/\.[^.]+$/, '');
             const card = el('article', 'character-file home-character');
             const cover = action(`进入 ${name} 最新聊天`, () => openCharacter(chat.avatar, { latest: true }), null, 'card-cover');
+            cover.disabled = !state.ready;
             cover.setAttribute('aria-label', `进入 ${name} 最新聊天`);
-            const portrait = image(chat.avatar, 'avatar', true); portrait.loading = 'eager'; cover.append(portrait);
+            const portrait = image(chat.avatar, 'avatar', true); portrait.loading = 'lazy'; portrait.alt = name;
+            portrait.addEventListener('error', () => { portrait.hidden = true; cover.classList.add('portrait-missing'); }, { once: true }); cover.append(portrait);
             const info = el('div', 'card-info'); info.append(el('h3', '', name));
             card.append(cover, info); grid.append(card);
             if (seen.size === 6) break;
@@ -248,28 +266,37 @@ function welcome() {
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
 async function reloadResources() {
-    const loaded = await api.settings(); state.settings = loaded.settings; state.bundle = loaded.bundle;
+    const loaded = await api.bootstrapSettings(); state.settings = loaded.settings; state.bundle = loaded.bundle;
+    const legacySelection = { independent_frontend: { preset: state.settings.independent_frontend?.preset }, extension_settings: { independent_frontend: { preset: state.settings.extension_settings?.independent_frontend?.preset } } };
     state.own = settingsOwn(state.settings);
+    if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     document.documentElement.dataset.palette = state.own.palette || 'paper';
     try{localStorage.setItem('independent-palette',state.own.palette||'paper');}catch{}
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content',(state.own.palette||'paper')==='paper'?'#f3eee4':'#f7f8f4');
     try { const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null'); if (saved) state.own.reading = readingSettings(saved, true); } catch { /* Use server preferences when local data is unavailable. */ }
     applyReading(state.own.reading);
-    try { const saved = localStorage.getItem(`independent-preset:${state.settings.username || 'default'}`); if (!presets().some(p => p.name === state.own.preset) && saved && presets().some(p => p.name === saved)) state.own.preset = saved; } catch {}
+    await presetSelection.load(legacySelection, presets().map(item => item.name));
+    if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     selectPreset(); synchronize();
 }
 let homeRecentRequest = null;
+let connectionInitialization = null;
+const loadRecentCharacters = () => recentCharacters.load();
 async function start() {
     welcome();
     await api.connect();
-    homeRecentRequest = api.post('/api/chats/recent', { max: 1000 });
+    homeRecentRequest = loadRecentCharacters();
     homeRecentRequest.catch(() => {});
-    const charactersRequest = api.post('/api/characters/all');
-    charactersRequest.catch(() => {});
+    state.homeReady = true; welcome();
     const connectionsRequest = api.loadConnections();
     connectionsRequest.catch(() => {});
     await reloadResources();
-    welcome(); // Show cached home cards before connection/character initialization finishes.
+    state.ready = true; synchronize(); welcome();
+    state.connectionPending = true;
+    connectionInitialization = initializeConnections(connectionsRequest);
+    try { await connectionInitialization; } catch (error) { state.connectionError = error.message; notify(`连接初始化失败：${error.message}。角色资料仍可查看。`, true); } finally { state.connectionPending = false; synchronize(); }
+}
+async function initializeConnections(connectionsRequest) {
     const stored = await connectionsRequest;
     if (stored) profileStore = connectionProfiles(stored);
     else {
@@ -298,10 +325,8 @@ async function start() {
         }
     }
     synchronize();
-    state.characters = await charactersRequest;
-    if (!Array.isArray(state.characters)) throw new Error('角色列表响应格式异常。');
-    state.ready = true; status('已连接'); synchronize();
-    state.character = null; state.chat = []; welcome();
+
+    state.connectionError = ''; status('已连接'); synchronize();
 }
 
 function showPanel(title, kicker = '工作空间', className = '') {
@@ -383,8 +408,9 @@ async function rememberChat() {
         const previous = JSON.parse(sessionStorage.getItem(key) || '[]');
         sessionStorage.setItem(key, JSON.stringify([{ avatar: state.character.avatar, file_name: state.file, characterName: state.character.name }, ...previous.filter(item => item.avatar !== state.character.avatar)].slice(0, 100)));
     } catch {}
+    recentCharacters.invalidate();
     const lastChats = { ...(state.own.lastChats || {}), [state.character.avatar]: state.file };
-    await saveOwn({ lastChats });
+    if (state.own.lastChats?.[state.character.avatar] !== state.file) await saveOwn({ lastChats });
 }
 function saveChat() {
     if (!state.character) return Promise.resolve();
@@ -417,9 +443,10 @@ async function chatsPanel() {
 }
 
 async function persistProfiles(next) {
-    const valid = connectionProfiles(next); await api.saveConnections(valid); profileStore = valid; synchronize();
+    const valid = connectionProfiles(next); await api.saveConnections(valid); profileStore = valid; state.connectionError = ''; synchronize();
 }
 async function connectionPanel(profileId = '', draft = null) {
+    if (state.connectionPending) await connectionInitialization.catch(() => {});
     const body = showPanel('连接与模型', 'API'); if (!body) return;
     if (!state.ready) { note(body, '正在读取保存的连接，请稍候再打开。'); return; }
     const revision = panelRevision;
@@ -516,12 +543,14 @@ async function connectionPanel(profileId = '', draft = null) {
 
 async function presetPanel() {
     const body = showPanel('生成预设', '提示词与生成参数', 'preset-panel'); if (!body) return;
+    if (state.presetMissing) note(body, '保存的预设已不存在，请重新选择；当前未自动启用其他预设。');
     const available = presets();
     let draft = presetDraft(available.length ? state.preset : createPreset());
     const presetBar = el('div', 'connection-profile-bar preset-profile-bar');
     const select = el('select'); select.setAttribute('aria-label', '当前预设');
     for (const preset of available) { const option = el('option', '', preset.name); option.value = preset.name; select.append(option); }
-    select.value = available.some(preset => preset.name === state.own.preset) ? state.own.preset : available[0]?.name || '';
+    if (state.presetMissing) { const missing = el('option', '', '保存的预设不存在，请重新选择'); missing.value = ''; missing.disabled = true; select.prepend(missing); }
+    select.value = state.presetMissing ? '' : state.own.preset;
     const presetTools = el('div', 'connection-profile-tools'); presetBar.append(select, presetTools); body.append(presetBar);
     const name = field(body, '预设名称', select.value);
     const parameters = el('div', 'parameter-grid'); body.append(parameters);
@@ -742,10 +771,11 @@ async function presetPanel() {
         assertIdle();
         if (panelDirty && !confirm('放弃当前未保存的预设修改并切换？')) { select.value = previousPreset; return; }
         const target = select.value;
-        const oldPreset = state.own.preset; state.own.preset = target; selectPreset(); list.setMessages(state.chat, { reset: true });
+        try { await saveOwn({ preset: target }); } catch (error) { select.value = previousPreset; throw error; }
+        selectPreset(); list.setMessages(state.chat, { reset: true });
         loadDraft(state.preset, target); previousPreset = target; draftOnly = false; deletePreset.disabled = false; panelDirty = false;
         for (const option of [...select.options]) if (option.dataset.draft) option.remove();
-        try { await saveOwn({ preset: target }); notify('预设已切换'); } catch (error) { state.own.preset = oldPreset; selectPreset(); panelDirty = false; await presetPanel(); throw error; }
+        notify('预设已切换');
     }));
     const footer = el('div', 'editor-footer');
     footer.append(action('保存并使用', async () => {
@@ -827,6 +857,7 @@ async function regexPanel(scope = 'global', target = '') {
         if (scope === 'global') {
             state.settings = await api.patchSettings(settings => { (settings.extension_settings ||= {}).regex = copy(rules); });
             state.own = settingsOwn(state.settings);
+    if (presetSelection.name !== null) state.own.preset = presetSelection.name;
         } else if (scope === 'preset') {
             const latest = await api.settings(); const index = latest.bundle.openai_setting_names.indexOf(selected);
             if (index < 0) throw new Error('此预设已不存在，请重新选择。');
@@ -909,7 +940,12 @@ async function characterPanel() {
     const body = showPanel('角色卡', '角色资料库', 'library-panel'); if (!body) return;
     const revision = panelRevision;
     let library = libraryState(state.own.characterLibrary);
-    if (!Array.isArray(state.characters)) state.characters = await api.post('/api/characters/all');
+    if (!state.charactersLoaded) {
+        const characters = await api.post('/api/characters/all');
+        if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
+        state.characters = characters; state.charactersLoaded = true;
+    }
+    if (revision !== panelRevision) return;
     let folder = 'all'; let mode = 'grid'; let page = 0;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
@@ -1516,6 +1552,9 @@ async function preparePrompt(chat = state.chat) {
 
 async function generate(mode = false) {
     assertIdle(); if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
+    if (state.connectionPending) throw new Error('连接正在初始化，请稍候。');
+    if (state.connectionError) throw new Error('连接初始化失败，请打开 API 面板检查并保存连接。');
+    if (state.presetMissing) throw new Error('保存的预设已不存在，请打开预设面板选择有效预设；不会自动切换到第一个。');
     const regenerate = mode === true;
     const text = $('message-input').value.trim();
     const retry = mode === 'retry' || (!regenerate && !text && !!state.chat.at(-1)?.is_user);
