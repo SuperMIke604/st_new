@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "459fcd82e779ae3680c96c29476645541ffa65f79267316d8724224e32612f01",
-  "publishedAt": "2026-10-23T15:57:25.187824+00:00",
+  "revision": "1a1d4bdba5f9727a6d31d7e841d610f4b791cfcd89f4e43bba95029f393a062e",
+  "publishedAt": "2026-10-23T16:16:00.347225+00:00",
   "files": {
     "public/app/api.js": "2586baa48ec7d1312461b3d002961ccdf0c1665a7a8e714085f91071f9eba585",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
@@ -18,7 +18,7 @@
     "public/app/icons.js": "17a6359f2036485834c1fa8439612dd7bac3db726d42e8674f218732c1461e03",
     "public/app/index.html": "ad53de70217228090820f8e42fcf732d7498687a5432497248225b6cebafc784",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/main.js": "5ff14624feaa0f4555d240b5ad0cd2bc3e16a8716a8c6420419be4187c0a450f",
+    "public/app/main.js": "6b92c62153c0f7a38bb4faab2383cadbdf0f67ac0dcdaaa6063964c2f1dd7169",
     "public/app/preset-editor.js": "2fa17c6ff573ef338c3a65c769a70d14476105a9a2ed892d42c041b7193bd41a",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
     "public/app/prompt-drag.js": "d8add1fc2e5a77bda190331e7691471dd3fa91f2b0b3b5717bf8dad6aa1f12fc",
@@ -26,7 +26,7 @@
     "public/app/README.md": "5d45a1bc878f25bf68cbff0e3b536adc25786a8d39ab0ea0b3fbc67452da415a",
     "public/app/regex.js": "b0aa3dd6666fb5f6913c29d87a592e2acdb528a8247b0f3ecf03ae8073d2ef4c",
     "public/app/select.js": "e06e344bb0247e1124414db3831e53167bcb7f75669843a0fa73e075839495fb",
-    "public/app/style.css": "94a4bdb4324d316998687e6415e3f277830c9f33a3d7ecc6c2d5ff5b3379d3ff",
+    "public/app/style.css": "fc36b522b2d4bf4747b0657cfa9b74410cfb019013ed1eb8dd868e6774d8df94",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/update.js": "09d9339bebb8f5587300ddf0a211454b2592bb13c232f6277a99cb92ea0fa5a8",
     "public/app/vendor/DOMPURIFY-LICENSE": "968bdd5b053aa290a16cd073416c5ae4a8daa51076e43f2df423b9c4e2ccda0a",
@@ -37,6 +37,6 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "5f82eaf192a5ad597e8c18c58ef26b1da333bb1bb909aea4710ecd65bc321270"
+    "public/app/version.js": "f5b555a055507eced2b1e0b4e8fe351197f6c2d095c7c372436ceb1db01d15ed"
   }
 }

@@ -369,3 +369,6 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .home-character .portrait-missing{position:relative}.home-character .portrait-missing::after{content:"图片暂不可用";display:grid;place-items:center;position:absolute;inset:0;font-size:12px;color:var(--muted)}
 
 .update-progress{position:fixed;inset:0;margin:auto;width:max-content;max-width:calc(100vw - 32px);height:max-content;padding:20px 24px;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-shadow:0 8px 30px #0002;font-size:14px}.update-progress::before{content:'';display:inline-block;width:16px;height:16px;margin-right:10px;border:2px solid var(--line);border-top-color:var(--green);border-radius:50%;animation:home-spin .8s linear infinite;vertical-align:middle}
+
+/* Markdown emphasis must remain visible with regular-only local fonts. */
+.message-content{font-synthesis:weight style}.message-content strong,.message-content b{font-weight:700}.message-content em,.message-content i{font-style:italic}

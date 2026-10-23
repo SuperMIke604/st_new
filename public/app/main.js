@@ -370,39 +370,43 @@ async function openCharacter(avatar, { latest = false } = {}) {
     state.loading = true; synchronize();
     try {
     status('读取角色…');
-    const character = await api.post('/api/characters/get', { avatar_url: avatar });
-    const chats = await api.post('/api/characters/chats', { avatar_url: avatar });
+    // Independent reads share the same wait; commit the session only after its chat loads.
+    const [character, chats] = await Promise.all([
+        api.post('/api/characters/get', { avatar_url: avatar }),
+        api.post('/api/characters/chats', { avatar_url: avatar }),
+    ]);
     const timestamp = value => Number(value) || Date.parse(value) || 0;
     const recent = Array.isArray(chats) ? chats.sort((a, b) => timestamp(b.last_mes) - timestamp(a.last_mes)) : [];
     const stored = state.own.lastChats?.[avatar];
     const file = (!latest && stored && recent.find(chat => chat.file_name === stored + '.jsonl') ? stored : recent[0]?.file_name?.replace(/\.jsonl$/, '')) || null;
-    state.character = character;
-    await loadChat(file, true);
-    await saveOwn({ lastCharacter: avatar });
+    await loadChat(file, true, character);
     synchronize();
     } finally { state.loading = false; synchronize(); }
 }
-async function loadChat(file, internal = false) {
+async function loadChat(file, internal = false, character = state.character) {
     if (!internal) assertSaved();
     if (!internal) state.loading = true;
     try {
-    let data = file ? await api.post('/api/chats/get', { avatar_url: state.character.avatar, file_name: file }) : [];
-    if (!Array.isArray(data)) data = [];
+    const data = file ? await api.post('/api/chats/get', { avatar_url: character.avatar, file_name: file }) : [];
+    if (!Array.isArray(data)) throw new Error('聊天响应格式异常，已保留当前聊天。');
     const hasHeader = data[0] && !Object.hasOwn(data[0], 'mes');
-    state.header = hasHeader ? data.shift() : { user_name: persona().name, character_name: state.character.name, create_date: new Date().toISOString(), chat_metadata: { integrity: uuid() } };
-    state.header.chat_metadata ||= {};
-    state.chat = data;
-    state.file = file || safeName(`${state.character.name} - ${new Date().toISOString().replace(/[:.]/g, '-')}-${uuid().slice(0, 6)}`);
-    const greeting = state.character.data?.first_mes ?? state.character.first_mes;
-    if (!state.chat.length && greeting) state.chat.push({ name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: greeting, extra: {} });
-    const databaseMetadata = state.header.chat_metadata.independentDatabase ||= {};
-    databaseMetadata.autoStart ??= state.chat.length;
+    const header = hasHeader ? copy(data[0]) : { user_name: persona().name, character_name: character.name, create_date: new Date().toISOString(), chat_metadata: { integrity: uuid() } };
+    header.chat_metadata ||= {};
+    const chat = hasHeader ? data.slice(1) : data.slice();
+    const nextFile = file || safeName(`${character.name} - ${new Date().toISOString().replace(/[:.]/g, '-')}-${uuid().slice(0, 6)}`);
+    const greeting = character.data?.first_mes ?? character.first_mes;
+    if (!chat.length && greeting) chat.push({ name: character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: greeting, extra: {} });
+    const databaseMetadata = header.chat_metadata.independentDatabase ||= {};
+    databaseMetadata.autoStart ??= chat.length;
+    // No await between these assignments: character, identity and contents switch together.
+    Object.assign(state, { character, header, chat, file: nextFile });
     clearWelcome(); list.setMessages(state.chat, { reset: true, latest: true });
     $('message-input').value = ''; synchronize(); status('已读取');
-    if (file) await rememberChat();
+    if (file) await rememberChat(internal ? { lastCharacter: character.avatar } : {});
+    else if (internal && state.own.lastCharacter !== character.avatar) await saveOwn({ lastCharacter: character.avatar });
     } finally { if (!internal) { state.loading = false; synchronize(); } }
 }
-async function rememberChat() {
+async function rememberChat(patch = {}) {
     try {
         const key = `home-recent:${state.settings.username || 'default'}`;
         const previous = JSON.parse(sessionStorage.getItem(key) || '[]');
@@ -410,7 +414,8 @@ async function rememberChat() {
     } catch {}
     recentCharacters.invalidate();
     const lastChats = { ...(state.own.lastChats || {}), [state.character.avatar]: state.file };
-    if (state.own.lastChats?.[state.character.avatar] !== state.file) await saveOwn({ lastChats });
+    if (state.own.lastChats?.[state.character.avatar] !== state.file) patch = { ...patch, lastChats };
+    if (Object.keys(patch).some(key => JSON.stringify(state.own[key]) !== JSON.stringify(patch[key]))) await saveOwn(patch);
 }
 function saveChat() {
     if (!state.character) return Promise.resolve();
