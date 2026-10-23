@@ -25,7 +25,13 @@ function registerPreview(frame) {
                 if (!target.isConnected) previewFrames.delete(source);
             }
             const target = previewFrames.get(event.source);
-            if (!target || event.data?.type !== 'tavern-html-height') return;
+            if (!target) return;
+            if (event.data?.type === 'tavern-html-send' && typeof event.data.text === 'string' && event.data.text.length <= 100000) {
+                if (confirm('发送此卡片生成的内容并请求回复？\n\n' + event.data.text.slice(0, 300))) target._send?.(event.data.text);
+                return;
+            }
+            if (event.data?.type === 'tavern-html-alert') { target._notify?.(String(event.data.text || '').slice(0, 1000)); return; }
+            if (event.data?.type !== 'tavern-html-height') return;
             const height = event.data.height;
             if (!Number.isFinite(height)) return;
             const bounded = Math.min(20000, Math.max(1, Math.ceil(height)));
@@ -36,8 +42,10 @@ function registerPreview(frame) {
     if (frame.contentWindow) previewFrames.set(frame.contentWindow, frame);
 }
 export function previewDocument(source) {
-    const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+    const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
     const bridge = `<script>(()=>{
+        window.alert=text=>parent.postMessage({type:'tavern-html-alert',text:String(text)},'*');
+        window.triggerSlash=command=>{const match=String(command).match(/^\\/send\\s+([\\s\\S]*?)\\|\\/trigger\\s*$/);if(!match)throw Error('仅支持 /send 内容|/trigger');parent.postMessage({type:'tavern-html-send',text:match[1]},'*');};
         let pending=false,last=0;
         const measure=()=>{pending=false;const body=document.body;if(!body)return;const style=getComputedStyle(body);const height=Math.min(20000,Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)+(parseFloat(style.marginTop)||0)+(parseFloat(style.marginBottom)||0))));if(height!==last){last=height;parent.postMessage({type:'tavern-html-height',height},'*');}};
         const schedule=()=>{if(!pending){pending=true;requestAnimationFrame(measure);}};
@@ -48,13 +56,14 @@ export function previewDocument(source) {
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify }) {
+export function decorateCodeBlocks(container, { icon, notify, send }) {
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
         const language = codeLanguage([...code.classList].find(name => name.startsWith('language-')) || [...code.classList][0] || '');
         const html = language === 'html' || (!language && /^\s*(?:<!doctype html|<html|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)/i.test(source));
         if (html) {
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
+            frame._send = send; frame._notify = notify;
             frame.setAttribute('sandbox', 'allow-scripts'); frame.referrerPolicy = 'no-referrer';
             frame.addEventListener('load', () => registerPreview(frame));
             frame.srcdoc = previewDocument(source); pre.replaceWith(frame); registerPreview(frame); continue;

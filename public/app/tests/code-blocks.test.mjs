@@ -30,3 +30,11 @@ test('interactive HTML preserves native controls, handlers and scripts inside th
     assert.ok(html.indexOf('tavern-html-height') < html.indexOf(source));
     assert.ok(html.includes("form-action 'none'"));
 });
+
+
+test('sample card send bridge compiles and preserves multiline form content', () => {
+    const html=previewDocument('');const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+    assert.doesNotThrow(()=>new Function(script));
+    assert.ok(script.includes('triggerSlash'));
+    assert.ok(html.includes('https://fonts.googleapis.com'));
+});

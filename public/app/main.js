@@ -209,7 +209,7 @@ function renderMessage(message, index, existing) {
             while ((match = pattern.exec(value))) { fragment.append(document.createTextNode(value.slice(start, match.index))); const span = el('span', 'dialogue-quote', match[0]); fragment.append(span); start = pattern.lastIndex; }
             if (start) { fragment.append(document.createTextNode(value.slice(start))); text.replaceWith(fragment); }
         }
-        decorateCodeBlocks(body, { icon, notify });
+        decorateCodeBlocks(body, { icon, notify, send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;

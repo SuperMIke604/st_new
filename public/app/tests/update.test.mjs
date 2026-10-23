@@ -32,3 +32,15 @@ test('canceling manual confirmation never installs an update', async () => {
         assert.deepEqual(calls, ['/api/plugins/st-new-updater/status']);
     } finally { globalThis.fetch = originalFetch; globalThis.confirm = originalConfirm; }
 });
+
+
+test('installation progress remains active until install settles', async () => {
+    const originalFetch=globalThis.fetch, originalConfirm=globalThis.confirm;
+    let resolveInstall, closed=false;
+    globalThis.fetch=async()=>({ok:true,json:async()=>({schema:1,revision:'e'.repeat(64)})});globalThis.confirm=()=>true;
+    try {
+        const running=manualUpdate({guard(){},notify(){},progress:()=>({close(){closed=true;}}),api:{post:async route=>route.endsWith('/status')?{available:true}:new Promise(resolve=>{resolveInstall=resolve;})}});
+        while(!resolveInstall) await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(closed,false);resolveInstall({ok:true});await running;assert.equal(closed,true);
+    } finally {globalThis.fetch=originalFetch;globalThis.confirm=originalConfirm;}
+});
