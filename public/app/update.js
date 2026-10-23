@@ -7,17 +7,23 @@ export async function checkForUpdate({ fetcher = fetch, signal } = {}) {
     if (remote.schema !== 1 || typeof remote.revision !== 'string' || !/^[a-f0-9]{64}$/.test(remote.revision)) throw new Error('更新信息格式无效');
     return remote.revision === BUILD.revision ? null : remote;
 }
-export async function showUpdateNotice() {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+let checking = false;
+export async function manualUpdate({ api, notify, guard }) {
+    if (checking) return;
+    guard(); checking = true;
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 15000);
     try {
+        notify('正在检查更新…');
         const remote = await checkForUpdate({ signal: controller.signal });
-        if (!remote || document.getElementById('frontend-update')) return;
-        const notice = document.createElement('aside'); notice.id = 'frontend-update'; notice.setAttribute('role', 'status');
-        const label = document.createElement('span'); label.textContent = '发现新前端版本';
-        const link = document.createElement('a'); link.textContent = '查看更新'; link.href = 'https://github.com/SuperMIke604/st_new'; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', '关闭更新提示'); close.addEventListener('click', () => notice.remove());
-        notice.append(label, link, close); document.body.append(notice);
-    } catch (error) { console.debug('前端更新检查暂不可用：', error.message); }
-    finally { clearTimeout(timer); }
+        if (!remote) { notify('当前已是最新版本'); return; }
+        const status = await api.post('/api/plugins/st-new-updater/status');
+        if (status?.available !== true) throw new Error('更新模块不可用');
+        if (!confirm('发现新版本，是否立即更新前端？')) return;
+        guard(); notify('正在下载并安装更新，请稍候…');
+        const result = await api.post('/api/plugins/st-new-updater/install', { revision: remote.revision });
+        if (!result?.ok) throw new Error('更新安装失败');
+        notify('更新完成，刷新网页后生效。未发送的内容请先保留。');
+    } catch (error) {
+        notify(error.status === 404 ? '检测到新版，请先在 Termux 安装一次更新模块，步骤见仓库说明。' : `检查或更新失败：${error.message}`, true);
+    } finally { clearTimeout(timer); checking = false; }
 }

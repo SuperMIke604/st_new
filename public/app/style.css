@@ -353,3 +353,15 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 #frontend-update a{color:var(--green);white-space:nowrap}#frontend-update button{border:0;background:transparent;color:inherit;font-size:22px;min-width:32px;min-height:32px;cursor:pointer}
 
 #back-latest{position:fixed;right:max(18px,calc((100vw - 1180px)/2));bottom:110px;z-index:20;width:auto;min-height:38px;padding:9px 15px;border:1px solid var(--line);border-radius:20px;background:var(--paper);color:var(--ink);box-shadow:0 3px 14px #0002}#back-latest[hidden]{display:none!important}
+
+/* Compact home gallery and single floating action. */
+.home-view .welcome{width:min(760px,100%);max-width:760px;padding:20px;margin:24px auto}
+.home-recent h2{margin:0 0 18px;text-align:left;font-size:16px;font-weight:600;letter-spacing:.04em}
+.home-character-grid{gap:18px}
+.home-character-grid .home-character{padding:6px;border-radius:14px;background:var(--surface,var(--paper));box-shadow:0 3px 14px #00000005;transition:transform .15s,box-shadow .15s}
+.home-character-grid .home-character:hover{transform:translateY(-2px);box-shadow:0 7px 20px #00000010}
+.home-character-grid .home-character .card-cover{border-radius:10px}
+.home-character-grid .home-character .card-info{padding:10px 7px 8px}
+.home-character-grid .home-character h3{font-size:14px;line-height:1.6;font-weight:500}
+#back-latest{left:auto;right:18px;transform:none;width:max-content;max-width:120px;min-height:30px;padding:5px 11px;border-radius:8px;font-size:12px;box-shadow:0 2px 8px #0001}
+@media(max-width:700px){.home-view .welcome{padding:12px 8px;margin:16px auto}.home-character-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.home-recent h2{font-size:15px;margin-bottom:12px}#back-latest{bottom:100px;right:14px}}

@@ -1,4 +1,4 @@
-import { showUpdateNotice } from './update.js';
+import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
 import { TavernAPI, readEvents } from './api.js';
 import { buildPrompt, fitPrompt, generationBody, activateWorlds, expand } from './engine.js';
@@ -1722,7 +1722,7 @@ for (const [id, glyph] of [['tools-toggle', 'plus'], ['close-panel', 'close'], [
 $('tools-toggle').title = '对话工具'; $('tools-toggle').setAttribute('aria-label', '对话工具');
 $('tools-toggle').setAttribute('aria-expanded', 'false');
 const composerTools = $('composer-tools');
-for (const [label, glyph, callback] of [['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+for (const [label, glyph, callback] of [['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); });
@@ -1751,5 +1751,4 @@ window.addEventListener('resize', resizeViewport); resizeViewport(); synchronize
 void run(start).then(() => { if (!state.ready) { status('连接失败 · 刷新重试', true); welcome(); } });
 
 
-// Run once on every page load, independently of backend initialization.
-void showUpdateNotice();
+

@@ -11,6 +11,7 @@ for path in files:
     hash.update(path.read_bytes().replace(b'\r\n', b'\n'))
     hash.update(b'\0')
 version = {'schema': 1, 'revision': hash.hexdigest(), 'publishedAt': datetime.now(timezone.utc).isoformat()}
-(root / 'version.json').write_text(json.dumps(version, indent=2) + '\n', encoding='utf-8')
 (base / 'version.js').write_text('export const BUILD = ' + json.dumps(version) + ';\n', encoding='utf-8')
+manifest = {**version, 'files': {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() for path in [*files, base / 'version.js']}}
+(root / 'version.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
 print(version['revision'])
