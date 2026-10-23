@@ -212,7 +212,7 @@ export async function fitPrompt(input, count) {
     }
     const allowed = new Set(budgeted.slice(0, first));
     const accepted = candidate.activated.filter(entry => entry.ignoreBudget || allowed.has(entry));
-    candidate = buildPrompt({ ...input, worldEntries: accepted });
+    if (accepted.length !== candidate.activated.length) candidate = buildPrompt({ ...input, worldEntries: accepted });
     // Resolve random world activations once, rather than rerolling on each trim.
     const stable = { ...input, worldEntries: candidate.activated };
     let tokens = await count(candidate.messages);

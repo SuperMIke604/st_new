@@ -70,6 +70,7 @@ async function run(callback) {
 }
 function status(text, error = false) { $('save-status').textContent = text; $('save-status').classList.toggle('error', error); if (state.busy) { $('composer-status').textContent = text; $('composer-status').hidden = false; } }
 function assertIdle() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
     settings.extension_settings ||= {};
@@ -139,13 +140,6 @@ function renderMessage(message, index, existing) {
         more.setAttribute('aria-label', `第 ${index} 楼消息操作`); more.title = '消息操作';
         header.append(more); const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop); node.prepend(header, el('div', 'message-actions')); const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
     }
-    let latestButton = node.querySelector('.message-back-latest');
-    if (index < state.chat.length - 2) {
-        if (!latestButton) {
-            latestButton = action('回到最新', () => list.jump(state.chat.length - 1, true), 'down', 'message-back-latest');
-            node.append(latestButton);
-        }
-    } else latestButton?.remove();
     let switches = node.querySelector('.message-swipe-buttons');
     if (!message.is_user && index === state.chat.length - 1) {
         if (!switches) { switches = el('div','message-swipe-buttons');
@@ -209,10 +203,13 @@ function renderMessage(message, index, existing) {
     return node;
 }
 const list = new VirtualChat($('message-list'), renderMessage, range => {
-
+    const viewportLast = list.locate(list.element.scrollTop + list.element.clientHeight);
+    $('back-latest').hidden = !state.character || range.total <= 2 || viewportLast >= range.total - 2;
 });
+$('back-latest').addEventListener('click', () => list.jump(state.chat.length - 1, true));
 function welcome() {
     list.setMessages([], { reset: true });
+    $('back-latest').hidden = true;
     const welcome = el('div', 'welcome');
 
     const recent = el('div', 'home-recent'); welcome.append(recent);
@@ -222,7 +219,7 @@ function welcome() {
     document.body.classList.add('home-view');
     const recentRequest = state.ready ? (homeRecentRequest || api.post('/api/chats/recent', { max: 1000 })) : null;
     if (state.ready) homeRecentRequest = null;
-    if (recentRequest) void recentRequest.then(chats => {
+    const drawRecent = chats => {
         if (!recent.isConnected || !Array.isArray(chats)) return;
         recent.replaceChildren(el('h2', '', '最近使用的角色'));
         const grid = el('div', 'home-character-grid'); recent.append(grid);
@@ -231,7 +228,7 @@ function welcome() {
             if (!chat.avatar || seen.has(chat.avatar)) continue;
             seen.add(chat.avatar);
             const character = state.characters.find(item => item.avatar === chat.avatar);
-            const name = character?.name || chat.avatar.replace(/\.[^.]+$/, '');
+            const name = character?.name || chat.characterName || chat.avatar.replace(/\.[^.]+$/, '');
             const card = el('article', 'character-file home-character');
             const cover = action(`进入 ${name} 最新聊天`, () => openCharacter(chat.avatar, { latest: true }), null, 'card-cover');
             cover.setAttribute('aria-label', `进入 ${name} 最新聊天`);
@@ -240,7 +237,13 @@ function welcome() {
             card.append(cover, info); grid.append(card);
             if (seen.size === 6) break;
         }
-    }).catch(error => { recent.replaceChildren(el('p', 'note', '最近角色加载失败，请稍后重试')); notify(error.message, true); });
+    };
+    let cached = null; try { cached = JSON.parse(sessionStorage.getItem(`home-recent:${state.settings.username || 'default'}`) || 'null'); } catch {}
+    if (Array.isArray(cached)) drawRecent(cached);
+    if (recentRequest) void recentRequest.then(chats => {
+        try { sessionStorage.setItem(`home-recent:${state.settings.username || 'default'}`, JSON.stringify(chats.slice(0, 100).map(chat => ({ avatar: chat.avatar, file_name: chat.file_name, characterName: state.characters.find(item => item.avatar === chat.avatar)?.name || chat.characterName })))); } catch {}
+        drawRecent(chats);
+    }).catch(error => { if (!cached) recent.replaceChildren(el('p', 'note', '最近角色加载失败，请稍后重试')); console.debug(error.message); });
     $('message-list').append(welcome);
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
@@ -266,6 +269,7 @@ async function start() {
     const connectionsRequest = api.loadConnections();
     connectionsRequest.catch(() => {});
     await reloadResources();
+    welcome(); // Show cached home cards before connection/character initialization finishes.
     const stored = await connectionsRequest;
     if (stored) profileStore = connectionProfiles(stored);
     else {
@@ -374,6 +378,11 @@ async function loadChat(file, internal = false) {
     } finally { if (!internal) { state.loading = false; synchronize(); } }
 }
 async function rememberChat() {
+    try {
+        const key = `home-recent:${state.settings.username || 'default'}`;
+        const previous = JSON.parse(sessionStorage.getItem(key) || '[]');
+        sessionStorage.setItem(key, JSON.stringify([{ avatar: state.character.avatar, file_name: state.file, characterName: state.character.name }, ...previous.filter(item => item.avatar !== state.character.avatar)].slice(0, 100)));
+    } catch {}
     const lastChats = { ...(state.own.lastChats || {}), [state.character.avatar]: state.file };
     await saveOwn({ lastChats });
 }
@@ -1387,7 +1396,7 @@ async function databaseModels(config) {
  const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
 }
 async function databasePanel(preview = false) {
-    assertSaved(); if (!state.character) throw new Error('请先打开一个角色的聊天。');
+    assertViewable(); if (!state.character) throw new Error('请先打开一个角色的聊天。');
     const current = currentDatabase();
     const body = showPanel(preview ? '数据预览' : '数据管理', `${state.character.name} · 当前聊天`, 'database-panel'); if (!body) return;
     const identity = `${state.character.avatar}/${state.file}`;
@@ -1478,6 +1487,8 @@ async function autoUpdateDatabase() {
   await updateDatabase(recorded===0?0:recorded+1,Math.min(state.chat.length-1,recorded+batch),true);
  }catch(error){notify(`回复已保存，自动填表失败：${error.message}`,true);}
 }
+const tokenCounts = new Map();
+let tokenCacheBytes = 0;
 async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
@@ -1490,8 +1501,15 @@ async function preparePrompt(chat = state.chat) {
     }
     const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, databaseText: data, databaseMacros };
     return fitPrompt(input, async messages => {
-        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model || 'gpt-4')}`, messages);
+        const model = connection().model || 'gpt-4';
+        const key = model + '\n' + JSON.stringify(messages);
+        if (tokenCounts.has(key)) return tokenCounts.get(key);
+        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, messages, { signal: state.controller?.signal });
         if (!Number.isFinite(result?.token_count)) throw new Error('无法统计上下文 tokens，已停止发送。');
+        if (key.length < 2000000) {
+            while (tokenCounts.size && (tokenCounts.size >= 24 || tokenCacheBytes + key.length > 4000000)) { const oldest = tokenCounts.keys().next().value; tokenCacheBytes -= oldest.length; tokenCounts.delete(oldest); }
+            tokenCounts.set(key, result.token_count); tokenCacheBytes += key.length;
+        }
         return result.token_count;
     });
 }
@@ -1504,7 +1522,7 @@ async function generate(mode = false) {
     if (!regenerate && !retry && !text) return;
     if (retry && !state.chat.at(-1)?.is_user) throw new Error('最后一条消息不是待回复的用户消息。');
     if (regenerate && (!state.chat.length || state.chat.at(-1).is_user)) throw new Error('当前没有可重新生成的最后回复。');
-    const snapshot = copy(state.chat);
+    const previousReply = regenerate ? copy(state.chat.at(-1)) : null;
     // Fail local validation before fetching books or running tokenizer requests.
     generationBody(connection(), state.preset, []);
     const user = { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
@@ -1553,7 +1571,7 @@ async function generate(mode = false) {
             reply.mes = regexText(reply.mes, 2, { depth: 0 });
             if (reply.extra?.reasoning) reply.extra.reasoning = regexText(reply.extra.reasoning, 6, { depth: 0 });
             if (!reply.mes && !reply.extra.reasoning) {
-                if (regenerate) state.chat[state.chat.length - 1] = snapshot.at(-1); else state.chat.pop();
+                if (regenerate) state.chat[state.chat.length - 1] = previousReply; else state.chat.pop();
             } else {
                 reply.gen_finished = new Date().toISOString(); reply.extra.model = connection().model;
                 if (regenerate) { reply.swipes.push(reply.mes); reply.swipe_info.push({ extra: copy(reply.extra), gen_started: reply.gen_started, gen_finished: reply.gen_finished }); }
@@ -1639,7 +1657,7 @@ function searchPanel() {
     });
 }
 function databasePreviewPanel() {
- assertSaved();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}`,'database-panel');if(!body)return;
+ assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}`,'database-panel');if(!body)return;
  const identity=`${state.character.avatar}/${state.file}`;
  let previousData=null;for(let index=current.index-1;index>=0;index--){if(state.chat[index].TavernDB_ACU_Data){previousData=state.chat[index].TavernDB_ACU_Data;break;}}
  renderDatabasePreview(body,{el,field,action,dirty:value=>{panelDirty=value;},data:current.data,index:current.index,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},

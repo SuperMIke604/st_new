@@ -195,3 +195,12 @@ test('settings writes read fresh snapshots and preserve unknown native fields', 
         assert.equal(saved.power_user.unrelated, 'preserve'); assert.equal(saved.custom, 1);
     } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test('context fitting without world entries needs only one exact token count', async () => {
+    const args = input(); let calls = 0;
+    const output = await fitPrompt(args, async () => { calls++; return 100; });
+    assert.equal(calls, 1);
+    assert.equal(output.tokens, 100);
+    assert.deepEqual(output.messages, buildPrompt(args).messages);
+});
