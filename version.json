@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "9ca0db4c70e6e941a774d4e432537e4d6b8b2cf9016433dcc35a6e8e17bea128",
-  "publishedAt": "2026-10-24T12:39:16.971763+00:00",
+  "revision": "707784e78a78b5bf30b98e5de40e634a5970db12e9c5c9e1f21193106129b7ae",
+  "publishedAt": "2026-10-24T12:49:50.186617+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
@@ -14,12 +14,13 @@
     "public/app/database-ui.js": "536c6cac26bc5936561a49fc2531306a2307be17793ae0004ea667b4750bd87f",
     "public/app/database.js": "da80053d74b9367518974d1ceb6db0631d17a5782370d0fb83fb7c95507dd3e5",
     "public/app/engine.js": "8b5a07ead3a42be649974933302f2fa35039c9d48ad2e892a5fa47850940b638",
+    "public/app/generation-preload.js": "09f5d6c60e07f213a720685379e5325056744c0c5447b179e45e5a4cb990d6e3",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
     "public/app/icons.js": "17a6359f2036485834c1fa8439612dd7bac3db726d42e8674f218732c1461e03",
     "public/app/index.html": "dbef73bef29742d28916b431627dd23964f64395d757e06e9aa98941fa7b1aa3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "3605895bde47f41fa36822d1ca6d6ed8927d65363ad0a1512eafc15800e7cb1d",
-    "public/app/main.js": "f9761f641d5f60dc3fbf51d5e24323d319481c92f60f860e7e09d891b984127b",
+    "public/app/main.js": "9fb2dc3af385afb215c71bd3e9feed4ad33524eb1ec0e5d0779a90f3fd8f8f1d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -40,6 +41,6 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "0922eae122e4bcabd68cdbe441d8c17ebe2b973876b59014bbf7a2237f7b1e17"
+    "public/app/version.js": "643eaef2ff5d39f78eb4e3ce58a86f9cd7b4f0e98fa3f1bfec0702741f7da413"
   }
 }

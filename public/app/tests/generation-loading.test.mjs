@@ -9,7 +9,7 @@ const generate = source.slice(source.indexOf('async function generate('), source
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture() {
-    const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [];
+    const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     let requests = 0;
@@ -19,10 +19,11 @@ function fixture() {
         regexText: text => text, resizeInput() {}, preparePrompt: () => prepared.promise,
         list: { follow: true, update() {}, setMessages() { renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message }))); } },
         api: { response() { requests++; return response.promise; } },
-        saveChat: async () => {}, rememberChat: async () => {}, autoUpdateDatabase: async () => {}, notify: text => notices.push(text),
+        generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
+        saveChat: async () => {}, rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, prepared, response, statuses, renders, notices, postGeneration, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -41,6 +42,7 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.state.chat.at(-1).mes, '测试回复');
     assert.equal(f.renders.at(-1).at(-1).pending, false);
+    assert.deepEqual(f.postGeneration, ['database', 'preload'], 'warm resources only after saving and automatic database updates');
 });
 
 test('stopping regeneration clears loading and restores the previous reply', async () => {
@@ -58,6 +60,7 @@ test('stopping regeneration clears loading and restores the previous reply', asy
     assert.equal(f.state.chat.at(-1).extra.reasoning, '上次的思考');
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.match(f.notices.at(-1), /生成已停止/);
+    assert.deepEqual(f.postGeneration, []);
 });
 
 test('prompt failure clears loading without sending a request or losing the input', async () => {
@@ -67,4 +70,5 @@ test('prompt failure clears loading without sending a request or losing the inpu
     assert.equal(f.input.value, '测试消息');
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.notices.at(-1), '上下文准备失败');
+    assert.deepEqual(f.postGeneration, []);
 });

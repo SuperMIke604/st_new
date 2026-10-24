@@ -2,6 +2,7 @@ import { RecentCharacters } from './home-data.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
 import { PresetTokenPreview } from './preset-tokens.js';
+import { GenerationPreload, generationDatabaseResources } from './generation-preload.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
 import { TavernAPI, readEvents } from './api.js';
@@ -545,6 +546,7 @@ async function rememberChat(patch = {}) {
     if (Object.keys(patch).some(key => JSON.stringify(state.own[key]) !== JSON.stringify(patch[key]))) await saveOwn(patch);
 }
 function saveChat() {
+    generationPreload.invalidate();
     if (!state.character) return Promise.resolve();
     const record = { avatar: state.character.avatar, file: state.file, header: copy(state.header), messages: copy(state.chat) };
     state.dirty = true; status('保存中…'); synchronize();
@@ -1675,17 +1677,31 @@ async function autoUpdateDatabase() {
 }
 const tokenCounts = new Map();
 let tokenCacheBytes = 0;
+const generationPreload = new GenerationPreload(generationDatabaseResources);
+function preloadNextGeneration() {
+    const chat = state.chat, header = state.header, character = state.character;
+    const current = () => state.chat === chat && state.header === header && state.character === character && !state.busy && !state.loading && !state.dirty && !panelDirty;
+    generationPreload.schedule(async () => {
+        if (!character || !current()) return;
+        const finish = loadTimings.start('预加载下次生成资料', 'generation');
+        try {
+            // Warm the normal API cache; sending can share an in-flight read.
+            await loadBooks();
+            await nextPaint();
+            if (!current()) { finish('cancelled'); return; }
+            generationPreload.get(chat, header, state.own.database);
+            await nextPaint();
+            if (!current()) { finish('cancelled'); return; }
+            if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
+            finish('success');
+        } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
+    });
+}
 async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
-    const databaseConfig = databaseSettings(state.own.database);
-    const database = databaseForChat(chat, state.header, databaseConfig.template).data;
-    const data = databaseConfig.inject ? referenceDatabaseText(database, databaseConfig) : '';
-    const databaseMacros = { tabledata: referenceDatabaseText(database, databaseConfig) };
-    for (const key of new Set([...Array.from({ length: 20 }, (_, index) => `sheet_${index}`), ...Object.keys(database).filter(key => key.startsWith('sheet_'))])) {
-        databaseMacros[key] = database[key] ? sheetText(database, key, databaseConfig.summaryTableMaxEntries || 10) : '';
-    }
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, databaseText: data, databaseMacros };
+    const resources = generationPreload.get(chat, state.header, state.own.database);
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);
@@ -1702,6 +1718,7 @@ async function preparePrompt(chat = state.chat) {
 
 async function generate(mode = false) {
     assertIdle(); if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
+    generationPreload.cancelScheduled();
     if (state.connectionPending) throw new Error('连接正在初始化，请稍候。');
     if (state.connectionError) throw new Error('连接初始化失败，请打开 API 面板检查并保存连接。');
     if (state.presetMissing) throw new Error('保存的预设已不存在，请打开预设面板选择有效预设；不会自动切换到第一个。');
@@ -1780,7 +1797,7 @@ async function generate(mode = false) {
         if (!state.dirty) status(state.error ? '请求未完成' : '已保存');
         finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
         state.error = '';
-        if (completed && !state.dirty) await autoUpdateDatabase();
+        if (completed && !state.dirty) { await autoUpdateDatabase(); preloadNextGeneration(); }
     }
 }
 

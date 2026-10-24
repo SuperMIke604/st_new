@@ -12,7 +12,7 @@ function fixture(post, failSettings = false) {
         assertSaved() {}, synchronize() { loading.push(!!state.loading); }, status: text => stages.push(text), uuid: () => 'new-id', safeName: value => value,
         persona: () => ({ name: 'User' }), $: () => input, clearWelcome() {},
         list: { setMessages: chat => rendered.push(chat) }, recentCharacters: { invalidate() {} },
-        sessionStorage: { getItem: () => null, setItem() {} },
+        sessionStorage: { getItem: () => null, setItem() {} }, generationPreload: { invalidate() {} },
         saveOwn: async patch => { if (failSettings) throw Error('settings offline'); patches.push(structuredClone(patch)); Object.assign(state.own, patch); },
     });
     vm.runInContext(functions, context);
