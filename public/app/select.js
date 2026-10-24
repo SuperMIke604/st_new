@@ -1,3 +1,4 @@
+import { installPopoverToggle } from './popover-toggle.js';
 // Keep native select values/events as the data interface; render an accessible
 // combobox in the top layer so scroll containers cannot clip its options.
 let sequence = 0;
@@ -81,7 +82,7 @@ export function enhanceSelect(select) {
         menu.showPopover(); button.setAttribute('aria-expanded', 'true'); opened = { button, close }; highlight(select.selectedIndex);
         if (matchMedia('(hover: hover) and (pointer: fine)').matches) filterInput?.focus({ preventScroll: true });
     };
-    button.addEventListener('click', event => { event.preventDefault(); if (menu.matches(':popover-open')) close(); else open(); });
+    installPopoverToggle(button, menu, { open, close });
     button.addEventListener('keydown', event => {
         const showing = menu.matches(':popover-open');
         if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' ', 'Escape', 'Tab'].includes(event.key)) {
@@ -98,7 +99,7 @@ export function enhanceSelect(select) {
             const index = [...select.options].findIndex(o => !o.disabled && o.textContent.toLowerCase().startsWith(search.toLowerCase())); if (index >= 0) highlight(index);
         }
     });
-    menu.addEventListener('toggle', event => { if (event.newState === 'closed') { button.setAttribute('aria-expanded', 'false'); button.removeAttribute('aria-activedescendant'); } });
+    menu.addEventListener('toggle', () => { if (!menu.matches(':popover-open')) { button.setAttribute('aria-expanded', 'false'); button.removeAttribute('aria-activedescendant'); if (opened?.button === button) opened = null; } });
     select.addEventListener('change', sync);
     const observer = new MutationObserver(sync); observer.observe(select, { childList: true, subtree: true, characterData: true, attributes: true });
     sync();

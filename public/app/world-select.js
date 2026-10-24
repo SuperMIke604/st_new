@@ -1,3 +1,4 @@
+import { installPopoverToggle } from './popover-toggle.js';
 export function renderGlobalWorldSelect(container, worlds, selected, { el, icon, changed }) {
     const label = el('div', 'global-world-label', '已启用的世界书（全局有效）');
     const control = el('div', 'global-world-control');
@@ -34,8 +35,7 @@ export function renderGlobalWorldSelect(container, worlds, selected, { el, icon,
         empty.hidden = count > 0;
     };
     search.addEventListener('input', filter);
-    toggle.addEventListener('click', () => {
-        if (popup.matches(':popover-open')) { popup.hidePopover(); return; }
+    const activate = installPopoverToggle(toggle, popup, { pointerTarget: control, close: () => { if (popup.matches(':popover-open')) popup.hidePopover(); toggle.setAttribute('aria-expanded', 'false'); }, open: () => {
         search.value = ''; filter(); popup.showPopover();
         const rect = control.getBoundingClientRect(), gap = 6;
         popup.style.width = `${Math.min(rect.width, innerWidth - 24)}px`;
@@ -46,8 +46,8 @@ export function renderGlobalWorldSelect(container, worlds, selected, { el, icon,
         popup.style.maxHeight = `${height}px`;
         popup.style.top = `${openBelow ? rect.bottom + gap : Math.max(12, rect.top - Math.min(popup.scrollHeight, height) - gap)}px`;
         search.focus();
-    });
-    control.addEventListener('click', event => { if (!event.target.closest('button,.global-world-tag')) toggle.click(); });
+    } });
+    control.addEventListener('click', event => { if (!event.target.closest('button,.global-world-tag')) activate(event); });
     popup.addEventListener('toggle', () => toggle.setAttribute('aria-expanded', String(popup.matches(':popover-open'))));
     popup.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); popup.hidePopover(); toggle.focus(); } });
     container.parentElement?.addEventListener('scroll', () => { if (popup.matches(':popover-open')) popup.hidePopover(); });

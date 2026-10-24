@@ -446,6 +446,7 @@ function closePanel() {
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
     disposePanelWork();
     panelDirty = false; panelRevision++;
+    setActiveTopPanel(null);
     $('panel').close();
     if (history.state?.appPanel) history.back();
     return true;
@@ -1904,16 +1905,21 @@ function resizeInput() {
     const input = $('message-input'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, innerHeight * .28)}px`;
 }
 let activeTopPanel = null;
-$('panel').addEventListener('close', () => { activeTopPanel = null; });
+const topPanelButtons = new Map();
+function setActiveTopPanel(callback) {
+    activeTopPanel = callback;
+    for (const [target, button] of topPanelButtons) button.setAttribute('aria-pressed', String(callback === target));
+}
+$('panel').addEventListener('close', () => { if (!$('panel').open) setActiveTopPanel(null); });
 for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预设', 'tools', presetPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则', 'regex', regexPanel]]) {
     const button = action(label, () => {
         if ($('panel').open && activeTopPanel === callback) { closePanel(); return; }
         const revision = panelRevision;
         const result = callback();
-        if (panelRevision !== revision) activeTopPanel = callback;
+        if (panelRevision !== revision) setActiveTopPanel(callback);
         return result;
     }, glyph, 'icon-button top-shortcut');
-    button.title = label; button.setAttribute('aria-label', label); $('top-actions').append(button);
+    button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', 'false'); topPanelButtons.set(callback, button); $('top-actions').append(button);
 }
 for (const [id, glyph] of [['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).append(icon(glyph));
 $('tools-toggle').title = '对话工具'; $('tools-toggle').setAttribute('aria-label', '对话工具');
@@ -1928,7 +1934,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 $('message-input').addEventListener('input', resizeInput);
 $('message-input').addEventListener('keydown', event => {
