@@ -1,4 +1,20 @@
 // Form editor data model. Unknown native fields and other order scopes survive.
+const catalogs = new WeakMap();
+export function presetCatalog(bundle) {
+    if (!bundle || typeof bundle !== 'object') return [];
+    if (catalogs.has(bundle)) return catalogs.get(bundle);
+    const catalog = (bundle.openai_setting_names || []).map((name, index) => {
+        let loaded = false, data;
+        return { name, get data() {
+            if (!loaded) {
+                const raw = bundle.openai_settings[index];
+                data = typeof raw === 'string' ? JSON.parse(raw) : raw; loaded = true;
+            }
+            return data;
+        } };
+    });
+    catalogs.set(bundle, catalog); return catalog;
+}
 export const markerLabels = {
     worldInfoBefore: '世界书 · 描述前', worldInfoAfter: '世界书 · 描述后',
     personaDescription: '用户设定', charDescription: '角色描述', charPersonality: '角色性格',

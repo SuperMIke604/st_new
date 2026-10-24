@@ -1,6 +1,7 @@
 import { RecentCharacters } from './home-data.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
+import { PresetTokenPreview } from './preset-tokens.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
 import { TavernAPI, readEvents } from './api.js';
@@ -17,7 +18,7 @@ import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
 import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, sourceHash, validateDatabase } from './database.js';
 import { renderDatabasePanel } from './database-ui.js';
-import { presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
+import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
 import { installSelects } from './select.js';
 import { normalizeConnection, modelOptions, inheritedConnection, visibleConnectionPassword, connectionProfiles, upsertConnection } from './connection.js';
@@ -72,18 +73,18 @@ async function loadPanelContent(host, label, render, retry) {
     const current = () => panelRevision === revision && panelLoads.get(host) === token;
     const loading = loadingIndicator(`正在加载${label}…`);
     host.replaceChildren(loading); host.setAttribute('aria-busy', 'true');
-    let outcome = 'cancelled';
+    let outcome = 'cancelled', content;
     try {
         // Paint the indicator before synchronous parsing/rendering of cached data.
         await nextPaint();
         if (state.startupLoading) await startupPromise;
         if (!current()) return;
         if (!state.ready) throw new Error(state.startupError || '应用初始化未完成，请刷新后重试。');
-        const content = el('div', 'panel-content');
+        content = el('div', 'panel-content');
         await render(content, revision);
         if (!current()) return;
         host.replaceChildren(content); await nextPaint();
-        if (current()) outcome = 'success';
+        if (current()) { outcome = 'success'; content._onReady?.(); }
     } catch (error) {
         outcome = current() ? 'error' : 'cancelled';
         if (current()) {
@@ -92,6 +93,7 @@ async function loadPanelContent(host, label, render, retry) {
         }
         if (current()) throw error;
     } finally {
+        if (outcome !== 'success') content?._dispose?.();
         loading.remove();
         if (current()) { host.removeAttribute('aria-busy'); panelLoads.delete(host); }
         finish(outcome);
@@ -158,10 +160,7 @@ function regexText(text, placement, options = {}) {
     return applyRegex(text, activeRegexes({ settings: state.settings, preset: state.preset, character: state.character }), placement, { variables: { char: state.character?.name || '', user: persona().name, description: state.character?.data?.description || '', persona: persona().description }, ...options });
 }
 function presets() {
-    return (state.bundle.openai_setting_names || []).map((name, index) => {
-        const raw = state.bundle.openai_settings[index];
-        return { name, data: typeof raw === 'string' ? JSON.parse(raw) : raw };
-    });
+    return presetCatalog(state.bundle);
 }
 function selectPreset() {
     const selected = presets().find(p => p.name === presetSelection.name);
@@ -423,8 +422,12 @@ async function initializeConnections(connectionsRequest) {
     state.connectionError = ''; status('已连接'); synchronize();
 }
 
+function disposePanelWork() {
+    $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
+}
 function showPanel(title, kicker = '工作空间', className = '') {
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
+    disposePanelWork();
     panelDirty = false; panelRevision++;
     $('panel-title').textContent = title; $('panel-kicker').textContent = kicker;
     $('panel').className = className; $('panel-body').replaceChildren(); $('panel-body').removeAttribute('aria-busy');
@@ -434,6 +437,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
 }
 function closePanel() {
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
+    disposePanelWork();
     panelDirty = false; panelRevision++;
     $('panel').close();
     if (history.state?.appPanel) history.back();
@@ -697,15 +701,19 @@ async function renderPresetPanel(body, revision) {
     const title = el('div'); title.append(el('h2', '', '提示词条目'), count); heading.append(title);
     const rows = el('div', 'prompt-list');
     const opened = new Set();
+    let pageReady = false, tokenPreview;
+    body._onReady = () => { pageReady = true; tokenPreview?.start(); };
+    body._dispose = () => { pageReady = false; tokenPreview?.dispose(); rows._disposeDrag?.(); };
     const markDirty = () => { panelDirty = true; };
     const updateCount = () => { const order = promptOrder(draft); count.textContent = `${order.length} 个条目 · ${order.filter(item => item.enabled !== false).length} 个启用`; };
     const renderRows = () => {
-        rows._disposeDrag?.();
+        rows._disposeDrag?.(); tokenPreview?.dispose();
+        tokenPreview = new PresetTokenPreview({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
         rows.replaceChildren(); updateCount();
         for (const { order, prompt, index } of promptRows(draft)) {
             const details = el('details', 'prompt-item'); details.dataset.promptId = prompt.identifier;
             details.open = opened.has(prompt.identifier); details.classList.toggle('prompt-disabled', order.enabled === false);
-            details.addEventListener('toggle', () => { if (details.open) opened.add(prompt.identifier); else opened.delete(prompt.identifier); });
+            details.addEventListener('toggle', () => { if (!details.isConnected) return; if (details.open) { opened.add(prompt.identifier); renderForm(); } else opened.delete(prompt.identifier); });
             const summary = el('summary', 'prompt-summary');
             const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = order.enabled !== false;
             enabled.setAttribute('aria-label', `启用 ${prompt.name || prompt.identifier}`);
@@ -722,45 +730,22 @@ async function renderPresetPanel(body, revision) {
             const tokenCount = el('small', 'prompt-token-count', '-');
             let tokenVersion = 0, tokenTimer;
             const updateTokens = async () => {
+                const scope = tokenPreview;
+                if (scope.signal.aborted || revision !== panelRevision || (pageReady && !tokenCount.isConnected)) return;
                 const version = ++tokenVersion;
-                const card = state.character?.data || state.character;
-                let value = prompt.content || '', messages;
-                if (prompt.marker) {
-                    const values = { personaDescription: persona().description, charDescription: card?.description, charPersonality: card?.personality, scenario: card?.scenario };
-                    if (['worldInfoBefore', 'worldInfoAfter'].includes(prompt.identifier)) {
-                        if (!state.character) { tokenCount.textContent = '-'; return; }
-                        try {
-                            const variables = { char: state.character.name, user: persona().name, description: card?.description || '', personality: card?.personality || '', scenario: card?.scenario || '', persona: persona().description };
-                            const worlds = activateWorlds(await loadBooks(), state.chat, state.settings, variables, Math.random, activeRegexes({ settings: state.settings, preset: draft, character: state.character }));
-                            value = worlds.filter(entry => entry.position === (prompt.identifier === 'worldInfoBefore' ? 0 : 1)).map(entry => entry.content).join('\n');
-                        } catch { tokenCount.textContent = '-'; return; }
-                    } else if (prompt.identifier === 'chatHistory') {
-                        if (!state.character) { tokenCount.textContent = '-'; return; }
-                        const variables = { char: state.character.name, user: persona().name, description: card?.description || '', persona: persona().description };
-                        const rules = activeRegexes({ settings: state.settings, preset: draft, character: state.character });
-                        messages = state.chat.map((message, index) => ({ role: message.is_user ? 'user' : 'assistant', content: expand(applyRegex(message.mes || '', rules, message.is_user ? 1 : 2, { phase: 'prompt', depth: state.chat.length - index - 1, variables }), variables) })).filter(message => message.content.trim());
-                    } else if (Object.hasOwn(values, prompt.identifier) && values[prompt.identifier] !== undefined) value = values[prompt.identifier] || '';
-                    else { tokenCount.textContent = '-'; return; }
-                }
-                if (!messages && /{{/.test(value)) {
-                    try {
-                        const settings = databaseSettings(state.own.database);
-                        const database = databaseForChat(state.chat, state.header, settings.template).data;
-                        const variables = { char: state.character?.name || '', user: persona().name, description: card?.description || '', personality: card?.personality || '', scenario: card?.scenario || '', persona: persona().description, tabledata: referenceDatabaseText(database, settings) };
-                        for (const key of new Set([...Array.from({ length: 20 }, (_, index) => `sheet_${index}`), ...Object.keys(database).filter(key => key.startsWith('sheet_'))])) variables[key] = database[key] ? sheetText(database, key) : '';
-                        if (state.character && /{{\s*(?:getvar|setvar)::/i.test(value)) activateWorlds(await loadBooks(), state.chat, state.settings, variables);
-                        value = expand(value, variables);
-                    } catch { tokenCount.textContent = '-'; return; }
-                }
-                if (!messages && !value) { tokenCount.textContent = '-'; return; }
+                tokenCount.textContent = '…'; tokenCount.title = '后台统计 tokens…';
                 try {
-                    const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, messages || [{ role: prompt.role || 'system', content: value }]);
-                    if (version === tokenVersion && tokenCount.isConnected) { tokenCount.textContent = Number.isFinite(result.token_count) && result.token_count > 0 ? String(result.token_count) : '-'; tokenCount.title = '按当前聊天数据展开宏后的条目计数，含消息封装；最终请求可能受正则与上下文裁剪影响'; }
-                } catch { if (version === tokenVersion) tokenCount.textContent = '-'; }
+                    const count = await scope.count(prompt);
+                    if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
+                    tokenCount.textContent = Number.isFinite(count) && count > 0 ? String(count) : '-';
+                    tokenCount.title = '按当前聊天数据展开宏后的条目计数，含消息封装；最终请求可能受正则与上下文裁剪影响';
+                } catch {
+                    if (!scope.signal.aborted && version === tokenVersion && tokenCount.isConnected) tokenCount.textContent = '-';
+                }
             };
             titleWrap.append(kind);
             summary.append(enabled, titleWrap, tokenCount);
-            setTimeout(updateTokens, 0);
+            void updateTokens();
             details.append(summary);
             const content = el('div', 'prompt-form');
             const toolbar = el('span', 'prompt-actions prompt-inline-actions'); toolbar.hidden = true;
@@ -794,37 +779,42 @@ async function renderPresetPanel(body, revision) {
                 }, 'trash', 'danger'));
             }
             for (const button of toolbar.children) { const text = button.textContent.trim(); button.title = text; button.setAttribute('aria-label', text); }
-            const promptName = field(content, '条目名称', prompt.name || prompt.identifier);
-            promptName.addEventListener('input', () => { prompt.name = promptName.value; label.textContent = prompt.name || prompt.identifier; });
-            const block = ['chatHistory', 'dialogueExamples'].includes(prompt.identifier);
-            const roleOptions = [['system', 'System · 系统'], ['user', 'User · 用户'], ['assistant', 'Assistant · 助手']];
-            if (block) roleOptions.unshift(['inherit', '保留原消息角色']);
-            const role = field(content, '消息角色', block && !prompt.independent_role_override ? 'inherit' : prompt.role || 'system', { options: roleOptions });
-            role.addEventListener('change', () => {
-                if (role.value === 'inherit') delete prompt.independent_role_override;
-                else { prompt.role = role.value; if (block) prompt.independent_role_override = true; }
-                kind.textContent = roleLabel();
-            });
-            if (block) note(content, '默认保留用户与角色各自的发言身份。选择固定角色会将此条目内的全部消息统一为该角色。');
-            if (prompt.marker) note(content, `自动填充${markerLabels[prompt.identifier] || prompt.name}。可以调整顺序或开关，内容来自对应的角色、用户设定、世界书或聊天记录。`);
-            else {
-                const text = field(content, '提示词内容', prompt.content || '', { multiline: true, rows: 7, hint: '可使用 {{char}}、{{user}} 等已支持的宏。' });
-                text.addEventListener('input', () => { prompt.content = text.value; tokenVersion++; clearTimeout(tokenTimer); tokenTimer = setTimeout(updateTokens, 500); });
-                const injection = el('div', 'parameter-grid');
-                const position = field(injection, '插入位置', Number(prompt.injection_position) || 0, { options: [[0, '按条目顺序'], [1, '插入聊天深度']] });
-                const depth = field(injection, '聊天深度', prompt.injection_depth ?? 0, { type: 'number', hint: '0 表示聊天记录末尾。' }); depth.min = 0; depth.step = 1;
-                depth.addEventListener('input', () => { prompt.injection_depth = Number(depth.value); });
-                const priority = field(injection, '深度内排序', prompt.injection_order ?? 100, { type: 'number' }); priority.step = 1;
-                priority.addEventListener('input', () => { prompt.injection_order = Number(priority.value); });
-                const updateDepthFields = () => {
-                    const hidden = Number(position.value) !== 1;
-                    depth.closest('.field').hidden = hidden; priority.closest('.field').hidden = hidden;
-                };
-                position.addEventListener('change', () => { prompt.injection_position = Number(position.value); updateDepthFields(); });
-                updateDepthFields();
-                content.append(injection);
-                if (prompt.injection_trigger?.length) note(content, '此条目含生成类型过滤规则，当前编辑会保留该规则；生成引擎暂不支持它。', true);
-            }
+            let formBuilt = false;
+            const renderForm = () => {
+                if (formBuilt) return; formBuilt = true;
+                const promptName = field(content, '条目名称', prompt.name || prompt.identifier);
+                promptName.addEventListener('input', () => { prompt.name = promptName.value; label.textContent = prompt.name || prompt.identifier; });
+                const block = ['chatHistory', 'dialogueExamples'].includes(prompt.identifier);
+                const roleOptions = [['system', 'System · 系统'], ['user', 'User · 用户'], ['assistant', 'Assistant · 助手']];
+                if (block) roleOptions.unshift(['inherit', '保留原消息角色']);
+                const role = field(content, '消息角色', block && !prompt.independent_role_override ? 'inherit' : prompt.role || 'system', { options: roleOptions });
+                role.addEventListener('change', () => {
+                    if (role.value === 'inherit') delete prompt.independent_role_override;
+                    else { prompt.role = role.value; if (block) prompt.independent_role_override = true; }
+                    kind.textContent = roleLabel();
+                });
+                if (block) note(content, '默认保留用户与角色各自的发言身份。选择固定角色会将此条目内的全部消息统一为该角色。');
+                if (prompt.marker) note(content, `自动填充${markerLabels[prompt.identifier] || prompt.name}。可以调整顺序或开关，内容来自对应的角色、用户设定、世界书或聊天记录。`);
+                else {
+                    const text = field(content, '提示词内容', prompt.content || '', { multiline: true, rows: 7, hint: '可使用 {{char}}、{{user}} 等已支持的宏。' });
+                    text.addEventListener('input', () => { prompt.content = text.value; tokenVersion++; clearTimeout(tokenTimer); tokenTimer = setTimeout(updateTokens, 500); });
+                    const injection = el('div', 'parameter-grid');
+                    const position = field(injection, '插入位置', Number(prompt.injection_position) || 0, { options: [[0, '按条目顺序'], [1, '插入聊天深度']] });
+                    const depth = field(injection, '聊天深度', prompt.injection_depth ?? 0, { type: 'number', hint: '0 表示聊天记录末尾。' }); depth.min = 0; depth.step = 1;
+                    depth.addEventListener('input', () => { prompt.injection_depth = Number(depth.value); });
+                    const priority = field(injection, '深度内排序', prompt.injection_order ?? 100, { type: 'number' }); priority.step = 1;
+                    priority.addEventListener('input', () => { prompt.injection_order = Number(priority.value); });
+                    const updateDepthFields = () => {
+                        const hidden = Number(position.value) !== 1;
+                        depth.closest('.field').hidden = hidden; priority.closest('.field').hidden = hidden;
+                    };
+                    position.addEventListener('change', () => { prompt.injection_position = Number(position.value); updateDepthFields(); });
+                    updateDepthFields();
+                    content.append(injection);
+                    if (prompt.injection_trigger?.length) note(content, '此条目含生成类型过滤规则，当前编辑会保留该规则；生成引擎暂不支持它。', true);
+                }
+            };
+            if (details.open) renderForm();
             details.append(content); rows.append(details);
         }
         rows._disposeDrag = installPromptDrag(rows, $('panel-body'), identifiers => {
@@ -835,6 +825,7 @@ async function renderPresetPanel(body, revision) {
                 markDirty(); renderRows();
             }
         });
+        if (pageReady) tokenPreview.start();
     };
     heading.append(action('添加条目', () => {
         const id = uuid(); addPrompt(draft, id); opened.add(id); markDirty(); renderRows();
@@ -904,7 +895,12 @@ async function renderPresetPanel(body, revision) {
         assertIdle();
         if (panelDirty && !confirm('放弃当前未保存的预设修改并切换？')) { select.value = previousPreset; return; }
         const target = select.value;
-        try { await saveOwn({ preset: target }); } catch (error) { select.value = previousPreset; throw error; }
+        try {
+            const selected = available.find(item => item.name === target);
+            if (!selected) throw new Error('预设已不存在，请重新选择。');
+            presetDraft(selected.data);
+            await saveOwn({ preset: target });
+        } catch (error) { select.value = previousPreset; throw error; }
         selectPreset(); list.setMessages(state.chat, { reset: true });
         loadDraft(state.preset, target); previousPreset = target; draftOnly = false; deletePreset.disabled = false; panelDirty = false;
         for (const option of [...select.options]) if (option.dataset.draft) option.remove();
@@ -936,7 +932,7 @@ async function regexPanel(scope = 'global', target = '') {
 async function renderRegexPanel(body, revision, scope, target) {
     body.classList.add('regex-panel-content');
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
-    const available = (fresh.bundle.openai_setting_names || []).map((name, index) => ({ name, data: typeof fresh.bundle.openai_settings[index] === 'string' ? JSON.parse(fresh.bundle.openai_settings[index]) : fresh.bundle.openai_settings[index] }));
+    const available = presetCatalog(fresh.bundle);
     const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则范围');
     for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则']]) {
         const button = action(label, () => regexPanel(id), id === 'global' ? 'regex' : id === 'preset' ? 'tools' : 'card');
@@ -1546,17 +1542,17 @@ async function renderWorldPanel(body, revision, target, initial, character) {
     }, 'book', 'primary')); body.append(footer); render();
 }
 
-async function loadBooks() {
+async function loadBooks(options) {
     const names = new Set(state.settings.world_info_settings?.world_info?.globalSelect ?? state.own.worlds ?? []);
     const card = state.character.data || state.character;
     if (card.extensions?.world) names.add(card.extensions.world);
     if (persona().world) names.add(persona().world);
     if (names.size) {
-        const available = await api.post('/api/worldinfo/list');
+        const available = await api.post('/api/worldinfo/list', {}, options);
         const missing = [...names].filter(name => name && !available.some(book => book.file_id === name));
         if (missing.length) throw new Error(`找不到关联世界书：${missing.join('、')}。请检查名称或导入文件。`);
     }
-    const books = await Promise.all([...names].filter(Boolean).map(name => api.post('/api/worldinfo/get', { name })));
+    const books = await Promise.all([...names].filter(Boolean).map(name => api.post('/api/worldinfo/get', { name }, options)));
     // Native imports can materialize the embedded book into a named world.
     // Prefer that editable named world instead of injecting the same book twice.
     if (card.character_book?.entries && !card.extensions?.world) {
@@ -1931,7 +1927,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } panelDirty = false; panelRevision++; $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 $('message-input').addEventListener('input', resizeInput);
 $('message-input').addEventListener('keydown', event => {

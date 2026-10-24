@@ -6,6 +6,9 @@ const clone = value => structuredClone(value);
 const roles = new Set(['system', 'user', 'assistant']);
 
 const localVariables = new WeakMap();
+export function copyVariableState(source, target) {
+    localVariables.set(target, new Map(localVariables.get(source) || []));
+}
 export function expand(text, variables = {}) {
     let locals = localVariables.get(variables); if (!locals) { locals = new Map(); localVariables.set(variables, locals); }
     let result = String(text ?? '');

@@ -55,3 +55,11 @@ test('page failures remove the spinner, show retry and record failure', async ()
     assert.equal(f.host.children[1].textContent, '重新加载');
     assert.equal(f.logs.snapshot()[0].status, 'error');
 });
+test('a page replaced before its first paint disposes its paused background work', async () => {
+    const f = fixture(); let started = 0, disposed = 0;
+    const running = f.run(content => { content._onReady = () => started++; content._dispose = () => disposed++; });
+    await f.paint(); f.context.panelRevision++;
+    await f.paint(); await running;
+    assert.equal(started, 0); assert.equal(disposed, 1);
+    assert.equal(f.logs.snapshot()[0].status, 'cancelled');
+});
