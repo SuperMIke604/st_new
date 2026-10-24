@@ -380,6 +380,5 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 
 /* Markdown emphasis must remain visible with regular-only local fonts. */
 .message-content{font-synthesis:weight style}.message-content strong,.message-content b{font-weight:700}.message-content em,.message-content i{font-style:italic}
-.home-log-button{font-size:12px;color:var(--muted);margin-left:8px}.home-log-button svg{width:15px;height:15px;min-width:15px}
 .timing-table td:last-child{white-space:normal!important;min-width:150px;color:var(--muted)}
 dialog.timing-panel{width:min(850px,calc(100vw - 24px))}.timing-toolbar{display:flex;flex-wrap:wrap;gap:8px}.timing-table-wrap{overflow-x:auto}.timing-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.7}.timing-table th,.timing-table td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}.timing-table th{font-weight:500;color:var(--muted)}.timing-table td:first-child{overflow-wrap:anywhere;min-width:150px}.timing-table td:not(:first-child){white-space:nowrap;font-variant-numeric:tabular-nums}.timing-table tr[data-status=error]{color:#ad5947}.timing-table tr[data-status=loading]{color:var(--green)}

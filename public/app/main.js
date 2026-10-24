@@ -298,17 +298,16 @@ function welcome() {
     const recent = el('div', 'home-recent'); welcome.append(recent);
     if (state.startupLoading || state.startupError) {
         if (state.startupLoading) {
-            const loading = loadingIndicator('正在加载应用…', state.startupStage || '读取设置、预设、最近角色和 API 连接');
+            const loading = loadingIndicator('正在加载应用');
             loading.id = 'home-startup-loading'; recent.append(loading);
         } else {
             note(recent, `初始化失败：${state.startupError}`, true);
             recent.append(action('重新加载', () => { startupPromise = start(); return startupPromise; }, 'refresh'));
         }
-        welcome.append(action('加载日志', timingPanel, 'history', 'home-log-button'));
         $('message-list').append(welcome); return;
     }
     const loading = el('div', 'home-loading', '正在加载最近角色…'); loading.setAttribute('role', 'status'); recent.append(loading);
-    welcome.append(action('选择角色', () => navigation(), 'card', 'primary'), action('加载日志', timingPanel, 'history', 'home-log-button'));
+    welcome.append(action('选择角色', () => navigation(), 'card', 'primary'));
     $('composer').hidden = true;
     document.body.classList.add('home-view');
     const recentRequest = state.homeReady ? (homeRecentRequest || loadRecentCharacters()) : null;
@@ -363,8 +362,6 @@ let connectionInitialization = null;
 const loadRecentCharacters = () => recentCharacters.load();
 function startupStage(text) {
     state.startupStage = text;
-    const label = document.querySelector('#home-startup-loading .loading-copy small');
-    if (label) label.textContent = text;
 }
 async function start() {
     state.startupLoading = true; state.startupError = ''; state.ready = false; state.connectionPending = true;
@@ -844,24 +841,9 @@ async function renderPresetPanel(body, revision) {
     }, 'plus'));
     body.append(heading, rows);
 
-    const advanced = el('details', 'advanced'); advanced.append(el('summary', '', '其他生成参数'));
-    if (draft.assistant_prefill || draft.assistant_impersonation) note(advanced, '此预设含 Claude 专用的 assistant prefill / impersonation。当前 OpenAI / 兼容接口沿用原生行为，不启用这些字段；保存时会保留。');
-    const extraInputs = new Map();
-    for (const [key, label, fallback] of [['frequency_penalty', '频率惩罚', 0], ['presence_penalty', '存在惩罚', 0], ['top_a', 'Top A（0 为关闭）', 0], ['min_p', 'Min P（0 为关闭）', 0], ['repetition_penalty', '重复惩罚（1 为关闭）', 1], ['seed', '随机种子（-1 为随机）', -1]]) {
-        const input = field(advanced, label, draft[key] ?? fallback, { type: 'number' }); input.step = key === 'seed' ? 1 : .1;
-        extraInputs.set(key, { input, fallback }); input.addEventListener('input', () => { draft[key] = Number(input.value); });
-    }
-    const formatInputs = new Map();
-    for (const [key, label] of [['new_chat_prompt', '新聊天提示'], ['personality_format', '性格格式'], ['scenario_format', '场景格式']]) {
-        const input = field(advanced, label, draft[key] || '', { multiline: true, rows: 2 }); formatInputs.set(key, input);
-        input.addEventListener('input', () => { draft[key] = input.value; });
-    }
-    note(advanced, '导入预设中未展示的字段仍会保留，不需要编辑 JSON。'); body.append(advanced);
     const loadDraft = (value, title) => {
         draft = presetDraft(value); name.value = title; opened.clear();
         for (const [key, { input, fallback }] of controls) { draft[key] ??= fallback; input.value = draft[key]; }
-        for (const [key, { input, fallback }] of extraInputs) input.value = draft[key] ?? fallback;
-        for (const [key, input] of formatInputs) input.value = draft[key] || '';
         renderRows();
     };
     let previousPreset = select.value;

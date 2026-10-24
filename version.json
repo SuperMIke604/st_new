@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "3ad81020f35cc06961463479524a52162bbc44031136af4a63670f25ca1474a1",
-  "publishedAt": "2026-10-24T13:17:32.506240+00:00",
+  "revision": "c168dffac3488e70b2876372900a5f5d6079f22b664ffc1731c39ae0ae4684d6",
+  "publishedAt": "2026-10-24T13:27:07.634745+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "82e795f27480f4110c30c9b0b8291ca6f5b818a37efa64a14dab11eb5d63f061",
@@ -21,7 +21,7 @@
     "public/app/index.html": "dbef73bef29742d28916b431627dd23964f64395d757e06e9aa98941fa7b1aa3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "42de5f9a4ca76988813c0ea458e3955de9265c87b41da20f722b768e821eb968",
-    "public/app/main.js": "a7583059ee1622c4a799232d1624df23cf3e3129b3e452b2d83226193b3dc0d2",
+    "public/app/main.js": "50215e95dba45d78266f568e39e420cc346f0e9cc29219fa9435117c38b2a8a1",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -31,7 +31,7 @@
     "public/app/README.md": "5d45a1bc878f25bf68cbff0e3b536adc25786a8d39ab0ea0b3fbc67452da415a",
     "public/app/regex.js": "b0aa3dd6666fb5f6913c29d87a592e2acdb528a8247b0f3ecf03ae8073d2ef4c",
     "public/app/select.js": "e06e344bb0247e1124414db3831e53167bcb7f75669843a0fa73e075839495fb",
-    "public/app/style.css": "b7f9b5e2daeda4e73ee16dcf2b74ea83ac26159c47f8bdab87d0a9b48c71844b",
+    "public/app/style.css": "1cd9d360c5dec444f688b47be1c387edae43d848a9d978dd7cf402f79e2b5a03",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
     "public/app/vendor/DOMPURIFY-LICENSE": "968bdd5b053aa290a16cd073416c5ae4a8daa51076e43f2df423b9c4e2ccda0a",
@@ -42,7 +42,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "2bfc02eedfe5a34fbeb8b7f5e20dfc00fecdc15323868e393c0e702c6d00d2f9"
+    "public/app/version.js": "49bdedc33d3138c3aed6689c226a05e78c0f4d567729cf0ec4d9127201dfb655"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
