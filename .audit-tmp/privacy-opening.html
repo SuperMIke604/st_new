@@ -1,0 +1,542 @@
+```
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>后隐私时代 - 绝密档案</title>
+    <style>
+        /* 引入古典衬线字体和装饰性字体 */
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Noto+Serif+SC:wght@400;600;900&display=swap');
+
+        :root {
+            /* 黑金复古配色方案 */
+            --card-bg: #222222;
+            --gold-primary: #d4af37; /* 经典金 */
+            --gold-dim: #8a7035;     /* 暗金 */
+            --gold-bright: #f9d877; /* 亮金 */
+            --text-primary: #e0e0e0;
+            --text-secondary: #888888;
+            --input-bg: rgba(0, 0, 0, 0.4);
+            --border-style: 1px solid var(--gold-dim);
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            min-height: 100vh;
+            font-family: 'Noto Serif SC', "Songti SC", serif;
+            color: var(--text-primary);
+            background-color: transparent;
+            overflow-x: hidden;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* 移除了padding */
+            box-sizing: border-box;
+        }
+
+        /* 动态尘埃背景容器 - 移动到.content-container内 */
+        .particles-container {
+            position: absolute; /* 改为absolute，相对于.content-container */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0; /* 背景层 */
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            background-color: var(--gold-primary);
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: floatUp 20s infinite linear;
+            box-shadow: 0 0 5px var(--gold-primary);
+        }
+
+        @keyframes floatUp {
+            0% { transform: translateY(100vh) scale(0); opacity: 0; }
+            50% { opacity: 0.5; }
+            100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+        }
+
+        /* 内容容器 */
+        .content-container {
+            width: 100%;
+            min-height: 100vh;
+            background: var(--card-bg);
+            /* 复杂的边框模拟参考图的画框感 */
+            border: 1px solid var(--gold-dim);
+            outline: 4px double var(--gold-dim);
+            outline-offset: -12px;
+            padding: 60px 40px 40px 40px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+            /* 纹理叠加 */
+            background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+            box-sizing: border-box;
+            position: relative; /* 为粒子特效提供定位上下文 */
+            z-index: 10; /* 确保内容在粒子特效之上 */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 装饰性角落（模拟画框花纹） */
+        .content-container::before, .content-container::after {
+            content: "❖";
+            position: absolute;
+            font-size: 24px;
+            color: var(--gold-primary);
+            left: 50%;
+            transform: translateX(-50%);
+            text-shadow: 0 0 5px var(--gold-dim);
+            z-index: 20; /* 确保在粒子特效之上 */
+        }
+        .content-container::before { top: 15px; }
+        .content-container::after { bottom: 15px; font-size: 16px; opacity: 0.7; }
+
+        /* 内容区域的z-index要比粒子特效高 */
+        h1, .intro, #userInfoForm, .form-group, .form-label, 
+        .input-group, .form-input, .privacy-select, .random-btn, .submit-btn {
+            position: relative;
+            z-index: 10;
+        }
+
+        h1 {
+            color: var(--gold-primary);
+            text-align: center;
+            font-family: 'Cinzel', serif;
+            font-size: clamp(1.5em, 4vw, 2.5em);
+            font-weight: 700;
+            margin-bottom: 5px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--gold-dim);
+            display: inline-block;
+            width: 100%;
+            padding-bottom: 15px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+
+        .intro {
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: clamp(0.8em, 2vw, 1em);
+            font-style: italic;
+            letter-spacing: 1px;
+            border-bottom: 1px solid transparent;
+        }
+
+        /* 表单容器使用flex-grow填充剩余空间 */
+        #userInfoForm {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group { 
+            margin-bottom: 25px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .form-label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: var(--gold-primary); 
+            font-weight: 600; 
+            font-size: clamp(12px, 2.5vw, 14px); 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .input-group { 
+            display: flex; 
+            gap: 10px; 
+            align-items: stretch;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* 输入框样式改造：深色背景 + 金色边框 */
+        .form-input, .privacy-select {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid var(--gold-dim);
+            background: var(--input-bg);
+            font-family: 'Noto Serif SC', serif;
+            font-size: clamp(14px, 3vw, 16px);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            border-radius: 2px; /* 锐利的边角 */
+            box-sizing: border-box;
+            min-width: 0; /* 防止flex元素溢出 */
+        }
+
+        .form-input::placeholder { color: #555; font-style: italic; }
+
+        .form-input:focus, .privacy-select:focus {
+            background: rgba(0, 0, 0, 0.6);
+            border-color: var(--gold-bright);
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.2);
+            outline: none;
+        }
+
+        /* 随机按钮样式改造：古典印章/按钮风格 */
+        .random-btn {
+            padding: 0 15px;
+            border: 1px solid var(--gold-dim);
+            background: transparent;
+            color: var(--gold-dim);
+            font-family: 'Noto Serif SC', serif;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            border-radius: 2px;
+            font-size: clamp(12px, 2.5vw, 13px);
+            flex-shrink: 0; /* 防止按钮被压缩 */
+            box-sizing: border-box;
+        }
+
+        .random-btn:hover {
+            background: var(--gold-dim);
+            color: #000;
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+        }
+
+        /* 下拉框美化 */
+        .privacy-select {
+            width: 100%;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d4af37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: clamp(12px, 3vw, 16px);
+        }
+        
+        /* 选项样式（兼容性有限，主要针对支持的浏览器） */
+        option { background: #222; color: var(--gold-primary); }
+
+        /* 提交按钮：华丽的金色封蜡/铭牌风格 */
+        .submit-btn {
+            width: 100%;
+            padding: clamp(15px, 4vw, 18px);
+            margin-top: auto; /* 使用auto margin使其位于表单底部 */
+            border: 1px solid var(--gold-primary);
+            background: linear-gradient(180deg, rgba(212,175,55,0.1) 0%, rgba(0,0,0,0) 100%);
+            color: var(--gold-primary);
+            font-family: 'Cinzel', serif;
+            font-size: clamp(16px, 4vw, 18px);
+            font-weight: 700;
+            letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.5s ease;
+            position: relative;
+            overflow: hidden;
+            text-transform: uppercase;
+            box-sizing: border-box;
+        }
+
+        .submit-btn:hover {
+            background: var(--gold-primary);
+            color: #1a1a1a;
+            box-shadow: 0 0 30px rgba(212, 175, 55, 0.4);
+        }
+        
+        /* 按钮内的装饰线 */
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            top: 2px; left: 2px; right: 2px; bottom: 2px;
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            pointer-events: none;
+        }
+
+        /* 响应式设计 */
+        @media screen and (max-width: 768px) {
+            /* body不再有padding */
+            
+            .content-container {
+                padding: 40px 20px 60px 20px;
+                outline-offset: -8px;
+                max-width: 100%;
+            }
+
+    /* 新增：增加h1的顶部间距，避免与上方装饰性角落重叠 */
+            h1 {
+                  margin-top: 20px; /* 增加顶部间距 */
+            }
+            
+            .input-group { 
+                flex-direction: column; 
+                align-items: stretch; 
+                gap: 8px;
+            }
+            
+            .random-btn { 
+                height: 44px; 
+                border-style: dashed; 
+                width: 100%;
+            }
+        }
+
+        @media screen and (max-width: 480px) {
+            .content-container {
+                padding: 30px 15px 50px 15px;
+                min-height: auto; /* 小屏幕上不需要固定最小高度 */
+            }
+            
+            h1 {
+                font-size: 1.5em;
+                letter-spacing: 2px;
+                padding-bottom: 10px;
+            }
+            
+            .intro {
+                margin-bottom: 30px;
+                font-size: 0.85em;
+            }
+            
+            .form-group {
+                margin-bottom: 20px;
+            }
+            
+            .form-input, .privacy-select {
+                padding: 10px 12px;
+            }
+            
+            .submit-btn {
+                margin-top: 30px; /* 小屏幕上固定顶部间距 */
+            }
+        }
+
+        /* 超大屏幕适配 */
+        @media screen and (min-width: 1200px) {
+            .content-container {
+                max-width: 900px;
+            }
+            
+            h1 {
+                font-size: 2.5em;
+            }
+            
+            .intro {
+                font-size: 1.1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 粒子特效容器移动到.content-container内部 -->
+    <div class="content-container">
+        <div class="particles-container" id="particles"></div>
+        
+        <h1>THE OBSERVER</h1>
+        <p class="intro">"隐私已死，唯有记录永存"</p>
+
+        <form id="userInfoForm" onsubmit="startGame(event)">
+            <div class="form-group">
+                <label class="form-label">SUBJECT NAME / 姓名</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="name" required placeholder="请输入档案姓名...">
+                    <button type="button" class="random-btn" onclick="randomizeName()">✦ 随机检索</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">LOCATION / 坐标</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="region" required placeholder="例如：Site-19, Prague">
+                    <button type="button" class="random-btn" onclick="randomizeRegion()">✦ 随机定位</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">AGE / 生理年龄</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="age" required placeholder="例如：24">
+                    <button type="button" class="random-btn" onclick="randomizeAge()">✦ 生成</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">OCCUPATION / 社会身份</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="occupation" required placeholder="例如：监察员">
+                    <button type="button" class="random-btn" onclick="randomizeOccupation()">✦ 匹配</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">CLEARANCE LEVEL / 开放协议</label>
+                <select class="privacy-select" id="privacy-level">
+                    <option value="random">❖ 系统自动分配权限</option>
+                    <option value="5">V - 完全透明 (Panopticon)</option>
+                    <option value="4">IV - 住所互联</option>
+                    <option value="3">III - 公共监控接入</option>
+                    <option value="2">II - 轨迹追踪</option>
+                    <option value="1">I - 基础档案公开</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">INITIAL SCENARIO / 初始剧情</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="initial-plot" placeholder="描述初始剧情...">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">NOTES / 备注</label>
+                <div class="input-group">
+                    <input type="text" class="form-input" id="other" placeholder="其他信息...">
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn">INITIATE PROTOCOL</button>
+        </form>
+    </div>
+
+    <script>
+        // 生成金色尘埃背景
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const count = 30;
+            for(let i = 0; i < count; i++) {
+                const p = document.createElement('div');
+                p.classList.add('particle');
+                const size = Math.random() * 4 + 1 + 'px';
+                p.style.width = size;
+                p.style.height = size;
+                p.style.left = Math.random() * 100 + '%';
+                p.style.animationDuration = Math.random() * 20 + 10 + 's';
+                p.style.animationDelay = Math.random() * 10 + 's';
+                p.style.opacity = Math.random() * 0.5;
+                container.appendChild(p);
+            }
+        }
+        createParticles();
+
+        // --- 核心逻辑保持不变 ---
+        const RANDOM_DATA = {
+            names: [
+                'Alex', 'Justin', 'Lucas', 'Ryan', 'Evan', 'Shawn', 'Leo', 'Max', 'Chris', 'Daniel',
+                '林浩', '张远', '陆风', '顾海', '沈修', '江停', '谢俞', '贺朝', '秦究', '严峫'
+            ],
+            regions: [
+                '日本', '美国', '捷克', '德国', '匈牙利', 
+                '泰国', '巴西', '英国', '西班牙', '法国', 
+                '俄罗斯', '斯洛伐克', '意大利', '阿根廷', '加拿大', 
+                '澳大利亚', '韩国', '中国台湾', '菲律宾', '墨西哥'
+            ],
+            occupations: [
+                '体育生', '健身教练', '警察', '消防员', '外卖员',
+                '水电工', '公司职员', '医生', '按摩师', '军人',
+                '建筑工人', '游泳教练', '房东', '快递员', '飞行员',
+                '黑道大哥', '男模', '调酒师', '私人保镖', '在校学长'
+            ]
+        };
+
+        function randomizeName() {
+            const el = document.getElementById('name');
+            el.value = RANDOM_DATA.names[Math.floor(Math.random() * RANDOM_DATA.names.length)];
+            flashEffect(el);
+        }
+
+        function randomizeRegion() {
+            const el = document.getElementById('region');
+            el.value = RANDOM_DATA.regions[Math.floor(Math.random() * RANDOM_DATA.regions.length)];
+            flashEffect(el);
+        }
+
+        function randomizeAge() {
+            const el = document.getElementById('age');
+            const age = Math.floor(Math.random() * (35 - 18 + 1)) + 18;
+            el.value = age + '岁';
+            flashEffect(el);
+        }
+
+        function randomizeOccupation() {
+            const el = document.getElementById('occupation');
+            el.value = RANDOM_DATA.occupations[Math.floor(Math.random() * RANDOM_DATA.occupations.length)];
+            flashEffect(el);
+        }
+
+        function flashEffect(element) {
+            element.style.borderColor = '#f9d877';
+            element.style.boxShadow = '0 0 10px rgba(212, 175, 55, 0.5)';
+            setTimeout(() => {
+                element.style.borderColor = '#8a7035';
+                element.style.boxShadow = 'none';
+            }, 300);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            randomizeName();
+            randomizeRegion();
+            randomizeAge();
+            randomizeOccupation();
+        });
+
+        function startGame(event) {
+            event.preventDefault();
+            
+            const name = document.getElementById('name').value.trim();
+            const region = document.getElementById('region').value.trim();
+            const age = document.getElementById('age').value.trim();
+            const occupation = document.getElementById('occupation').value.trim();
+            const privacyLevel = document.getElementById('privacy-level').value;
+            const initialPlot = document.getElementById('initial-plot').value.trim();
+            const other = document.getElementById('other').value.trim();
+            
+            if (!name || !region || !occupation || !age) {
+                alert('⚠️ ARCHIVE INCOMPLETE / 档案缺失 ⚠️');
+                return;
+            }
+            
+            const privacyLevelText = privacyLevel === 'random' ? '随机' : 
+                ['一级', '二级', '三级', '四级', '五级'][parseInt(privacyLevel) - 1];
+            
+            let startMessage = 
+                `姓名: ${name}\n所在地区: ${region}\n年龄: ${age}\n职业: ${occupation}\n隐私开放等级: ${privacyLevelText}`;
+
+            if (initialPlot) startMessage += `\n初始剧情: ${initialPlot}`;
+            if (other) startMessage += `\n其他: ${other}`;
+
+            try {
+                const btn = document.querySelector('.submit-btn');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = 'CONNECTING TO NEURAL NET...';
+                
+                setTimeout(() => {
+                    if (window.triggerSlash) {
+                        triggerSlash(`/send ${startMessage}|/trigger`);
+                    } else {
+                        console.log('Environment not supported, message:', startMessage);
+                        alert('已生成档案：\n' + startMessage);
+                        btn.innerHTML = originalText; 
+                    }
+                }, 800);
+            } catch (error) {
+                console.error('Failure:', error);
+                alert('Connection Lost');
+            }
+        }
+    </script>
+</body>
+</html>
+```

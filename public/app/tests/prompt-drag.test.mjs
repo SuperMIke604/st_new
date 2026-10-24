@@ -9,8 +9,16 @@ test('long press reorders complete prompt identities; cancellation restores the 
     globalThis.cancelAnimationFrame = () => { frame = null; };
     try {
         const rows = new EventTarget(); rows.children = []; rows.isConnected = true;
-        rows.append = row => { rows.children = rows.children.filter(item => item !== row); rows.children.push(row); };
-        rows.insertBefore = (row, next) => { rows.children = rows.children.filter(item => item !== row); rows.children.splice(rows.children.indexOf(next), 0, row); };
+        let captured = false;
+        rows.setPointerCapture = () => { captured = true; };
+        rows.hasPointerCapture = () => captured;
+        rows.releasePointerCapture = () => { captured = false; };
+        const moving = row => {
+            assert.equal(row.summary.hasPointerCapture(), false, 'a moving row must not own capture');
+            assert.equal(rows.hasPointerCapture(), true, 'the stationary list must retain capture');
+        };
+        rows.append = row => { if (captured) moving(row); rows.children = rows.children.filter(item => item !== row); rows.children.push(row); };
+        rows.insertBefore = (row, next) => { moving(row); rows.children = rows.children.filter(item => item !== row); rows.children.splice(rows.children.indexOf(next), 0, row); };
         const createRow = id => {
             const row = { dataset: { promptId: id }, classList: { add() {}, remove() {} }, getBoundingClientRect: () => ({ top: rows.children.indexOf(row) * 50, height: 50 }) };
             let captured = false;

@@ -10,6 +10,7 @@ import { installPromptDrag } from './prompt-drag.js';
 import { worldDraft, renderWorldEntries } from './world-editor.js';
 import { renderGlobalWorldSelect } from './world-select.js';
 import { decorateCodeBlocks } from './code-blocks.js';
+import { messageMarkdown } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
@@ -133,10 +134,9 @@ function synchronize() {
 }
 
 function markdown(text) {
-    const converter = markdown.converter ||= new globalThis.showdown.Converter({ tables: true, strikethrough: true, simplifiedAutoLink: true, openLinksInNewWindow: true, backslashEscapesHTMLTags: true });
+    const converter = markdown.converter ||= new globalThis.showdown.Converter({ tables: true, strikethrough: true, simpleLineBreaks: true, literalMidWordUnderscores: true, simplifiedAutoLink: true, openLinksInNewWindow: true, backslashEscapesHTMLTags: true });
     const source = String(text || '');
-    const formatted = /^\s*(?:<!doctype html|<html|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)\b/i.test(source) ? `\`\`\`html\n${source}\n\`\`\`` : source;
-    return globalThis.DOMPurify.sanitize(converter.makeHtml(formatted), { FORBID_TAGS: ['style', 'iframe', 'form', 'input', 'button', 'video', 'audio', 'svg'], FORBID_ATTR: ['style', 'srcset'] });
+    return globalThis.DOMPurify.sanitize(messageMarkdown(source, converter), { FORBID_TAGS: ['style', 'iframe', 'form', 'input', 'button', 'video', 'audio', 'svg'], FORBID_ATTR: ['style', 'srcset'] });
 }
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
@@ -547,6 +547,7 @@ async function connectionPanel(profileId = '', draft = null) {
 }
 
 async function presetPanel() {
+    if (!state.ready) { notify('正在加载设置，请稍后再打开预设管理。'); return; }
     const body = showPanel('生成预设', '提示词与生成参数', 'preset-panel'); if (!body) return;
     if (state.presetMissing) note(body, '保存的预设已不存在，请重新选择；当前未自动启用其他预设。');
     const available = presets();
@@ -574,6 +575,7 @@ async function presetPanel() {
     const markDirty = () => { panelDirty = true; };
     const updateCount = () => { const order = promptOrder(draft); count.textContent = `${order.length} 个条目 · ${order.filter(item => item.enabled !== false).length} 个启用`; };
     const renderRows = () => {
+        rows._disposeDrag?.();
         rows.replaceChildren(); updateCount();
         for (const { order, prompt, index } of promptRows(draft)) {
             const details = el('details', 'prompt-item'); details.dataset.promptId = prompt.identifier;
@@ -700,20 +702,21 @@ async function presetPanel() {
             }
             details.append(content); rows.append(details);
         }
+        rows._disposeDrag = installPromptDrag(rows, body, identifiers => {
+            const order = promptOrder(draft);
+            const entries = new Map(order.map(item => [item.identifier, item]));
+            if (identifiers.some((id, index) => order[index]?.identifier !== id)) {
+                order.splice(0, order.length, ...identifiers.map(id => entries.get(id)));
+                markDirty(); renderRows();
+            }
+        });
     };
     heading.append(action('添加条目', () => {
         const id = uuid(); addPrompt(draft, id); opened.add(id); markDirty(); renderRows();
         const target = [...rows.children].find(node => node.dataset.promptId === id); target?.scrollIntoView({ block: 'nearest' });
     }, 'plus'));
     body.append(heading, rows);
-    installPromptDrag(rows, body, identifiers => {
-        const order = promptOrder(draft);
-        const entries = new Map(order.map(item => [item.identifier, item]));
-        if (identifiers.some((id, index) => order[index]?.identifier !== id)) {
-            order.splice(0, order.length, ...identifiers.map(id => entries.get(id)));
-            markDirty(); renderRows();
-        }
-    });
+
     const advanced = el('details', 'advanced'); advanced.append(el('summary', '', '其他生成参数'));
     if (draft.assistant_prefill || draft.assistant_impersonation) note(advanced, '此预设含 Claude 专用的 assistant prefill / impersonation。当前 OpenAI / 兼容接口沿用原生行为，不启用这些字段；保存时会保留。');
     const extraInputs = new Map();
@@ -796,6 +799,7 @@ async function presetPanel() {
 }
 
 async function regexPanel(scope = 'global', target = '') {
+    if (!state.ready) { notify('正在加载设置，请稍后再打开正则管理。'); return; }
     if (!['global', 'preset', 'character'].includes(scope)) scope = 'global';
     const reuse = $('panel').open && $('panel').classList.contains('regex-panel');
     let host;
@@ -831,11 +835,16 @@ async function regexPanel(scope = 'global', target = '') {
         chooseTarget('管理的预设', available.map(item => [item.name, item.name]), selected);
         rules = copy(presetRegexes(entity?.data));
     } else {
+        if (!state.charactersLoaded) {
+            const cards = await api.post('/api/characters/all');
+            if (!Array.isArray(cards)) throw new Error('角色列表响应格式异常');
+            state.characters = cards; state.charactersLoaded = true;
+        }
         const cards = state.characters; if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
         chooseTarget('管理的角色卡', cards.map(card => [card.avatar, card.name]), selected);
         if (selected) entity = cards.find(card => card.avatar === selected);
-        if (selected && !entity?.data) entity = await api.post('/api/characters/get', { avatar_url: selected });
+        if (selected) entity = await api.post('/api/characters/get', { avatar_url: selected });
         if (revision !== panelRevision) return;
         rules = copy(scopedRegexes({ character: entity }).character);
     }

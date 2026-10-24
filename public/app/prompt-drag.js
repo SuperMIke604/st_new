@@ -29,7 +29,8 @@ export function installPromptDrag(rows, scroller, commit) {
         else if (y > bounds.bottom - 70) scroller.scrollTop += 9;
         const others = [...rows.children].filter(item => item !== row);
         const next = others.find(item => { const rect = item.getBoundingClientRect(); return y < rect.top + rect.height / 2; });
-        if (next) rows.insertBefore(row, next); else rows.append(row);
+        if (next) { if (row.nextElementSibling !== next) rows.insertBefore(row, next); }
+        else if (rows.lastElementChild !== row) rows.append(row);
         gesture.frame = requestAnimationFrame(tick);
     };
     rows.addEventListener('pointerdown', event => {
@@ -38,12 +39,16 @@ export function installPromptDrag(rows, scroller, commit) {
         if (!summary) return;
         suppressClick = false;
         const row = summary.parentElement;
-        gesture = { row, capture: summary, pointer: event.pointerId, x: event.clientX, startY: event.clientY, y: event.clientY, lastY: event.clientY, original: [...rows.children], active: false };
-        summary.setPointerCapture(event.pointerId);
-        gesture.timer = setTimeout(() => {
+        // Capture on the stationary list: moving a captured row in the DOM
+        // releases capture in Chromium and used to cancel every reorder.
+        gesture = { row, capture: rows, pointer: event.pointerId, x: event.clientX, startY: event.clientY, y: event.clientY, lastY: event.clientY, original: [...rows.children], active: false };
+        const activate = () => {
             if (!gesture) return;
+            rows.setPointerCapture(event.pointerId);
             gesture.active = true; row.classList.add('prompt-dragging'); tick();
-        }, 420);
+        };
+        if (event.pointerType === 'mouse' && event.target.closest('.prompt-drag-handle')) activate();
+        else gesture.timer = setTimeout(activate, 420);
     }, { signal: controller.signal });
     rows.addEventListener('pointermove', event => {
         if (!gesture || gesture.pointer !== event.pointerId) return;
@@ -53,9 +58,11 @@ export function installPromptDrag(rows, scroller, commit) {
         }
         gesture.y = event.clientY; gesture.lastY = event.clientY;
     }, { signal: controller.signal });
-    rows.addEventListener('pointerup', () => finish(false), { signal: controller.signal });
-    rows.addEventListener('pointercancel', () => finish(true), { signal: controller.signal });
-    rows.addEventListener('lostpointercapture', () => finish(true), { signal: controller.signal });
+    // A held summary can sort while a quick swipe still scrolls the panel.
+    rows.addEventListener('touchmove', event => { if (gesture?.active) event.preventDefault(); }, { passive: false, signal: controller.signal });
+    rows.addEventListener('pointerup', event => { if (gesture?.pointer === event.pointerId) finish(false); }, { signal: controller.signal });
+    rows.addEventListener('pointercancel', event => { if (gesture?.pointer === event.pointerId) finish(true); }, { signal: controller.signal });
+    rows.addEventListener('lostpointercapture', event => { if (event.target === rows && gesture?.pointer === event.pointerId) finish(true); }, { signal: controller.signal });
     rows.addEventListener('click', event => {
         if (!suppressClick) return;
         suppressClick = false; event.preventDefault(); event.stopPropagation();

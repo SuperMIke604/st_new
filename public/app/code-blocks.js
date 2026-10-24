@@ -39,7 +39,12 @@ function registerPreview(frame) {
         });
         previewListenerInstalled = true;
     }
-    if (frame.contentWindow) previewFrames.set(frame.contentWindow, frame);
+    if (frame.contentWindow) {
+        previewFrames.set(frame.contentWindow, frame);
+        // The iframe can finish its first measurement before it is mounted or
+        // registered. Request a fresh measurement after registering on load.
+        frame.contentWindow.postMessage({ type: 'tavern-html-measure' }, '*');
+    }
 }
 export function previewDocument(source) {
     const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
@@ -49,6 +54,7 @@ export function previewDocument(source) {
         let pending=false,last=0;
         const measure=()=>{pending=false;const body=document.body;if(!body)return;const style=getComputedStyle(body);const height=Math.min(20000,Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)+(parseFloat(style.marginTop)||0)+(parseFloat(style.marginBottom)||0))));if(height!==last){last=height;parent.postMessage({type:'tavern-html-height',height},'*');}};
         const schedule=()=>{if(!pending){pending=true;requestAnimationFrame(measure);}};
+        addEventListener('message',event=>{if(event.source===parent&&event.data?.type==='tavern-html-measure'){last=0;schedule();}});
         addEventListener('DOMContentLoaded',()=>{new ResizeObserver(schedule).observe(document.body);new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});document.addEventListener('toggle',schedule,true);document.addEventListener('input',schedule,true);document.addEventListener('change',schedule,true);schedule();});
         addEventListener('load',schedule);addEventListener('resize',schedule);
         document.addEventListener('submit',event=>event.preventDefault());
