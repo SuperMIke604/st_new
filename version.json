@@ -1,9 +1,10 @@
 {
   "schema": 1,
-  "revision": "707784e78a78b5bf30b98e5de40e634a5970db12e9c5c9e1f21193106129b7ae",
-  "publishedAt": "2026-10-24T12:49:50.186617+00:00",
+  "revision": "01f39e7ee956db1d868350c2ab7b0304b1341fd07424cb6c06a1285572cc4d81",
+  "publishedAt": "2026-10-24T13:02:32.604290+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
+    "public/app/character-catalog.js": "82e795f27480f4110c30c9b0b8291ca6f5b818a37efa64a14dab11eb5d63f061",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
     "public/app/code-blocks.js": "456047de5d2f4a4fb69f98aecd56fb9d4d7637a08dabe077a6aa08623617af7d",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
@@ -19,8 +20,8 @@
     "public/app/icons.js": "17a6359f2036485834c1fa8439612dd7bac3db726d42e8674f218732c1461e03",
     "public/app/index.html": "dbef73bef29742d28916b431627dd23964f64395d757e06e9aa98941fa7b1aa3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/load-timings.js": "3605895bde47f41fa36822d1ca6d6ed8927d65363ad0a1512eafc15800e7cb1d",
-    "public/app/main.js": "9fb2dc3af385afb215c71bd3e9feed4ad33524eb1ec0e5d0779a90f3fd8f8f1d",
+    "public/app/load-timings.js": "42de5f9a4ca76988813c0ea458e3955de9265c87b41da20f722b768e821eb968",
+    "public/app/main.js": "a7583059ee1622c4a799232d1624df23cf3e3129b3e452b2d83226193b3dc0d2",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -41,6 +42,6 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "643eaef2ff5d39f78eb4e3ce58a86f9cd7b4f0e98fa3f1bfec0702741f7da413"
+    "public/app/version.js": "71a3431f806d465aa9d65e2eed0906f7b9c774b61dbd443b20e1d5f5b60accad"
   }
 }

@@ -26,6 +26,7 @@ export class LoadTimings {
             if (finished) return; finished = true;
             entry.durationMs = Math.max(0, Math.round((this.now() - started) * 10) / 10); entry.status = status;
             if (Number.isInteger(details.httpStatus) && details.httpStatus >= 100 && details.httpStatus <= 599) entry.httpStatus = details.httpStatus;
+            if (Number.isInteger(details.itemCount) && details.itemCount >= 0) entry.itemCount = details.itemCount;
             if (['http-error', 'network', 'timeout', 'aborted', 'navigation', 'compatibility', 'missing-configuration'].includes(details.reason)) entry.reason = details.reason;
             // Keep a long page/startup total even if many nested requests have
             // already displaced its initial pending record from the ring.
@@ -60,6 +61,7 @@ export function timingStatusText(entry) {
     return ({ loading: '加载中', success: '完成', fallback: '兼容回退', partial: '部分失败', error: '失败', cancelled: '已取消', interrupted: '刷新中断' })[entry.status] || entry.status;
 }
 export function timingDetailText(entry) {
+    if (Number.isInteger(entry.itemCount)) return `读取到 ${entry.itemCount} 项`;
     const http = entry.httpStatus ? `HTTP ${entry.httpStatus}` : '';
     const reasons = {
         compatibility: '可选接口不可用，使用兼容接口',

@@ -1,4 +1,5 @@
 import { RecentCharacters } from './home-data.js';
+import { CharacterCatalog } from './character-catalog.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
 import { PresetTokenPreview } from './preset-tokens.js';
@@ -30,6 +31,14 @@ const $ = id => document.getElementById(id);
 const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
+const characterCatalog = new CharacterCatalog(api);
+async function loadCharacterCatalog(force = false) {
+    const finish = loadTimings.start('读取角色列表', 'data');
+    try {
+        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar });
+        state.characters = characters; finish('success', { itemCount: characters.length }); return characters;
+    } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : {}); throw error; }
+}
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 state.startupLoading = true;
 let startupPromise = null;
@@ -959,11 +968,7 @@ async function renderRegexPanel(body, revision, scope, target) {
         chooseTarget('管理的预设', available.map(item => [item.name, item.name]), selected);
         rules = copy(presetRegexes(entity?.data));
     } else {
-        if (!state.charactersLoaded) {
-            const cards = await api.post('/api/characters/all');
-            if (!Array.isArray(cards)) throw new Error('角色列表响应格式异常');
-            state.characters = cards; state.charactersLoaded = true;
-        }
+        await loadCharacterCatalog();
         const cards = state.characters; if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
         chooseTarget('管理的角色卡', cards.map(card => [card.avatar, card.name]), selected);
@@ -1073,17 +1078,13 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
     });
 }
 
-async function characterPanel() {
+async function characterPanel(force = false) {
     const host = showPanel('角色卡', '角色资料库', 'library-panel'); if (!host) return;
-    return loadPanelContent(host, '角色卡', (body, revision) => renderCharacterPanel(body, revision), () => characterPanel());
+    return loadPanelContent(host, '角色卡', (body, revision) => renderCharacterPanel(body, revision, force), () => characterPanel(true));
 }
-async function renderCharacterPanel(body, revision) {
+async function renderCharacterPanel(body, revision, force = false) {
     let library = libraryState(state.own.characterLibrary);
-    if (!state.charactersLoaded) {
-        const characters = await api.post('/api/characters/all');
-        if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
-        state.characters = characters; state.charactersLoaded = true;
-    }
+    await loadCharacterCatalog(force);
     if (revision !== panelRevision) return;
     let folder = 'all'; let mode = 'grid'; let page = 0;
     const selected = new Set();
@@ -1093,7 +1094,8 @@ async function renderCharacterPanel(body, revision) {
     for (const [value, label] of [['name', '名称排序'], ['recent', '最近创建']]) { const option = el('option', '', label); option.value = value; sort.append(option); }
     const create = action('新建角色', () => characterEditor(null), 'plus', 'primary');
     const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'card');
-    toolbar.append(search, sort, create, importButton); body.append(toolbar);
+    const refreshButton = action('刷新列表', () => characterPanel(true), 'refresh');
+    toolbar.append(search, sort, create, importButton, refreshButton); body.append(toolbar);
     const layout = el('div', 'library-layout');
     const sidebar = el('aside', 'library-folders'); sidebar.setAttribute('aria-label', '角色分类');
     const content = el('section', 'library-main'); content.setAttribute('aria-label', '角色文件');
@@ -1223,7 +1225,7 @@ async function renderCharacterPanel(body, revision) {
                 if (!result?.path) throw new Error('角色卡复制失败。');
                 await api.post('/api/characters/merge-attributes', { avatar: result.path, data: { name: `${card.name}（副本）` } });
                 await saveOwn({ characterLibrary: moveCards(state.own.characterLibrary, [result.path], library.assignments[card.avatar] || '') });
-                state.characters = await api.post('/api/characters/all'); panelDirty = false; notify('角色卡已复制'); await characterPanel();
+                characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; notify('角色卡已复制'); await characterPanel();
             }, 'copy'), action('删除', async () => {
                 assertSaved(); if (!confirm(`删除角色卡「${card.name}」？聊天文件会保留。`)) return;
                 const details = card.data ? card : await api.post('/api/characters/get', { avatar_url: card.avatar });
@@ -1236,7 +1238,7 @@ async function renderCharacterPanel(body, revision) {
                     if (own.lastChats) delete own.lastChats[card.avatar]; if (own.lastCharacter === card.avatar) delete own.lastCharacter;
                 }); state.own = state.settings.independent_frontend;
                 if (state.character?.avatar === card.avatar) { state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }
-                state.characters = await api.post('/api/characters/all'); panelDirty = false; notify('角色卡已删除'); await characterPanel();
+                characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; notify('角色卡已删除'); await characterPanel();
             }, 'trash', 'danger'));
             for (const button of actions.children) { const label = button.textContent.trim(); button.title = label; button.setAttribute('aria-label', `${card.name}：${label}`); }
             file.append(cover, info, actions); cards.append(file);
@@ -1312,7 +1314,7 @@ async function characterEditor(avatar = state.character?.avatar) {
         }
         state.settings = await api.patchSettings(settings => { const own = settingsOwn(settings); own.characterLibrary = moveCards(own.characterLibrary, [savedAvatar], category.value); }); state.own = state.settings.independent_frontend;
         avatarFile = null;
-        state.characters = [...state.characters.filter(item => item.avatar !== savedAvatar), { ...editing, avatar: savedAvatar }]; panelDirty = false; synchronize(); notify('角色已保存');
+        characterCatalog.invalidate(); state.characters = [...state.characters.filter(item => item.avatar !== savedAvatar), { ...editing, avatar: savedAvatar }]; panelDirty = false; synchronize(); notify('角色已保存');
         await characterPanel();
     }, 'edit', 'primary'));
     footer.append(action('取消', () => { panelDirty = false; return characterPanel(); }));
@@ -1337,7 +1339,7 @@ async function importCharacter(folderId = '') {
         state.settings = await api.patchSettings(settings => { const own = settingsOwn(settings); own.characterLibrary = moveCards(own.characterLibrary, [avatar], folderId); });
         state.own = state.settings.independent_frontend;
     }
-    state.characters = await api.post('/api/characters/all'); panelDirty = false; closePanel();
+    characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; closePanel();
     await openCharacter(avatar);
     if (worldResult) notify(worldResult.imported ? `角色卡及世界书「${worldResult.name}」已导入并关联` : '角色卡已导入');
 }
@@ -1434,7 +1436,7 @@ async function openCharacterWorld(avatar) {
     if (card.character_book?.entries) {
         const result = await importCharacterWorld(api, avatar, safeName); character = result.character; card = character.data || character;
         if (state.character?.avatar === avatar) state.character = character;
-        if (result.imported) { state.characters = await api.post('/api/characters/all'); notify('角色世界书已提取并关联'); }
+        if (result.imported) { characterCatalog.invalidate(); await loadCharacterCatalog(true); notify('角色世界书已提取并关联'); }
     } else {
         const available = await api.post('/api/worldinfo/list');
         if (!available.some(book => book.file_id === card.extensions.world)) throw new Error(`找不到角色关联的世界书：${card.extensions.world}。请先导入对应世界书。`);

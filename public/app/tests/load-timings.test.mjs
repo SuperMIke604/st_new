@@ -4,6 +4,12 @@ import { LoadTimings, loadTimings, timedFetch, requestFailure, timingStatusText,
 import { TavernAPI } from '../api.js';
 import { RecentCharacters } from '../home-data.js';
 
+test('character count is retained in logs without storing character names', () => {
+    const logs = new LoadTimings(); logs.start('读取角色列表', 'data')('success', { itemCount: 12 });
+    assert.equal(logs.snapshot()[0].itemCount, 12);
+    assert.equal(timingDetailText(logs.snapshot()[0]), '读取到 12 项');
+});
+
 test('timings include pending duration, finish only once and retain a bounded history', () => {
     let time = 0, saved;
     const logs = new LoadTimings({ now: () => time, limit: 2, storage: { setItem(key, value) { saved = value; } } });
