@@ -1,5 +1,13 @@
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
+export function isHtmlPreview(source, language = '') {
+    language = codeLanguage(language);
+    // Imported cards sometimes label a complete HTML document as text/test.
+    // Detect the document itself without treating arbitrary tagged code
+    // fragments in explicitly named programming languages as HTML cards.
+    const document = /^\s*(?:<!doctype\s+html\b[^>]*>\s*)?<html\b[^>]*>[\s\S]*<\/(?:html)\s*>\s*$/i.test(source);
+    return language === 'html' || document || (!language && /^\s*(?:<!doctype html|<html|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)/i.test(source));
+}
 export function codeTokens(source, language) {
     const html = language === 'html';
     const pattern = html ? /(<!--[\s\S]*?-->|<\/?[a-zA-Z][^>]*>|<!DOCTYPE[^>]*>)/gi
@@ -62,13 +70,14 @@ export function previewDocument(source) {
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify, send }) {
+export function decorateCodeBlocks(container, { icon, notify, send, messageId }) {
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
         const language = codeLanguage([...code.classList].find(name => name.startsWith('language-')) || [...code.classList][0] || '');
-        const html = language === 'html' || (!language && /^\s*(?:<!doctype html|<html|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)/i.test(source));
+        const html = isHtmlPreview(source, language);
         if (html) {
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
+            if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify;
             // Form submit handlers need allow-forms even when they prevent the
             // default submission. CSP form-action 'none' still blocks navigation.
