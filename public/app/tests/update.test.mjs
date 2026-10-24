@@ -44,3 +44,25 @@ test('installation progress remains active until install settles', async () => {
         assert.equal(closed,false);resolveInstall({ok:true});await running;assert.equal(closed,true);
     } finally {globalThis.fetch=originalFetch;globalThis.confirm=originalConfirm;}
 });
+
+test('backend update is offered even when frontend revision matches, and restart is explained', async () => {
+    const originalFetch = globalThis.fetch, originalConfirm = globalThis.confirm;
+    const notices = [], questions = [], calls = [];
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...BUILD, backend: { sha256: 'a'.repeat(64) } }) });
+    globalThis.confirm = text => { questions.push(text); return true; };
+    try {
+        await manualUpdate({ guard() {}, notify: text => notices.push(text), progress: () => ({ close() {} }), api: { post: async route => {
+            calls.push(route); return route.endsWith('/status') ? { available: true, selfUpdate: true, installedHash: 'b'.repeat(64) } : { ok: true, restartRequired: true };
+        } } });
+        assert.equal(calls.length, 2); assert.match(questions[0], /前端与后端/); assert.match(notices.at(-1), /重启酒馆/);
+    } finally { globalThis.fetch = originalFetch; globalThis.confirm = originalConfirm; }
+});
+test('legacy updater reports its one-time upgrade requirement instead of claiming backend is current', async () => {
+    const originalFetch = globalThis.fetch;
+    const notices = [], calls = [];
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...BUILD, backend: { sha256: 'a'.repeat(64) } }) });
+    try {
+        await manualUpdate({ guard() {}, notify: text => notices.push(text), api: { post: async route => { calls.push(route); return { available: true }; } } });
+        assert.equal(calls.length, 1); assert.match(notices.at(-1), /一次安装脚本/);
+    } finally { globalThis.fetch = originalFetch; }
+});

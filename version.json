@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "01f39e7ee956db1d868350c2ab7b0304b1341fd07424cb6c06a1285572cc4d81",
-  "publishedAt": "2026-10-24T13:02:32.604290+00:00",
+  "revision": "3ad81020f35cc06961463479524a52162bbc44031136af4a63670f25ca1474a1",
+  "publishedAt": "2026-10-24T13:17:32.506240+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "82e795f27480f4110c30c9b0b8291ca6f5b818a37efa64a14dab11eb5d63f061",
@@ -33,7 +33,7 @@
     "public/app/select.js": "e06e344bb0247e1124414db3831e53167bcb7f75669843a0fa73e075839495fb",
     "public/app/style.css": "b7f9b5e2daeda4e73ee16dcf2b74ea83ac26159c47f8bdab87d0a9b48c71844b",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
-    "public/app/update.js": "09d9339bebb8f5587300ddf0a211454b2592bb13c232f6277a99cb92ea0fa5a8",
+    "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
     "public/app/vendor/DOMPURIFY-LICENSE": "968bdd5b053aa290a16cd073416c5ae4a8daa51076e43f2df423b9c4e2ccda0a",
     "public/app/vendor/purify.min.js": "ef9a98b5b21aac33c73e316ef21f5cf06f68eff003a40ac953022129112cff3c",
     "public/app/vendor/SHOWDOWN-LICENSE": "56c14cb3c7835f93abce90f65b7ed58470981e2d768a8e60499ca34bae7764ad",
@@ -42,6 +42,10 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "71a3431f806d465aa9d65e2eed0906f7b9c774b61dbd443b20e1d5f5b60accad"
+    "public/app/version.js": "2bfc02eedfe5a34fbeb8b7f5e20dfc00fecdc15323868e393c0e702c6d00d2f9"
+  },
+  "backend": {
+    "file": "server/st-new-updater/index.mjs",
+    "sha256": "c91db455661af81607082645ab934742ac371b3d4691c9ad4e28f369d66b6961"
   }
 }
