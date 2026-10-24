@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LoadTimings, loadTimings, timedFetch } from '../load-timings.js';
+import { LoadTimings, loadTimings, timedFetch, requestFailure, timingStatusText, timingDetailText } from '../load-timings.js';
+import { TavernAPI } from '../api.js';
+import { RecentCharacters } from '../home-data.js';
 
 test('timings include pending duration, finish only once and retain a bounded history', () => {
     let time = 0, saved;
@@ -44,9 +46,60 @@ test('request timings omit query values and bodies and preserve HTTP error behav
         assert.equal(response.status, 500);
         const entry = loadTimings.snapshot().at(-1);
         assert.equal(entry.label, '/api/example'); assert.equal(entry.status, 'error');
+        assert.equal(entry.httpStatus, 500); assert.equal(entry.reason, 'http-error');
+        assert.match(timingDetailText(entry), /HTTP 500.*服务端/);
         assert.ok(!JSON.stringify(entry).includes('private-'));
         globalThis.fetch = async () => { throw new DOMException('private-error', 'AbortError'); };
         await assert.rejects(timedFetch('/api/cancelled'));
         assert.equal(loadTimings.snapshot().at(-1).status, 'cancelled');
     } finally { globalThis.fetch = original; }
+});
+test('optional updater 404s are compatibility records while native fallbacks still complete', async () => {
+    const original = globalThis.fetch;
+    loadTimings.clear();
+    const paths = [];
+    globalThis.fetch = async path => {
+        paths.push(path);
+        if (path.startsWith('/api/plugins/')) return new Response('not installed', { status: 404 });
+        return new Response(JSON.stringify(path === '/api/settings/get' ? { settings: '{}' } : [{ avatar: 'test.png' }]));
+    };
+    try {
+        const api = new TavernAPI();
+        await api.bootstrapSettings();
+        assert.equal((await new RecentCharacters(api).load())[0].avatar, 'test.png');
+        assert.deepEqual(paths, ['/api/plugins/st-new-updater/bootstrap', '/api/settings/get', '/api/plugins/st-new-updater/recent', '/api/chats/recent']);
+        const records = loadTimings.snapshot();
+        assert.deepEqual(records.map(entry => entry.status), ['fallback', 'success', 'fallback', 'success']);
+        assert.equal(records[0].httpStatus, 404);
+        assert.equal(timingStatusText(records[0]), '兼容回退');
+        assert.match(timingDetailText(records[0]), /HTTP 404.*兼容接口/);
+    } finally { globalThis.fetch = original; }
+});
+test('missing initial config files are expected while optional endpoint 500s stay real failures', async () => {
+    const original = globalThis.fetch;
+    loadTimings.clear();
+    try {
+        const api = new TavernAPI();
+        globalThis.fetch = async () => new Response('', { status: 404 });
+        assert.equal(await api.loadConnections(), null);
+        assert.equal(await api.loadPresetSelection(), null);
+        assert.ok(loadTimings.snapshot().every(entry => entry.status === 'fallback' && entry.reason === 'missing-configuration'));
+        globalThis.fetch = async () => new Response('server error', { status: 500 });
+        await assert.rejects(api.bootstrapSettings(), error => error.status === 500);
+        await assert.rejects(new RecentCharacters(api).load(), error => error.status === 500);
+        assert.ok(loadTimings.snapshot().slice(-2).every(entry => entry.status === 'error' && entry.httpStatus === 500));
+        await assert.rejects(api.post('/api/not-optional'), error => error.status === 500);
+        assert.equal(loadTimings.snapshot().at(-1).status, 'error');
+    } finally { globalThis.fetch = original; }
+});
+test('abort, navigation, timeout and real network failure remain distinguishable', () => {
+    const error = new TypeError('private endpoint');
+    const cancelled = new AbortController(); cancelled.abort(new Error('private reason'));
+    assert.deepEqual(requestFailure(error, cancelled.signal), { status: 'cancelled', reason: 'aborted' });
+    assert.deepEqual(requestFailure(error, undefined, true), { status: 'interrupted', reason: 'navigation' });
+    const timeout = new AbortController(); timeout.abort(new DOMException('private reason', 'TimeoutError'));
+    assert.deepEqual(requestFailure(error, timeout.signal), { status: 'error', reason: 'timeout' });
+    assert.deepEqual(requestFailure(error), { status: 'error', reason: 'network' });
+    assert.equal(timingDetailText({ status: 'error' }), '旧记录未保存状态码或原因');
+    assert.equal(timingDetailText({ status: 'cancelled', kind: 'page' }), '页面已切换或关闭');
 });

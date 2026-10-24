@@ -1,5 +1,5 @@
 import { RecentCharacters } from './home-data.js';
-import { loadTimings } from './load-timings.js';
+import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
@@ -442,27 +442,28 @@ function closePanel() {
 function timingPanel() {
     const body = showPanel('加载日志', '最近 200 条 · 耗时记录', 'timing-panel'); if (!body) return;
     const toolbar = el('div', 'timing-toolbar'), container = el('div', 'timing-table-wrap');
-    const names = { loading: '加载中', success: '完成', partial: '部分失败', error: '失败', cancelled: '已取消', interrupted: '刷新中断' };
     const draw = () => {
         container.replaceChildren();
         const entries = loadTimings.snapshot().reverse();
         if (!entries.length) { note(container, '暂无加载记录。'); return; }
+        if (entries.some(entry => entry.status === 'error' && !entry.httpStatus && !entry.reason)) note(container, '部分旧记录未保存错误详情。刷新页面后，新记录会显示状态码和原因。');
         const table = el('table', 'timing-table'), head = el('thead'), row = el('tr');
-        for (const label of ['加载项目', '开始时间', '耗时', '状态']) row.append(el('th', '', label));
+        for (const label of ['加载项目', '开始时间', '耗时', '状态', '详情']) row.append(el('th', '', label));
         head.append(row); table.append(head); const content = el('tbody');
         for (const entry of entries) {
             const row = el('tr'); row.dataset.status = entry.status;
-            row.append(el('td', '', entry.label), el('td', '', new Date(entry.startedAt).toLocaleTimeString()), el('td', '', `${entry.durationMs.toFixed(1)} ms`), el('td', '', names[entry.status] || entry.status));
+            row.append(el('td', '', entry.label), el('td', '', new Date(entry.startedAt).toLocaleTimeString()), el('td', '', `${entry.durationMs.toFixed(1)} ms`), el('td', '', timingStatusText(entry)), el('td', '', timingDetailText(entry)));
             content.append(row);
         }
         table.append(content); container.append(table);
     };
     toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => {
-        const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), entries: loadTimings.snapshot() }, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify({ schema: 2, exportedAt: new Date().toISOString(), entries: loadTimings.snapshot() }, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob), link = el('a'); link.href = url; link.download = 'loading-timings.json';
         document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, 'export'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
     body.append(toolbar); note(body, '记录全局初始化、页面加载和接口响应耗时。本标签页刷新后保留最近记录，可导出用于排查。');
+    note(body, '兼容回退、页面切换导致的取消和刷新中断属于正常记录。真正失败的请求会显示状态码或网络原因。');
     body.append(container); draw();
 }
 function field(parent, label, value = '', { multiline = false, type = 'text', hint = '', options, rows = 5 } = {}) {

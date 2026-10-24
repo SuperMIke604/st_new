@@ -12,7 +12,7 @@ export class RecentCharacters {
         return this.pending;
     }
     async fetch() {
-        try { return await this.api.post('/api/plugins/st-new-updater/recent', {}, { signal: AbortSignal.timeout(10000) }); }
+        try { return await this.api.post('/api/plugins/st-new-updater/recent', {}, { signal: AbortSignal.timeout(10000), fallbackStatuses: [404] }); }
         catch (error) {
             if (error.status !== 404) throw error;
             return this.api.post('/api/chats/recent', { max: 12 }, { signal: AbortSignal.timeout(15000) });

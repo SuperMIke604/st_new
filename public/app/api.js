@@ -11,12 +11,12 @@ export class TavernAPI {
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
-    async response(path, data = {}, { signal, form = false } = {}) {
+    async response(path, data = {}, { signal, form = false, fallbackStatuses = [] } = {}) {
         const response = await timedFetch(path, {
             method: 'POST', credentials: 'same-origin', signal,
             headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }) },
             body: form ? data : JSON.stringify(data),
-        });
+        }, { fallbackStatuses });
         if (response.redirected && response.url.includes('/login')) throw new ApiError('请先在原生页面登录，再重新打开 /app/。', 401);
         if (!response.ok) {
             const raw = await response.text();
@@ -48,14 +48,14 @@ export class TavernAPI {
     }
     async bootstrapSettings() {
         try {
-            const bundle = await this.post('/api/plugins/st-new-updater/bootstrap', {}, { signal: AbortSignal.timeout(15000) });
+            const bundle = await this.post('/api/plugins/st-new-updater/bootstrap', {}, { signal: AbortSignal.timeout(15000), fallbackStatuses: [404] });
             return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings };
         } catch (error) { if (error.status !== 404) throw error;
             const bundle = await this.post('/api/settings/get', {}, { signal: AbortSignal.timeout(15000) });
             return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings }; }
     }
     async loadConnections() {
-        const response = await timedFetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        const response = await timedFetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) }, { fallbackStatuses: [404], fallbackReason: 'missing-configuration' });
         if (response.status === 404) return null;
         if (!response.ok) throw new ApiError('无法读取连接配置，已停止载入，避免回退地址。', response.status);
         try { return await response.json(); } catch { throw new Error('连接配置文件损坏，请恢复备份，未使用默认地址覆盖。'); }
@@ -67,7 +67,7 @@ export class TavernAPI {
         if (!result?.path) throw new Error('连接配置保存失败。');
     }
     async loadPresetSelection() {
-        const response = await timedFetch('/user/files/independent-frontend-preset.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        const response = await timedFetch('/user/files/independent-frontend-preset.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) }, { fallbackStatuses: [404], fallbackReason: 'missing-configuration' });
         if (response.status === 404) return null;
         if (!response.ok) throw new ApiError('无法读取服务端预设选择，请重试', response.status);
         const value = await response.json();
