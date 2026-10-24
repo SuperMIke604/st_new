@@ -20,6 +20,12 @@
   </header>
   <main id="conversation">
     <section id="message-list" aria-label="聊天记录" tabindex="0"></section>
+    <div id="chat-loading" class="chat-loading-overlay" hidden>
+      <div class="loading-state" role="status" aria-live="polite" aria-atomic="true">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <div class="loading-copy"><span id="chat-loading-label" class="loading-label">正在打开聊天…</span><small>请稍候，加载完成后即可继续</small></div>
+      </div>
+    </div>
     <button type="button" id="back-latest" class="floating-latest" hidden>回到最新</button>
     <form id="composer" hidden>
       <button type="button" id="tools-toggle" class="icon-button" aria-label="对话工具" title="对话工具"></button>

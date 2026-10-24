@@ -22,8 +22,8 @@ export function expand(text, variables = {}) {
         if (next === result) break;
         result = next;
     }
-    const unknown = result.match(/\{\{[^{}]+\}\}/g);
-    if (unknown) throw new CompatibilityError(`暂不支持这些宏：${[...new Set(unknown)].slice(0, 6).join('、')}。请在预设或角色中调整后再生成。`);
+    // Native macro substitution preserves unregistered names. Cards also use
+    // {{姓名}} / {{N}} as output examples for the model, not executable macros.
     return result;
 }
 

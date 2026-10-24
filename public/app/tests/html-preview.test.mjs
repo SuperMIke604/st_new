@@ -5,11 +5,11 @@ import { previewDocument, decorateCodeBlocks } from '../code-blocks.js';
 
 test('late iframe registration remeasures unchanged content and routes card sends', () => {
     const original = { window: globalThis.window, document: globalThis.document, confirm: globalThis.confirm };
-    const guestEvents = new Map(), hostEvents = new Map(), frames = [], sent = [], measured = [];
+    const guestEvents = new Map(), hostEvents = new Map(), frames = [], sent = [], measured = [], attributes = {};
     const parent = {};
     const frame = {
         isConnected: true, style: {},
-        setAttribute() {}, addEventListener(type, fn) { this[type] = fn; },
+        setAttribute(name, value) { attributes[name] = value; }, addEventListener(type, fn) { this[type] = fn; },
         getBoundingClientRect() { return { height: Number.parseFloat(this.style.height) || 1 }; },
     };
     const guest = { postMessage(data) { guestEvents.get('message')?.({ source: parent, data }); } };
@@ -39,6 +39,9 @@ test('late iframe registration remeasures unchanged content and routes card send
         assert.equal(frame.style.height, undefined);
         const code = { parentElement: { replaceWith() {} }, textContent: '<div>Card</div>', classList: ['language-html'] };
         decorateCodeBlocks({ querySelectorAll: () => [code] }, { send: text => sent.push(text) });
+        assert.equal(attributes.sandbox, 'allow-scripts allow-forms');
+        assert.ok(frame.srcdoc.includes("form-action 'none'"));
+        assert.ok(!attributes.sandbox.includes('allow-same-origin'));
         flush();
         assert.equal(frame.style.height, '1085px');
         assert.equal(measured.length, 2, 'registration requests the same height again');

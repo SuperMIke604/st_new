@@ -70,7 +70,9 @@ export function decorateCodeBlocks(container, { icon, notify, send }) {
         if (html) {
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             frame._send = send; frame._notify = notify;
-            frame.setAttribute('sandbox', 'allow-scripts'); frame.referrerPolicy = 'no-referrer';
+            // Form submit handlers need allow-forms even when they prevent the
+            // default submission. CSP form-action 'none' still blocks navigation.
+            frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
             frame.addEventListener('load', () => registerPreview(frame));
             frame.srcdoc = previewDocument(source); pre.replaceWith(frame); registerPreview(frame); continue;
         }

@@ -103,8 +103,9 @@ test('character override honors original and forbid_overrides', () => {
     args.preset.prompts[0].forbid_overrides = true;
     assert.ok(!buildPrompt(args).messages[0].content.includes('角色覆盖'));
 });
-test('unknown macros are blocked before model requests instead of silently omitted', () => {
-    assert.equal(expand('{{getvar::secret}}', {}), ''); assert.throws(() => expand('{{unsupported_macro}}', {}), CompatibilityError);
+test('unregistered macro names remain literal like native substitution', () => {
+    assert.equal(expand('{{getvar::secret}}', {}), '');
+    assert.equal(expand('{{unsupported_macro}}', {}), '{{unsupported_macro}}');
     assert.equal(expand('{{char}} / {{user}}', { char: '林', user: '旅人' }), '林 / 旅人');
 });
 test('world activation supports keyword, selective logic, Chinese and recursion', () => {

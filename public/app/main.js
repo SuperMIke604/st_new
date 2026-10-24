@@ -53,6 +53,14 @@ function el(tag, className, text) {
     if (text !== undefined) node.textContent = text;
     return node;
 }
+function loadingIndicator(text, detail = '', compact = false) {
+    const node = el('div', `loading-state${compact ? ' loading-compact' : ''}`);
+    node.setAttribute('role', 'status'); node.setAttribute('aria-live', 'polite');
+    const spinner = el('span', 'loading-spinner'); spinner.setAttribute('aria-hidden', 'true');
+    const copy = el('div', 'loading-copy'); copy.append(el('span', 'loading-label', text));
+    if (detail) copy.append(el('small', '', detail));
+    node.append(spinner, copy); return node;
+}
 function action(label, callback, glyph, className = '') {
     const button = el('button', `button ${className}`); button.type = 'button';
     if (glyph) button.append(icon(glyph));
@@ -73,7 +81,11 @@ function notify(message, error = false) {
 async function run(callback) {
     try { return await callback(); } catch (error) { if (error.name !== 'AbortError') { console.error('[app]', error); notify(error.message || '操作失败', true); } }
 }
-function status(text, error = false) { $('save-status').textContent = text; $('save-status').classList.toggle('error', error); if (state.busy) { $('composer-status').textContent = text; $('composer-status').hidden = false; } }
+function status(text, error = false) {
+    $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
+    if (state.loading) $('chat-loading-label').textContent = text;
+    if (state.busy) { $('composer-status').textContent = text; $('composer-status').hidden = false; }
+}
 function assertIdle() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
@@ -125,12 +137,17 @@ function synchronize() {
 
     document.title = 'SillyTavern';
     $('composer-status').hidden = !state.busy;
+    $('composer').setAttribute('aria-busy', String(!!state.busy));
+    $('chat-loading').hidden = !state.loading;
+    $('message-list').setAttribute('aria-busy', String(!!state.loading));
     $('send-button').disabled = !state.ready || state.busy || state.loading || !state.character || state.dirty;
     $('stop-button').hidden = !state.busy;
     $('send-button').hidden = state.busy;
     $('message-input').disabled = !state.ready || !state.character;
     $('composer').hidden = !state.character;
     document.body.classList.toggle('home-view', !state.character);
+    // Refresh reply controls when a request starts/ends, including after stop.
+    list.update(state.chat.length - 1);
 }
 
 function markdown(text) {
@@ -159,7 +176,7 @@ function renderMessage(message, index, existing) {
     if (!message.is_user && index === state.chat.length - 1) {
         if (!switches) { switches = el('div','message-swipe-buttons');
             for (const [delta,label,glyph] of [[-1,'上一条回复','left'],[1,'下一条回复或重新生成','right']]) switches.append(action(label, async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const current=state.chat[index]; const next=(Number(current.swipe_id)||0)+delta; if(next<0)return; if(next>=(current.swipes?.length||1)) {await generate(true);return;} current.swipe_id=next;current.mes=current.swipes[next];if(current.swipe_info?.[next])Object.assign(current,copy(current.swipe_info[next]));invalidateDatabases(state.chat,index);list.update(index);await saveChat(); }, glyph)); const bottom=node.querySelector('.message-jumps-bottom'); bottom.append(switches); }
-        switches.children[0].disabled = state.busy || !(Number(message.swipe_id)>0); switches.children[1].disabled=state.busy;
+        switches.children[0].disabled = state.busy || state.loading || !(Number(message.swipe_id)>0); switches.children[1].disabled=state.busy || state.loading;
     } else switches?.remove();
     node.querySelector('.message-jumps-bottom')?.classList.toggle('has-swipes', !!node.querySelector('.message-swipe-buttons'));
     let reasoning = node.querySelector('.message-reasoning');
@@ -197,6 +214,12 @@ function renderMessage(message, index, existing) {
         return node;
     }
     node.querySelector('.inline-editor')?.remove(); node.querySelector('.message-content').hidden = false;
+    let waiting = node.querySelector('.message-waiting');
+    const pending = state.generation?.reply === message && !message.mes && !message.extra?.reasoning;
+    if (pending && !waiting) {
+        waiting = loadingIndicator(state.generation.regenerate ? '正在重新生成，等待回复…' : '正在等待回复…', '', true);
+        waiting.classList.add('message-waiting'); node.querySelector('.message-content').after(waiting);
+    } else if (!pending) waiting?.remove();
     const depth = state.chat.length - index - 1;
     if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth) {
         const body = node.querySelector('.message-content');
@@ -333,7 +356,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     panelDirty = false; panelRevision++;
     $('panel-title').textContent = title; $('panel-kicker').textContent = kicker;
-    $('panel').className = className; $('panel-body').replaceChildren();
+    $('panel').className = className; $('panel-body').replaceChildren(); $('panel-body').removeAttribute('aria-busy');
     if (!$('panel').open) { (matchMedia('(max-width:700px)').matches ? $('panel').show() : $('panel').showModal()); history.pushState({ appPanel: true }, ''); }
     raiseNotification();
     return $('panel-body');
@@ -385,8 +408,9 @@ async function openCharacter(avatar, { latest = false } = {}) {
 }
 async function loadChat(file, internal = false, character = state.character) {
     if (!internal) assertSaved();
-    if (!internal) state.loading = true;
+    if (!internal) { state.loading = true; synchronize(); }
     try {
+    status('读取聊天记录…');
     const data = file ? await api.post('/api/chats/get', { avatar_url: character.avatar, file_name: file }) : [];
     if (!Array.isArray(data)) throw new Error('聊天响应格式异常，已保留当前聊天。');
     const hasHeader = data[0] && !Object.hasOwn(data[0], 'mes');
@@ -401,9 +425,10 @@ async function loadChat(file, internal = false, character = state.character) {
     // No await between these assignments: character, identity and contents switch together.
     Object.assign(state, { character, header, chat, file: nextFile });
     clearWelcome(); list.setMessages(state.chat, { reset: true, latest: true });
-    $('message-input').value = ''; synchronize(); status('已读取');
+    $('message-input').value = ''; synchronize(); status('正在保存聊天位置…');
     if (file) await rememberChat(internal ? { lastCharacter: character.avatar } : {});
     else if (internal && state.own.lastCharacter !== character.avatar) await saveOwn({ lastCharacter: character.avatar });
+    status('已读取');
     } finally { if (!internal) { state.loading = false; synchronize(); } }
 }
 async function rememberChat(patch = {}) {
@@ -955,9 +980,21 @@ async function characterPanel() {
     const revision = panelRevision;
     let library = libraryState(state.own.characterLibrary);
     if (!state.charactersLoaded) {
-        const characters = await api.post('/api/characters/all');
-        if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
-        state.characters = characters; state.charactersLoaded = true;
+        const loading = loadingIndicator('正在加载角色卡…', '首次读取需要一点时间');
+        body.append(loading); body.setAttribute('aria-busy', 'true');
+        try {
+            const characters = await api.post('/api/characters/all');
+            if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
+            state.characters = characters; state.charactersLoaded = true;
+        } catch (error) {
+            if (revision === panelRevision) {
+                note(body, `角色卡加载失败：${error.message}`, true);
+                body.append(action('重新加载', characterPanel, 'refresh'));
+            }
+            throw error;
+        } finally {
+            loading.remove(); if (revision === panelRevision) body.removeAttribute('aria-busy');
+        }
     }
     if (revision !== panelRevision) return;
     let folder = 'all'; let mode = 'grid'; let page = 0;
@@ -1141,7 +1178,12 @@ async function characterPanel() {
 async function characterEditor(avatar = state.character?.avatar) {
     const body = showPanel(avatar ? '编辑角色卡' : '新建角色', '角色资料'); if (!body) return;
     const revision = panelRevision;
-    let editing = avatar ? await api.post('/api/characters/get', { avatar_url: avatar }) : null;
+    let editing = null;
+    if (avatar) {
+        const loading = loadingIndicator('正在读取角色资料…'); body.append(loading); body.setAttribute('aria-busy', 'true');
+        try { editing = await api.post('/api/characters/get', { avatar_url: avatar }); }
+        finally { loading.remove(); if (revision === panelRevision) body.removeAttribute('aria-busy'); }
+    }
     if (revision !== panelRevision) return;
     const card = editing?.data || editing || {};
     if (editing) {
@@ -1580,7 +1622,8 @@ async function generate(mode = false) {
     generationBody(connection(), state.preset, []);
     const user = { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
     const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
-    state.busy = true; state.controller = new AbortController(); synchronize(); status('准备上下文…');
+    state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
+    status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
     try {
         const prepared = await preparePrompt(requestChat);
@@ -1590,13 +1633,15 @@ async function generate(mode = false) {
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
+            delete reply.gen_finished; delete reply.extra.reasoning;
             if (reply.TavernDB_ACU_Data) (reply.extra.independentDatabase ||= {}).stale = true;
             reply.swipes = old.swipes?.length ? [...old.swipes] : [old.mes];
             reply.swipe_info = old.swipe_info ? copy(old.swipe_info) : [{ extra: copy(old.extra || {}) }];
             reply.swipe_id = reply.swipes.length; state.chat[state.chat.length - 1] = reply;
         } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
         replyIndex = state.chat.length - 1;
-        list.setMessages(state.chat, { latest: true }); status('正在回复…');
+        state.generation.reply = reply;
+        list.setMessages(state.chat, { latest: true }); status(regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
         preview = prepared;
         const response = await api.response('/api/backends/chat-completions/generate', body, { signal: state.controller.signal });
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
@@ -1607,6 +1652,7 @@ async function generate(mode = false) {
             for await (const event of readEvents(response)) {
                 if (event.error) throw new Error(typeof event.error === 'string' ? event.error : event.error.message || '模型请求失败');
                 const delta = event.choices?.[0]?.delta;
+                if (!reply.mes && !reply.extra.reasoning && (delta?.content || delta?.reasoning_content || delta?.reasoning || event.choices?.[0]?.text)) status(regenerate ? '正在重新生成…' : '正在回复…');
                 reply.mes += delta?.content || event.choices?.[0]?.text || '';
                 if (delta?.reasoning_content || delta?.reasoning) reply.extra.reasoning = (reply.extra.reasoning || '') + (delta.reasoning_content || delta.reasoning);
                 if (!streamFrame) streamFrame = setTimeout(() => { streamFrame = 0; list.update(replyIndex); }, 90);
@@ -1620,6 +1666,7 @@ async function generate(mode = false) {
         else { state.error = error.message; notify(error.message, true); }
     } finally {
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
+        state.generation = null;
         if (reply) {
             reply.mes = regexText(reply.mes, 2, { depth: 0 });
             if (reply.extra?.reasoning) reply.extra.reasoning = regexText(reply.extra.reasoning, 6, { depth: 0 });
