@@ -1,4 +1,5 @@
 import { RecentCharacters } from './home-data.js';
+import { loadTimings } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
@@ -28,6 +29,9 @@ const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
+state.startupLoading = true;
+let startupPromise = null;
+const panelLoads = new WeakMap();
 let panelDirty = false;
 let panelRevision = 0;
 let preview = null;
@@ -60,6 +64,38 @@ function loadingIndicator(text, detail = '', compact = false) {
     const copy = el('div', 'loading-copy'); copy.append(el('span', 'loading-label', text));
     if (detail) copy.append(el('small', '', detail));
     node.append(spinner, copy); return node;
+}
+const nextPaint = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+async function loadPanelContent(host, label, render, retry) {
+    const revision = panelRevision, token = {}, finish = loadTimings.start(label, 'page');
+    panelLoads.set(host, token);
+    const current = () => panelRevision === revision && panelLoads.get(host) === token;
+    const loading = loadingIndicator(`正在加载${label}…`);
+    host.replaceChildren(loading); host.setAttribute('aria-busy', 'true');
+    let outcome = 'cancelled';
+    try {
+        // Paint the indicator before synchronous parsing/rendering of cached data.
+        await nextPaint();
+        if (state.startupLoading) await startupPromise;
+        if (!current()) return;
+        if (!state.ready) throw new Error(state.startupError || '应用初始化未完成，请刷新后重试。');
+        const content = el('div', 'panel-content');
+        await render(content, revision);
+        if (!current()) return;
+        host.replaceChildren(content); await nextPaint();
+        if (current()) outcome = 'success';
+    } catch (error) {
+        outcome = current() ? 'error' : 'cancelled';
+        if (current()) {
+            host.replaceChildren(el('p', 'note warning', `${label}加载失败：${error.message}`));
+            if (retry) host.append(action('重新加载', retry, 'refresh'));
+        }
+        if (current()) throw error;
+    } finally {
+        loading.remove();
+        if (current()) { host.removeAttribute('aria-busy'); panelLoads.delete(host); }
+        finish(outcome);
+    }
 }
 function action(label, callback, glyph, className = '') {
     const button = el('button', `button ${className}`); button.type = 'button';
@@ -251,8 +287,19 @@ function welcome() {
     const welcome = el('div', 'welcome');
 
     const recent = el('div', 'home-recent'); welcome.append(recent);
+    if (state.startupLoading || state.startupError) {
+        if (state.startupLoading) {
+            const loading = loadingIndicator('正在加载应用…', state.startupStage || '读取设置、预设、最近角色和 API 连接');
+            loading.id = 'home-startup-loading'; recent.append(loading);
+        } else {
+            note(recent, `初始化失败：${state.startupError}`, true);
+            recent.append(action('重新加载', () => { startupPromise = start(); return startupPromise; }, 'refresh'));
+        }
+        welcome.append(action('加载日志', timingPanel, 'history', 'home-log-button'));
+        $('message-list').append(welcome); return;
+    }
     const loading = el('div', 'home-loading', '正在加载最近角色…'); loading.setAttribute('role', 'status'); recent.append(loading);
-    welcome.append(action('选择角色', () => navigation(), 'card', 'primary'));
+    welcome.append(action('选择角色', () => navigation(), 'card', 'primary'), action('加载日志', timingPanel, 'history', 'home-log-button'));
     $('composer').hidden = true;
     document.body.classList.add('home-view');
     const recentRequest = state.homeReady ? (homeRecentRequest || loadRecentCharacters()) : null;
@@ -305,19 +352,43 @@ async function reloadResources() {
 let homeRecentRequest = null;
 let connectionInitialization = null;
 const loadRecentCharacters = () => recentCharacters.load();
+function startupStage(text) {
+    state.startupStage = text;
+    const label = document.querySelector('#home-startup-loading .loading-copy small');
+    if (label) label.textContent = text;
+}
 async function start() {
+    state.startupLoading = true; state.startupError = ''; state.ready = false; state.connectionPending = true;
+    const finish = loadTimings.start('全局初始化', 'startup'), pending = [];
+    let outcome = 'success';
     welcome();
-    await api.connect();
-    homeRecentRequest = loadRecentCharacters();
-    homeRecentRequest.catch(() => {});
-    state.homeReady = true; welcome();
-    const connectionsRequest = api.loadConnections();
-    connectionsRequest.catch(() => {});
-    await reloadResources();
-    state.ready = true; synchronize(); welcome();
-    state.connectionPending = true;
-    connectionInitialization = initializeConnections(connectionsRequest);
-    try { await connectionInitialization; } catch (error) { state.connectionError = error.message; notify(`连接初始化失败：${error.message}。角色资料仍可查看。`, true); } finally { state.connectionPending = false; synchronize(); }
+    try {
+        startupStage('正在连接后端…');
+        await loadTimings.measure('连接后端', 'startup', () => api.connect());
+        homeRecentRequest = loadTimings.measure('首页最近角色', 'startup', loadRecentCharacters);
+        homeRecentRequest.catch(() => {}); pending.push(homeRecentRequest);
+        state.homeReady = true;
+        const connectionsRequest = loadTimings.measure('读取 API 连接', 'startup', () => api.loadConnections());
+        connectionsRequest.catch(() => {}); pending.push(connectionsRequest);
+        startupStage('正在加载设置和预设…');
+        await loadTimings.measure('设置与预设', 'startup', reloadResources);
+        startupStage('正在完成 API 连接和最近角色初始化…');
+        connectionInitialization = loadTimings.measure('初始化 API 连接', 'startup', () => initializeConnections(connectionsRequest));
+        pending.push(connectionInitialization);
+        const [recent, connection] = await Promise.allSettled([homeRecentRequest, connectionInitialization]);
+        if (recent.status === 'rejected') outcome = 'partial';
+        if (connection.status === 'rejected') {
+            outcome = 'partial'; state.connectionError = connection.reason.message;
+            notify(`连接初始化失败：${connection.reason.message}。请打开 API 面板检查。`, true);
+        }
+        state.ready = true;
+    } catch (error) {
+        outcome = 'error'; state.startupError = error.message; throw error;
+    } finally {
+        await Promise.allSettled(pending);
+        state.startupLoading = false; state.connectionPending = false;
+        synchronize(); if (!state.character) welcome(); finish(outcome);
+    }
 }
 async function initializeConnections(connectionsRequest) {
     const stored = await connectionsRequest;
@@ -367,6 +438,32 @@ function closePanel() {
     $('panel').close();
     if (history.state?.appPanel) history.back();
     return true;
+}
+function timingPanel() {
+    const body = showPanel('加载日志', '最近 200 条 · 耗时记录', 'timing-panel'); if (!body) return;
+    const toolbar = el('div', 'timing-toolbar'), container = el('div', 'timing-table-wrap');
+    const names = { loading: '加载中', success: '完成', partial: '部分失败', error: '失败', cancelled: '已取消', interrupted: '刷新中断' };
+    const draw = () => {
+        container.replaceChildren();
+        const entries = loadTimings.snapshot().reverse();
+        if (!entries.length) { note(container, '暂无加载记录。'); return; }
+        const table = el('table', 'timing-table'), head = el('thead'), row = el('tr');
+        for (const label of ['加载项目', '开始时间', '耗时', '状态']) row.append(el('th', '', label));
+        head.append(row); table.append(head); const content = el('tbody');
+        for (const entry of entries) {
+            const row = el('tr'); row.dataset.status = entry.status;
+            row.append(el('td', '', entry.label), el('td', '', new Date(entry.startedAt).toLocaleTimeString()), el('td', '', `${entry.durationMs.toFixed(1)} ms`), el('td', '', names[entry.status] || entry.status));
+            content.append(row);
+        }
+        table.append(content); container.append(table);
+    };
+    toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => {
+        const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), entries: loadTimings.snapshot() }, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob), link = el('a'); link.href = url; link.download = 'loading-timings.json';
+        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'export'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
+    body.append(toolbar); note(body, '记录全局初始化、页面加载和接口响应耗时。本标签页刷新后保留最近记录，可导出用于排查。');
+    body.append(container); draw();
 }
 function field(parent, label, value = '', { multiline = false, type = 'text', hint = '', options, rows = 5 } = {}) {
     const wrap = el('label', 'field'); wrap.append(el('span', '', label));
@@ -572,8 +669,10 @@ async function connectionPanel(profileId = '', draft = null) {
 }
 
 async function presetPanel() {
-    if (!state.ready) { notify('正在加载设置，请稍后再打开预设管理。'); return; }
-    const body = showPanel('生成预设', '提示词与生成参数', 'preset-panel'); if (!body) return;
+    const host = showPanel('生成预设', '提示词与生成参数', 'preset-panel'); if (!host) return;
+    return loadPanelContent(host, '预设', (body, revision) => renderPresetPanel(body, revision), () => presetPanel());
+}
+async function renderPresetPanel(body, revision) {
     if (state.presetMissing) note(body, '保存的预设已不存在，请重新选择；当前未自动启用其他预设。');
     const available = presets();
     let draft = presetDraft(available.length ? state.preset : createPreset());
@@ -727,7 +826,7 @@ async function presetPanel() {
             }
             details.append(content); rows.append(details);
         }
-        rows._disposeDrag = installPromptDrag(rows, body, identifiers => {
+        rows._disposeDrag = installPromptDrag(rows, $('panel-body'), identifiers => {
             const order = promptOrder(draft);
             const entries = new Map(order.map(item => [item.identifier, item]));
             if (identifiers.some((id, index) => order[index]?.identifier !== id)) {
@@ -824,7 +923,6 @@ async function presetPanel() {
 }
 
 async function regexPanel(scope = 'global', target = '') {
-    if (!state.ready) { notify('正在加载设置，请稍后再打开正则管理。'); return; }
     if (!['global', 'preset', 'character'].includes(scope)) scope = 'global';
     const reuse = $('panel').open && $('panel').classList.contains('regex-panel');
     let host;
@@ -832,8 +930,10 @@ async function regexPanel(scope = 'global', target = '') {
         if (panelDirty && !confirm('放弃未保存的正则修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
     } else { host = showPanel('正则管理', '全局 · 预设 · 角色卡', 'regex-panel'); if (!host) return; }
-    const body = el('div', 'regex-panel-content');
-    const revision = panelRevision;
+    return loadPanelContent(host, '正则', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target));
+}
+async function renderRegexPanel(body, revision, scope, target) {
+    body.classList.add('regex-panel-content');
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
     const available = (fresh.bundle.openai_setting_names || []).map((name, index) => ({ name, data: typeof fresh.bundle.openai_settings[index] === 'string' ? JSON.parse(fresh.bundle.openai_settings[index]) : fresh.bundle.openai_settings[index] }));
     const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则范围');
@@ -873,7 +973,7 @@ async function regexPanel(scope = 'global', target = '') {
         if (revision !== panelRevision) return;
         rules = copy(scopedRegexes({ character: entity }).character);
     }
-    if (scope !== 'global' && !entity) { note(body, '没有可管理的对象，请先创建或导入。'); host.replaceChildren(body); return; }
+    if (scope !== 'global' && !entity) { note(body, '没有可管理的对象，请先创建或导入。'); return; }
     const count = el('p', 'note'); body.append(count);
     const toolbar = el('div', 'regex-toolbar'); body.append(toolbar);
     const rows = el('div', 'regex-list'); body.append(rows);
@@ -912,7 +1012,6 @@ async function regexPanel(scope = 'global', target = '') {
         }
         panelDirty = false; list.setMessages(state.chat, { reset: true }); notify('正则已保存');
     }, 'edit', 'primary')); body.append(footer); render();
-    if (revision === panelRevision) host.replaceChildren(body);
 }
 
 function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
@@ -976,25 +1075,15 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
 }
 
 async function characterPanel() {
-    const body = showPanel('角色卡', '角色资料库', 'library-panel'); if (!body) return;
-    const revision = panelRevision;
+    const host = showPanel('角色卡', '角色资料库', 'library-panel'); if (!host) return;
+    return loadPanelContent(host, '角色卡', (body, revision) => renderCharacterPanel(body, revision), () => characterPanel());
+}
+async function renderCharacterPanel(body, revision) {
     let library = libraryState(state.own.characterLibrary);
     if (!state.charactersLoaded) {
-        const loading = loadingIndicator('正在加载角色卡…', '首次读取需要一点时间');
-        body.append(loading); body.setAttribute('aria-busy', 'true');
-        try {
-            const characters = await api.post('/api/characters/all');
-            if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
-            state.characters = characters; state.charactersLoaded = true;
-        } catch (error) {
-            if (revision === panelRevision) {
-                note(body, `角色卡加载失败：${error.message}`, true);
-                body.append(action('重新加载', characterPanel, 'refresh'));
-            }
-            throw error;
-        } finally {
-            loading.remove(); if (revision === panelRevision) body.removeAttribute('aria-busy');
-        }
+        const characters = await api.post('/api/characters/all');
+        if (!Array.isArray(characters)) throw new Error('角色列表响应格式异常');
+        state.characters = characters; state.charactersLoaded = true;
     }
     if (revision !== panelRevision) return;
     let folder = 'all'; let mode = 'grid'; let page = 0;
@@ -1268,8 +1357,10 @@ function themeDefaultAvatar(img, name) {
     });
 }
 async function personasPanel() {
-    const body = showPanel('用户设定', '你在故事中的身份', 'personas-panel'); if (!body) return;
-    const revision = panelRevision;
+    const host = showPanel('用户设定', '你在故事中的身份', 'personas-panel'); if (!host) return;
+    return loadPanelContent(host, '用户设定', (body, revision) => renderPersonasPanel(body, revision), () => personasPanel());
+}
+async function renderPersonasPanel(body, revision) {
     const fresh = { settings: state.settings };
     const avatars = Object.keys(state.settings.power_user?.personas || {});
     state.settings = fresh.settings; state.own = settingsOwn(state.settings);
@@ -1302,6 +1393,7 @@ async function personasPanel() {
     }
     if (!available.length) rows.append(el('p', 'note', '暂无用户设定，点击右上角新增。'));
 }
+
 async function personaEditor(avatar = null, inline = null) {
     const body = inline || showPanel(avatar ? '编辑用户设定' : '新增用户设定', '身份资料'); if (!body) return;
     const power = state.settings.power_user || {}, saved = power.persona_descriptions?.[avatar] || {};
@@ -1351,8 +1443,10 @@ async function openCharacterWorld(avatar) {
     await worldsPanel(card.extensions?.world || '', null, character);
 }
 async function worldsPanel(target = '', initial = null, character = state.character) {
-    const body = showPanel('世界书', '背景与记忆'); if (!body) return;
-    const revision = panelRevision;
+    const host = showPanel('世界书', '背景与记忆'); if (!host) return;
+    return loadPanelContent(host, '世界书', (body, revision) => renderWorldPanel(body, revision, target, initial, character), () => worldsPanel(target, initial, character));
+}
+async function renderWorldPanel(body, revision, target, initial, character) {
     const worlds = await api.post('/api/worldinfo/list'); if (revision !== panelRevision) return;
     const currentCard = character?.data || character;
     const linked = currentCard?.extensions?.world;
@@ -1397,7 +1491,7 @@ async function worldsPanel(target = '', initial = null, character = state.charac
     const name = { value: initial ? target : original };
     const entries = el('div', 'world-entry-list'); body.append(entries);
     const dirty = () => { bookDirty = true; panelDirty = true; };
-    const render = () => renderWorldEntries(entries, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
+    const render = (target = entries) => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
     const button = (label, glyph, callback, className = '') => { const control = action(label, callback, glyph, className); control.title = label; control.setAttribute('aria-label', label); tools.append(control); return control; };
     button('修改世界书名称', 'edit', () => {
         const value = prompt('世界书名称', name.value);
@@ -1432,9 +1526,12 @@ async function worldsPanel(target = '', initial = null, character = state.charac
     select.addEventListener('change', () => run(async () => {
         if (panelDirty && !confirm('放弃未保存的修改并切换世界书？')) { select.value = previous; return; }
         const next = select.value, request = ++bookRequest;
-        try { const loaded = await api.post('/api/worldinfo/get', { name: next });
-            if (request !== bookRequest || revision !== panelRevision) return;
-            original = next; name.value = next; draft = worldDraft(loaded); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render();
+        try {
+            await loadPanelContent(entries, '世界书条目', async content => {
+                const loaded = await api.post('/api/worldinfo/get', { name: next });
+                if (request !== bookRequest || revision !== panelRevision) return;
+                original = next; name.value = next; draft = worldDraft(loaded); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render(content);
+            }, () => worldsPanel(next, null, character));
         } catch (error) { if (request === bookRequest) select.value = previous; throw error; }
     }));
     const footer = el('div', 'editor-footer'); footer.append(action('保存世界书', async () => {
@@ -1622,11 +1719,12 @@ async function generate(mode = false) {
     generationBody(connection(), state.preset, []);
     const user = { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
     const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
+    const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
     try {
-        const prepared = await preparePrompt(requestChat);
+        const prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
         const body = generationBody(connection(), state.preset, prepared.messages);
         if (state.controller.signal.aborted) return;
         if (!regenerate && !retry) { state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat(); }
@@ -1683,6 +1781,7 @@ async function generate(mode = false) {
         }
         state.busy = false; state.controller = null; synchronize();
         if (!state.dirty) status(state.error ? '请求未完成' : '已保存');
+        finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
         state.error = '';
         if (completed && !state.dirty) await autoUpdateDatabase();
     }
@@ -1822,7 +1921,7 @@ for (const [id, glyph] of [['tools-toggle', 'plus'], ['close-panel', 'close'], [
 $('tools-toggle').title = '对话工具'; $('tools-toggle').setAttribute('aria-label', '对话工具');
 $('tools-toggle').setAttribute('aria-expanded', 'false');
 const composerTools = $('composer-tools');
-for (const [label, glyph, callback] of [['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+for (const [label, glyph, callback] of [['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); });
@@ -1848,7 +1947,8 @@ function resizeViewport() {
 window.visualViewport?.addEventListener('resize', resizeViewport);
 window.visualViewport?.addEventListener('scroll', resizeViewport);
 window.addEventListener('resize', resizeViewport); resizeViewport(); synchronize();
-void run(start).then(() => { if (!state.ready) { status('连接失败 · 刷新重试', true); welcome(); } });
+startupPromise = start();
+void run(() => startupPromise);
 
 
 

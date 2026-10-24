@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "revision": "549addcda616e3b7595e1876b48e6c75d06049e5f220f90288472383bce19625",
-  "publishedAt": "2026-10-24T05:28:28.122229+00:00",
+  "revision": "d8674ea4a409380f0dc02f4a4d5dbbb851fa9ea654a4086c1a3208bb5c57966c",
+  "publishedAt": "2026-10-24T06:00:51.450703+00:00",
   "files": {
-    "public/app/api.js": "2586baa48ec7d1312461b3d002961ccdf0c1665a7a8e714085f91071f9eba585",
+    "public/app/api.js": "38604a04ed3261cad544b42dbcfcc1e74026b27061679bc7dc2e912c76b880d7",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
     "public/app/code-blocks.js": "456047de5d2f4a4fb69f98aecd56fb9d4d7637a08dabe077a6aa08623617af7d",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
@@ -18,7 +18,8 @@
     "public/app/icons.js": "17a6359f2036485834c1fa8439612dd7bac3db726d42e8674f218732c1461e03",
     "public/app/index.html": "dbef73bef29742d28916b431627dd23964f64395d757e06e9aa98941fa7b1aa3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/main.js": "53b0121972abc247dc77bad751942f410294c87a1a6d9481dff6dff2c76afa95",
+    "public/app/load-timings.js": "bd67665608b19ee4d704c9d7e785e6bc184d77b2f53871782a934eac4abee20e",
+    "public/app/main.js": "2c3f06bfc6d38ece0c6bea77fd1e233e9566660e33aeae952ed5a30a58597c72",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/preset-editor.js": "2fa17c6ff573ef338c3a65c769a70d14476105a9a2ed892d42c041b7193bd41a",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -27,7 +28,7 @@
     "public/app/README.md": "5d45a1bc878f25bf68cbff0e3b536adc25786a8d39ab0ea0b3fbc67452da415a",
     "public/app/regex.js": "b0aa3dd6666fb5f6913c29d87a592e2acdb528a8247b0f3ecf03ae8073d2ef4c",
     "public/app/select.js": "e06e344bb0247e1124414db3831e53167bcb7f75669843a0fa73e075839495fb",
-    "public/app/style.css": "8de73fb3a9b60aff56422e3331a6c8c5392eae7a410a538cfc667becfcc3788b",
+    "public/app/style.css": "f12ed33d779b97d48ca009aa29a9d8e842d7810e4786d0f3e429fa01d42f4940",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/update.js": "09d9339bebb8f5587300ddf0a211454b2592bb13c232f6277a99cb92ea0fa5a8",
     "public/app/vendor/DOMPURIFY-LICENSE": "968bdd5b053aa290a16cd073416c5ae4a8daa51076e43f2df423b9c4e2ccda0a",
@@ -38,6 +39,6 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a516172672e433bcb63830c87a208599b62104b1606dba5bf9bb64fcb7098ea1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "7f1b0d86f31ebac3fa3df78e01d6cc888e18197d6244a025c4be207599ddb8c7"
+    "public/app/version.js": "e765af3929059766290f5032bbd2b2ddab73542a69bca9e0f8ede420d5c6c2a2"
   }
 }

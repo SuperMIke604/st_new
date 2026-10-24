@@ -1,3 +1,4 @@
+import { timedFetch } from './load-timings.js';
 export class ApiError extends Error {
     constructor(message, status) { super(message); this.status = status; }
 }
@@ -6,12 +7,12 @@ export class ApiError extends Error {
 export class TavernAPI {
     constructor() { this.readCache = new Map(); this.csrf = ''; this.saveQueue = Promise.resolve(); }
     async connect() {
-        const response = await fetch('/csrf-token', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        const response = await timedFetch('/csrf-token', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
     async response(path, data = {}, { signal, form = false } = {}) {
-        const response = await fetch(path, {
+        const response = await timedFetch(path, {
             method: 'POST', credentials: 'same-origin', signal,
             headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }) },
             body: form ? data : JSON.stringify(data),
@@ -54,7 +55,7 @@ export class TavernAPI {
             return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings }; }
     }
     async loadConnections() {
-        const response = await fetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        const response = await timedFetch('/user/files/independent-frontend-connections.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (response.status === 404) return null;
         if (!response.ok) throw new ApiError('无法读取连接配置，已停止载入，避免回退地址。', response.status);
         try { return await response.json(); } catch { throw new Error('连接配置文件损坏，请恢复备份，未使用默认地址覆盖。'); }
@@ -66,7 +67,7 @@ export class TavernAPI {
         if (!result?.path) throw new Error('连接配置保存失败。');
     }
     async loadPresetSelection() {
-        const response = await fetch('/user/files/independent-frontend-preset.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        const response = await timedFetch('/user/files/independent-frontend-preset.json', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (response.status === 404) return null;
         if (!response.ok) throw new ApiError('无法读取服务端预设选择，请重试', response.status);
         const value = await response.json();

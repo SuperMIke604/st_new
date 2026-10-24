@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+import { LoadTimings } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('async function generate('), source.indexOf('\nfunction messageActions('));
@@ -12,7 +13,7 @@ function fixture() {
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     let requests = 0;
-    const context = vm.createContext({ state, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+    const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => text, resizeInput() {}, preparePrompt: () => prepared.promise,
