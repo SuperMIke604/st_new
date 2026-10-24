@@ -4,6 +4,11 @@ import { CharacterCatalog } from '../character-catalog.js';
 
 const cards = [{ avatar: 'a.png', name: 'A' }];
 const options = { pause: async () => {} };
+test('two empty lists and a valid current card recover automatically on the final fresh read', async () => {
+    let reads = 0;
+    const catalog = new CharacterCatalog({ post: async path => path.endsWith('/get') ? cards[0] : ++reads < 3 ? [] : cards }, options);
+    assert.deepEqual(await catalog.load({ knownAvatar: 'a.png' }), cards); assert.equal(reads, 3);
+});
 test('a transient empty HTTP 200 triggers a fresh bounded read and recovers', async () => {
     let reads = 0;
     const catalog = new CharacterCatalog({ post: async (path, body, options) => {

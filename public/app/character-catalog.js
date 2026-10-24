@@ -32,7 +32,12 @@ export class CharacterCatalog {
                 const card = await this.api.post('/api/characters/get', { avatar_url: knownAvatar }, { signal: this.timeout() });
                 exists = !!(card?.name || card?.data?.name);
             } catch (error) { if (error.status !== 404) throw error; }
-            if (exists) throw Error('角色列表暂时返回空数据，但当前角色仍存在。请点击重试读取角色列表。');
+            if (exists) {
+                // Two empty HTTP 200 responses followed by a valid /get were
+                // observed in real logs. A later fresh read recovered all cards.
+                await this.pause(); items = await this.read();
+                if (!items.length) throw Object.assign(Error('角色列表暂时返回空数据，但当前角色仍存在。请点击重试读取角色列表。'), { reason: 'empty-character-list' });
+            }
         }
         return items;
     }

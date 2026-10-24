@@ -34,6 +34,7 @@ function registerPreview(frame) {
             }
             const target = previewFrames.get(event.source);
             if (!target) return;
+            if (event.data?.type === 'tavern-html-edit') { target._edit?.(); return; }
             if (event.data?.type === 'tavern-html-send' && typeof event.data.text === 'string' && event.data.text.length <= 100000) {
                 if (confirm('发送此卡片生成的内容并请求回复？\n\n' + event.data.text.slice(0, 300))) target._send?.(event.data.text);
                 return;
@@ -66,11 +67,14 @@ export function previewDocument(source) {
         addEventListener('DOMContentLoaded',()=>{new ResizeObserver(schedule).observe(document.body);new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});document.addEventListener('toggle',schedule,true);document.addEventListener('input',schedule,true);document.addEventListener('change',schedule,true);schedule();});
         addEventListener('load',schedule);addEventListener('resize',schedule);
         document.addEventListener('submit',event=>event.preventDefault());
+        const canEdit=target=>!target.closest('button,input,textarea,select,a,summary');
+        document.addEventListener('dblclick',event=>{if(canEdit(event.target)){event.preventDefault();parent.postMessage({type:'tavern-html-edit'},'*');}});
+        let tap=null;document.addEventListener('pointerup',event=>{if(event.pointerType==='mouse'||!canEdit(event.target)){tap=null;return;}const next={time:Date.now(),x:event.clientX,y:event.clientY};if(tap&&next.time-tap.time<=350&&Math.hypot(next.x-tap.x,next.y-tap.y)<=24){tap=null;parent.postMessage({type:'tavern-html-edit'},'*');}else tap=next;});document.addEventListener('pointercancel',()=>{tap=null;});
     })();<\/script>`;
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify, send, messageId }) {
+export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId }) {
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
         const language = codeLanguage([...code.classList].find(name => name.startsWith('language-')) || [...code.classList][0] || '');
@@ -78,7 +82,7 @@ export function decorateCodeBlocks(container, { icon, notify, send, messageId })
         if (html) {
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
-            frame._send = send; frame._notify = notify;
+            frame._send = send; frame._notify = notify; frame._edit = edit;
             // Form submit handlers need allow-forms even when they prevent the
             // default submission. CSP form-action 'none' still blocks navigation.
             frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';

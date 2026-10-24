@@ -49,7 +49,6 @@ dialog.regex-panel{width:850px}.regex-tabs{display:flex;gap:6px;flex-wrap:wrap;p
 @media(max-width:700px){dialog.regex-panel{inset:0;top:var(--viewport-top);width:100%;max-width:100%;height:var(--viewport-height);border:0;border-radius:0}.regex-tabs{gap:3px}.regex-tabs .button{font-size:12px;padding:8px;gap:5px}.appbar #current-name{max-width:20vw}#top-actions .top-shortcut{width:35px;min-width:35px}}
 @media(max-width:360px){#top-actions .top-shortcut{width:33px;min-width:33px}}
 .card-cover.button{display:block;padding:0;width:100%;min-height:0}.card-cover.button>span{display:none}.card-cover.button:hover .avatar{filter:brightness(.95)}.list-view .card-cover.button{width:43px}
-#composer-status{flex:0 0 100%;font-size:11px;color:var(--ui-tone-829078,#829078);padding:0 4px}
 .select-search{display:block;position:sticky;top:-6px;width:100%;min-width:0;padding:11px 10px;margin:0 0 7px;border:1px solid var(--ui-tone-dce5d3,#dce5d3);background:#fff;border-radius:8px;font:inherit;font-size:14px;outline-offset:-2px;z-index:1}.select-custom{display:block;width:100%;text-align:left;padding:11px;border-radius:7px;color:var(--green);background:var(--ui-tone-f0f5eb,#f0f5eb);font-size:12px;margin-top:7px;overflow-wrap:anywhere}@media(max-width:700px){.select-search{font-size:16px}}
 .searchable-select-menu:popover-open{display:flex;flex-direction:column;overflow:hidden;gap:7px}.searchable-select-menu .select-search{position:static;flex:0 0 auto;top:auto;margin:0;z-index:auto}.select-options-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--ui-tone-d3ddca,#d3ddca) transparent}.searchable-select-menu .select-custom{flex:0 0 auto;margin:0}
 .connection-profile-tools{display:flex;gap:5px;flex-wrap:wrap;margin:9px 0 14px}.connection-profile-tools .button{font-size:12px;padding:8px 10px}.regex-panel .select-control{max-width:100%}
@@ -351,8 +350,7 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .chat-loading-overlay{position:absolute;inset:0;z-index:8;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(3px)}
 .chat-loading-overlay>.loading-state{width:min(360px,100%);min-height:140px;border:1px solid var(--line);border-radius:16px;background:var(--surface);box-shadow:0 8px 32px #00000008}
 .loading-compact{justify-content:flex-start;min-height:58px;padding:14px 0;gap:10px}.loading-compact .loading-spinner{flex-basis:17px;width:17px;height:17px}.loading-compact .loading-label{font-size:13px;color:var(--muted)}
-#composer-status{display:flex;align-items:center;gap:8px;line-height:1.7;padding-top:4px}#composer-status::before{content:'';flex:0 0 12px;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--green);border-radius:50%;animation:home-spin .8s linear infinite}
-@media(prefers-reduced-motion:reduce){.loading-spinner,#composer-status::before{animation:none}}
+@media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
 .message>.message-back-latest{display:flex;align-items:center;justify-content:center;gap:6px;width:max-content;min-height:32px;margin:12px auto 0;padding:5px 12px;font-size:12px}
 .message>.message-back-latest>span{display:inline!important}
 #message-list{scroll-behavior:auto}
@@ -386,3 +384,5 @@ dialog.timing-panel{width:min(850px,calc(100vw - 24px))}.timing-toolbar{display:
 /* Top shortcuts reflect the open panel; touch hover must not look selected. */
 #top-actions .top-shortcut[aria-pressed=false],#top-actions .top-shortcut[aria-pressed=false]:hover{background:transparent;color:var(--muted)}
 #top-actions .top-shortcut[aria-pressed=true],#top-actions .top-shortcut[aria-pressed=true]:hover{background:var(--soft);color:var(--green)}
+
+#notification{cursor:pointer}

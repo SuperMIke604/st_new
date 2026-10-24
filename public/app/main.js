@@ -1,4 +1,6 @@
 import { RecentCharacters } from './home-data.js';
+import { installMessageEdit } from './message-edit.js';
+import { warmHistoryRegex } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
 import { PresetSelection } from './preset-selection.js';
@@ -37,7 +39,7 @@ async function loadCharacterCatalog(force = false) {
     try {
         const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar });
         state.characters = characters; finish('success', { itemCount: characters.length }); return characters;
-    } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : {}); throw error; }
+    } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 state.startupLoading = true;
@@ -124,7 +126,13 @@ function raiseNotification() {
 function notify(message, error = false) {
     $('notification').textContent = message; $('notification').hidden = false;
     $('notification').classList.toggle('error', error);raiseNotification();
-    clearTimeout(notify.timer); notify.timer = setTimeout(() => { const notification=$('notification');if(notification.matches(':popover-open'))notification.hidePopover();notification.hidden=true; }, error ? 10000 : 4000);
+    clearTimeout(notify.timer); notify.timer = setTimeout(dismissNotification, error ? 10000 : 4000);
+}
+function dismissNotification() {
+    clearTimeout(notify.timer);
+    const notification = $('notification');
+    if (notification.matches(':popover-open')) notification.hidePopover();
+    notification.hidden = true;
 }
 async function run(callback) {
     try { return await callback(); } catch (error) { if (error.name !== 'AbortError') { console.error('[app]', error); notify(error.message || '操作失败', true); } }
@@ -132,7 +140,6 @@ async function run(callback) {
 function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
-    if (state.busy) { $('composer-status').textContent = text; $('composer-status').hidden = false; }
 }
 function assertIdle() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
@@ -181,7 +188,6 @@ function selectPreset() {
 function synchronize() {
 
     document.title = 'SillyTavern';
-    $('composer-status').hidden = !state.busy;
     $('composer').setAttribute('aria-busy', String(!!state.busy));
     $('chat-loading').hidden = !state.loading;
     $('message-list').setAttribute('aria-busy', String(!!state.loading));
@@ -202,6 +208,7 @@ function markdown(text) {
 }
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
+    node._message = message;
     node.classList.toggle('from-user', !!message.is_user);
     if (!existing) {
         const header = el('header', 'message-header');
@@ -213,9 +220,16 @@ function renderMessage(message, index, existing) {
             node.addEventListener('touchstart', event => { if (event.target.closest('button,input,textarea,pre,iframe')) return; const t=event.touches[0]; touch={x:t.clientX,y:t.clientY}; }, {passive:true});
             node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy) return; void run(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
         }
-        const more = action('消息操作', () => messageActions(index), 'more', 'message-more');
-        more.setAttribute('aria-label', `第 ${index} 楼消息操作`); more.title = '消息操作';
-        header.append(more); const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop); node.prepend(header, el('div', 'message-actions')); const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
+        let actions;
+        if (message.is_user) {
+            const more = action('消息操作', () => messageActions(index), 'more', 'message-more');
+            more.setAttribute('aria-label', `第 ${index} 楼消息操作`); more.title = '消息操作'; header.append(more);
+            actions = el('div', 'message-actions');
+        }
+        const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop);
+        node.prepend(...(actions ? [header, actions] : [header]));
+        const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
+        installMessageEdit(node, () => beginMessageEdit(node._message));
     }
     let switches = node.querySelector('.message-swipe-buttons');
     if (!message.is_user && index === state.chat.length - 1) {
@@ -277,7 +291,7 @@ function renderMessage(message, index, existing) {
             while ((match = pattern.exec(value))) { fragment.append(document.createTextNode(value.slice(start, match.index))); const span = el('span', 'dialogue-quote', match[0]); fragment.append(span); start = pattern.lastIndex; }
             if (start) { fragment.append(document.createTextNode(value.slice(start))); text.replaceWith(fragment); }
         }
-        decorateCodeBlocks(body, { icon, notify, messageId: index, send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
+        decorateCodeBlocks(body, { icon, notify, messageId: index, edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;
@@ -1678,6 +1692,7 @@ function preloadNextGeneration() {
             await nextPaint();
             if (!current()) { finish('cancelled'); return; }
             if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
+            await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current);
             finish('success');
         } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
     });
@@ -1686,7 +1701,7 @@ async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = generationPreload.get(chat, state.header, state.own.database);
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources };
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation') };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);
@@ -1786,6 +1801,14 @@ async function generate(mode = false) {
     }
 }
 
+function beginMessageEdit(message) {
+    return run(() => {
+        if (inlineEdit?.message === message) return;
+        assertSaved(); const index = state.chat.indexOf(message); if (index < 0) return;
+        inlineEdit = { message, text: message.mes }; list.update(index);
+        document.querySelector('.inline-editor textarea')?.focus();
+    });
+}
 function messageActions(index) {
     const message = state.chat[index]; if (!message) return;
     if (expandedMessages.has(message)) expandedMessages.delete(message); else expandedMessages.add(message);
@@ -1793,6 +1816,7 @@ function messageActions(index) {
 }
 function renderInlineActions(node, message, index) {
     const bar = node.querySelector('.message-actions');
+    if (!bar) return;
     bar.hidden = !expandedMessages.has(message);
     node.querySelector('.message-more').setAttribute('aria-expanded', String(!bar.hidden));
     if (bar.hidden) return;
@@ -1936,7 +1960,12 @@ $('panel').addEventListener('cancel', event => { event.preventDefault(); closePa
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
+$('notification').addEventListener('click', dismissNotification);
+$('notification').title = '点击关闭提示'; $('notification').tabIndex = 0;
+$('notification').addEventListener('keydown', event => { if (['Enter', ' ', 'Escape'].includes(event.key)) { event.preventDefault(); dismissNotification(); } });
 $('message-input').addEventListener('input', resizeInput);
+$('message-input').addEventListener('focus', preloadNextGeneration);
+$('message-input').addEventListener('input', preloadNextGeneration);
 $('message-input').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && state.own.enterSend !== false && matchMedia('(hover:hover) and (pointer:fine)').matches) { event.preventDefault(); void run(() => generate(false)); }
 });

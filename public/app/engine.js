@@ -1,4 +1,5 @@
 import { applyRegex, activeRegexes } from './regex.js';
+import { historyRegexCache } from './history-regex-cache.js';
 export class CompatibilityError extends Error {
     constructor(message) { super(message); this.name = 'CompatibilityError'; }
 }
@@ -127,6 +128,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         Object.defineProperty(variables, key.toLowerCase(), { enumerable: true, get() { databaseMacroUsed = true; return token; } });
     }
     const regexes = activeRegexes({ settings, preset, character });
+    const historyRegex = historyRegexCache.prepare(regexes);
     const worlds = worldEntries || activateWorlds(books, chat, settings, variables, Math.random, regexes);
     if (worldEntries) { const locals = new Map(); for (const entry of worldEntries) for (const [name, value] of Object.entries(entry.variableState || {})) locals.set(name, value); localVariables.set(variables, locals); }
     const before = worlds.filter(e => e.position === 0).map(e => e.content).join('\n');
@@ -136,7 +138,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         const narrator = m.extra?.type === 'narrator';
         const name = m.name || (m.is_user ? variables.user : variables.char);
         const mode = Number(preset.names_behavior ?? 0);
-        let content = expand(applyRegex(m.mes, regexes, m.is_user ? 1 : 2, { phase: 'prompt', depth, variables }), variables);
+        let content = expand(historyRegex(m.mes, m.is_user ? 1 : 2, depth, variables), variables);
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
@@ -196,11 +198,16 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
 }
 
 export async function fitPrompt(input, count) {
+    const assemble = value => {
+        const finish = input.onBuild?.();
+        try { const result = buildPrompt(value); finish?.('success'); return result; }
+        catch (error) { finish?.('error'); throw error; }
+    };
     const context = Number(input.preset.openai_max_context || 8192);
     const output = Number(input.preset.openai_max_tokens || 512);
     if (!Number.isFinite(context) || !Number.isFinite(output) || context <= output + 64 || output < 1) throw new Error('上下文长度需要大于回复长度，并预留至少 64 tokens。');
     const budget = context - output - 32;
-    let candidate = buildPrompt(input);
+    let candidate = assemble(input);
     const wi = input.settings.world_info_settings || {};
     let worldBudget = Math.floor(context * Math.max(0, Number(wi.world_info_budget ?? 25)) / 100);
     if (Number(wi.world_info_budget_cap) > 0) worldBudget = Math.min(worldBudget, Number(wi.world_info_budget_cap));
@@ -215,7 +222,7 @@ export async function fitPrompt(input, count) {
     }
     const allowed = new Set(budgeted.slice(0, first));
     const accepted = candidate.activated.filter(entry => entry.ignoreBudget || allowed.has(entry));
-    if (accepted.length !== candidate.activated.length) candidate = buildPrompt({ ...input, worldEntries: accepted });
+    if (accepted.length !== candidate.activated.length) candidate = assemble({ ...input, worldEntries: accepted });
     // Resolve random world activations once, rather than rerolling on each trim.
     const stable = { ...input, worldEntries: candidate.activated };
     let tokens = await count(candidate.messages);
@@ -223,7 +230,7 @@ export async function fitPrompt(input, count) {
     let low = 1; let high = Math.max(0, input.chat.length - 1); let best = null;
     while (low <= high) {
         const middle = Math.floor((low + high) / 2);
-        candidate = buildPrompt({ ...stable, start: middle });
+        candidate = assemble({ ...stable, start: middle });
         tokens = await count(candidate.messages);
         if (tokens <= budget) { best = { ...candidate, tokens, budget }; high = middle - 1; }
         else low = middle + 1;

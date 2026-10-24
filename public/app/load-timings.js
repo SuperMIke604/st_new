@@ -27,7 +27,7 @@ export class LoadTimings {
             entry.durationMs = Math.max(0, Math.round((this.now() - started) * 10) / 10); entry.status = status;
             if (Number.isInteger(details.httpStatus) && details.httpStatus >= 100 && details.httpStatus <= 599) entry.httpStatus = details.httpStatus;
             if (Number.isInteger(details.itemCount) && details.itemCount >= 0) entry.itemCount = details.itemCount;
-            if (['http-error', 'network', 'timeout', 'aborted', 'navigation', 'compatibility', 'missing-configuration'].includes(details.reason)) entry.reason = details.reason;
+            if (['http-error', 'network', 'timeout', 'aborted', 'navigation', 'compatibility', 'missing-configuration', 'empty-character-list'].includes(details.reason)) entry.reason = details.reason;
             // Keep a long page/startup total even if many nested requests have
             // already displaced its initial pending record from the ring.
             this.pending.delete(entry); this.retain(entry); this.persist();
@@ -68,6 +68,7 @@ export function timingDetailText(entry) {
         'missing-configuration': '配置文件尚不存在，使用初始化流程',
         'http-error': ({ 401: '尚未登录', 403: '认证失败，请刷新后重试', 404: '接口不存在', 429: '请求过于频繁', 500: '服务端处理失败', 503: '服务暂不可用' })[entry.httpStatus] || '接口返回错误状态',
         network: '网络请求失败，未收到 HTTP 响应', timeout: '请求超时', aborted: '请求已取消', navigation: '刷新或离开页面',
+        'empty-character-list': '角色列表连续返回空数据，但当前角色仍可读取',
     };
     if (entry.reason) return [http, reasons[entry.reason]].filter(Boolean).join(' · ');
     if (entry.status === 'cancelled') return entry.kind === 'page' ? '页面已切换或关闭' : '任务已取消';
