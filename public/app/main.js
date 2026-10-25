@@ -5,6 +5,7 @@ import { ScriptRuntime } from './script-runtime.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
 import { ScriptSchema } from './script-schema.js';
 import { RoleAvatarStore } from './role-avatar-store.js';
+import { renderVariableManager, validateVariables, defaultVariableMessage, chatVariableValue, patchChatVariables } from './variable-manager.js';
 import { roleWorldEntries, toggleRoleWorldEntries, archiveRoleWorldEntries } from './role-worldbook.js';
 import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
 import { warmHistoryRegex } from './history-regex-cache.js';
@@ -56,6 +57,7 @@ state.startupLoading = true;
 let startupPromise = null;
 const panelLoads = new WeakMap();
 let panelDirty = false;
+let variablesSaving = false;
 let panelRevision = 0;
 let preview = null;
 let streamFrame = 0;
@@ -127,6 +129,27 @@ function action(label, callback, glyph, className = '') {
     button.addEventListener('click', () => run(callback));
     return button;
 }
+function inlineEntryActions(summary, buttons, label) {
+    const menu = el('span', 'prompt-actions prompt-inline-actions inset-action-menu'); menu.hidden = true;
+    menu.id = `entry-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '条目操作');
+    menu.append(...buttons);
+    menu.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
+    const more = action('条目操作', () => {
+        const expand = menu.hidden, list = summary.closest('.regex-list,.prompt-list');
+        for (const other of list.querySelectorAll('.prompt-inline-actions')) other.hidden = true;
+        for (const other of list.querySelectorAll('.prompt-actions-toggle')) other.setAttribute('aria-expanded', 'false');
+        menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
+    }, 'more', 'prompt-actions-toggle');
+    more.title = '条目操作'; more.setAttribute('aria-label', `${label} 的条目操作`);
+    more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', menu.id);
+    more.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
+    for (const button of buttons) { button.title = button.textContent.trim(); button.setAttribute('aria-label', `${button.textContent.trim()} ${label}`); }
+    const anchor = el('span', 'prompt-action-anchor'); anchor.append(menu, more); summary.append(anchor);
+    summary.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || menu.hidden) return;
+        event.preventDefault(); event.stopPropagation(); menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
+    });
+}
 function raiseNotification() {
     const notification=$('notification');if(notification.hidden)return;
     if(typeof notification.showPopover==='function'){notification.setAttribute('popover','manual');if(notification.matches(':popover-open'))notification.hidePopover();notification.showPopover();}
@@ -150,7 +173,7 @@ function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
 }
-function assertIdle() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertIdle() { if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
@@ -304,7 +327,10 @@ function renderMessage(message, index, existing) {
             while ((match = pattern.exec(value))) { fragment.append(document.createTextNode(value.slice(start, match.index))); const span = el('span', 'dialogue-quote', match[0]); fragment.append(span); start = pattern.lastIndex; }
             if (start) { fragment.append(document.createTextNode(value.slice(start))); text.replaceWith(fragment); }
         }
-        decorateCodeBlocks(body, { icon, notify, messageId: index, edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
+        const previewAvatar = state.character?.avatar; let previewAvatars;
+        decorateCodeBlocks(body, { icon, notify, messageId: index, message: message.mes, name: message.name, role: message.is_user ? 'user' : 'assistant', personaName: persona().name,
+            getAvatars: previewAvatar ? () => previewAvatars ||= roleAvatars.run(previewAvatar, { operation: 'list' }) : undefined,
+            edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;
@@ -460,6 +486,7 @@ function disposePanelWork() {
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
+    if (variablesSaving) { notify('正在保存变量，请稍候。'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     disposePanelWork();
     panelDirty = false; panelRevision++;
@@ -470,6 +497,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     return $('panel-body');
 }
 function closePanel() {
+    if (variablesSaving) { notify('正在保存变量，请稍候。'); return false; }
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
     disposePanelWork();
     panelDirty = false; panelRevision++;
@@ -1034,6 +1062,52 @@ async function renderRegexPanel(body, revision, scope, target) {
 }
 
 function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}`; }
+function variableManagerPanel() {
+    assertSaved();
+    if (!state.character || !state.header || !state.chat.length) throw Error('请先打开有消息的聊天。');
+    const identity = scriptIdentity(), body = showPanel('变量管理器', '角色状态与聊天数据', 'variable-panel'); if (!body) return;
+    const revision = panelRevision, avatar = state.character.avatar, file = state.file, targets = new Map();
+    const current = () => { if (identity !== scriptIdentity() || revision !== panelRevision) throw Error('聊天或面板已切换，请重新打开变量管理器。'); };
+    const read = (scope,index) => {
+        if (scope === 'message') targets.set(index,{swipeId:state.chat[index]?.swipe_id || 0,messageText:state.chat[index]?.mes});
+        return scope === 'global' ? copy(state.settings.extension_settings?.variables?.global || {}) : chatVariableValue(state.header,state.chat,scope,index);
+    };
+    renderVariableManager(body, { el, action, messages: state.chat, initialMessage: defaultVariableMessage(state.chat), read, notify,
+        dirty: value => { if (revision === panelRevision) { panelDirty = value; synchronize(); } },
+        save: async ({scope,messageId,base,value}) => {
+            assertSaved(); current(); value = validateVariables(value); variablesSaving = true;
+            try {
+                if (scope === 'message' && Object.hasOwn(value,'stat_data')) value.stat_data = await normalizeRoleMvu(value.stat_data);
+                current();
+                if (scope === 'global') {
+                    await api.patchSettings(settings => {
+                        const existing = settings.extension_settings?.variables?.global || {};
+                        if (JSON.stringify(existing) !== JSON.stringify(base) && JSON.stringify(existing) !== JSON.stringify(value)) throw Error('全局变量已被其他页面修改，请重新读取。');
+                        ((settings.extension_settings ||= {}).variables ||= {}).global = copy(value);
+                    });
+                    api.readCache.clear(); const verified = await api.settings();
+                    if (JSON.stringify(verified.settings.extension_settings?.variables?.global) !== JSON.stringify(value)) throw Error('全局变量保存核验失败，请重试。');
+                    current(); state.settings = verified.settings; state.own = settingsOwn(state.settings);
+                } else {
+                    const target = targets.get(messageId) || {};
+                    const fresh = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); current();
+                    if (!Array.isArray(fresh)) throw Error('聊天读取失败，变量未写入。');
+                    const records = fresh.length ? fresh : [copy(state.header),...copy(state.chat)];
+                    const patched = patchChatVariables(records, { scope, messageId, swipeId:target.swipeId, base, value, messageText:target.messageText });
+                    await api.saveChat(avatar,file,patched[0],patched.slice(1));
+                    const verified = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file });
+                    if (!Array.isArray(verified) || JSON.stringify(chatVariableValue(verified[0],verified.slice(1),scope,messageId)) !== JSON.stringify(value)) throw Error('变量保存核验失败，请重新读取。');
+                    current();
+                    const databaseMetadata = state.header.chat_metadata?.independentDatabase;
+                    state.header = copy(verified[0]); state.chat = copy(verified.slice(1));
+                    if (databaseMetadata) (state.header.chat_metadata ||= {}).independentDatabase ||= databaseMetadata;
+                    list.setMessages(state.chat,{reset:true});
+                }
+                generationPreload.invalidate(); scriptRuntime.refresh(scriptSnapshot(state),identity); return value;
+            } finally { variablesSaving = false; }
+        },
+    });
+}
 async function applyScriptVariables(payload, identity) {
     assertSaved();
     if (panelDirty) throw Error('请先保存或取消当前修改。');
@@ -1172,10 +1246,12 @@ async function renderScriptManager(body, revision, scope, target) {
         if (!entries.length) { note(rows, '还没有脚本，可新建或导入。'); return; }
         for (const row of entries) {
             const script = row.script, support = kind === 'global' ? { supported: false, reason: '仅管理，不在本前端执行或适配。' } : scriptSupport(script), details = el('details', 'prompt-item');
+            details.classList.toggle('prompt-disabled', script.enabled === false);
             const summary = el('summary', 'prompt-summary');
             const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = script.enabled !== false; toggle.setAttribute('aria-label', `启用脚本 ${script.name || '未命名'}`);
-            toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; dirty(); });
+            toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; details.classList.toggle('prompt-disabled', !toggle.checked); dirty(); });
             const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', kind === 'global' ? '仅管理' : support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
+            inlineEntryActions(summary, [action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash', 'danger')], script.name || '未命名脚本');
             let built = false;
             details.addEventListener('toggle', () => {
                 if (!details.open || built) return; built = true;
@@ -1185,9 +1261,7 @@ async function renderScriptManager(body, revision, scope, target) {
                 const name = field(content, '脚本名称', script.name || ''); name.addEventListener('input', () => { script.name = name.value; title.textContent = name.value; dirty(); });
                 const code = field(content, '脚本代码', script.content || '', { multiline: true, rows: 14 }); code.spellcheck = false;
                 code.addEventListener('input', () => { script.content = code.value; dirty(); });
-                const controls = el('div', 'regex-toolbar');
-                controls.append(action('上移', () => { if (row.index > 0) { row.parent.splice(row.index - 1, 0, row.parent.splice(row.index, 1)[0]); dirty(); render(); } }, 'up'), action('下移', () => { if (row.index < row.parent.length - 1) { row.parent.splice(row.index + 1, 0, row.parent.splice(row.index, 1)[0]); dirty(); render(); } }, 'down'), action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash'));
-                content.append(controls); details.append(content);
+                details.append(content);
             }); rows.append(details);
         }
     };
@@ -1221,13 +1295,13 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
             row.classList.toggle('prompt-disabled', !!rule.disabled);
             row.addEventListener('toggle', () => { if (!row.isConnected) return; if (row.open) opened.add(rule); else opened.delete(rule); });
             const summary = el('summary', 'prompt-summary regex-summary');
-            const enabled = el('input', 'world-entry-switch'); enabled.type = 'checkbox'; enabled.setAttribute('role', 'switch'); enabled.checked = !rule.disabled; enabled.setAttribute('aria-label', `启用正则 ${rule.scriptName || index + 1}`);
+            const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = !rule.disabled; enabled.setAttribute('aria-label', `启用正则 ${rule.scriptName || index + 1}`);
             enabled.addEventListener('click', event => event.stopPropagation());
             enabled.addEventListener('change', () => { rule.disabled = !enabled.checked; onDirty(); renderRegexEditor(parent, rules, onDirty, opened); });
             const title = el('span', 'prompt-title', rule.scriptName || '未命名正则');
             const toolbar = el('span', 'world-entry-actions regex-title-actions');
             toolbar.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
-            summary.append(enabled, title, toolbar); row.append(summary);
+            summary.append(enabled, title); row.append(summary);
             const render = () => { onDirty(); renderRegexEditor(parent, rules, onDirty, opened); };
             const up = action('上移规则', () => { [rules[index - 1], rules[index]] = [rules[index], rules[index - 1]]; render(); }, 'up'); up.disabled = index === 0 || !!rules[index - 1].disabled !== !!rule.disabled;
             const down = action('下移规则', () => { [rules[index + 1], rules[index]] = [rules[index], rules[index + 1]]; render(); }, 'down'); down.disabled = index === rules.length - 1 || !!rules[index + 1].disabled !== !!rule.disabled;
@@ -1235,6 +1309,7 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
                 if (!confirm('从当前范围删除此规则？保存后生效。')) return; rules.splice(index, 1); render();
             }, 'trash', 'danger'));
             for (const button of toolbar.children) { button.title = button.textContent.trim(); button.setAttribute('aria-label', `${button.textContent.trim()} ${rule.scriptName || index + 1}`); }
+            inlineEntryActions(summary, [...toolbar.children], rule.scriptName || '未命名正则');
             const toggle = (label, checked, onChange) => {
                 const wrap = el('label', 'check-field'); const input = el('input'); input.type = 'checkbox'; input.checked = checked;
                 input.addEventListener('change', () => { onChange(input.checked); onDirty(); }); wrap.append(input, el('span', '', label)); row.append(wrap);
@@ -1286,10 +1361,10 @@ async function renderCharacterPanel(body, revision, force = false) {
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
     const sort = el('select'); sort.setAttribute('aria-label', '角色排序');
     for (const [value, label] of [['name', '名称排序'], ['recent', '最近创建']]) { const option = el('option', '', label); option.value = value; sort.append(option); }
-    const create = action('新建角色', () => characterEditor(null), 'plus', 'primary');
-    const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'card');
-    const refreshButton = action('刷新列表', () => characterPanel(true), 'refresh');
-    toolbar.append(search, sort, create, importButton, refreshButton); body.append(toolbar);
+    const create = action('新建角色', () => characterEditor(null), 'plus', 'primary icon-button');
+    const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'card', 'icon-button');
+    for (const [button, label] of [[create, '新建角色'], [importButton, '导入角色']]) { button.querySelector('span').remove(); button.title = label; button.setAttribute('aria-label', label); }
+    toolbar.append(search, sort, create, importButton); body.append(toolbar);
     const layout = el('div', 'library-layout');
     const sidebar = el('aside', 'library-folders'); sidebar.setAttribute('aria-label', '角色分类');
     const content = el('section', 'library-main'); content.setAttribute('aria-label', '角色文件');
@@ -1448,6 +1523,22 @@ async function renderCharacterPanel(body, revision, force = false) {
                 characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; notify('角色卡已删除'); await characterPanel();
             }, 'trash', 'danger'));
             for (const button of actions.children) { const label = button.textContent.trim(); button.title = label; button.setAttribute('aria-label', `${card.name}：${label}`); }
+            if (mode === 'list') {
+                const menu = el('span', 'card-action-menu inset-action-menu'); menu.append(...actions.children);
+                menu.id = `card-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '角色操作');
+                const more = action('角色操作', () => {
+                    const expand = !menu.classList.contains('is-open');
+                    for (const other of cards.querySelectorAll('.card-action-menu')) other.classList.remove('is-open');
+                    for (const other of cards.querySelectorAll('.card-actions-toggle')) other.setAttribute('aria-expanded', 'false');
+                    menu.classList.toggle('is-open', expand); more.setAttribute('aria-expanded', String(expand));
+                }, 'more', 'card-actions-toggle');
+                more.title = '角色操作'; more.setAttribute('aria-label', `${card.name}：角色操作`); more.setAttribute('aria-controls', menu.id); more.setAttribute('aria-expanded', 'false');
+                actions.append(menu, more);
+                actions.addEventListener('keydown', event => {
+                    if (event.key !== 'Escape' || !menu.classList.contains('is-open')) return;
+                    event.preventDefault(); event.stopPropagation(); menu.classList.remove('is-open'); more.setAttribute('aria-expanded', 'false'); more.focus();
+                });
+            }
             file.append(cover, info, actions); cards.append(file);
         }
         if (!found.length) {
@@ -2149,7 +2240,7 @@ quickRepliesToggle.addEventListener('click', () => {
 });
 document.addEventListener('click', event => { if (!quickReplies.contains(event.target) && !quickRepliesToggle.contains(event.target)) closeQuickReplies(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
-for (const [label, glyph, callback] of [['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+for (const [label, glyph, callback] of [['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
@@ -2160,7 +2251,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候。'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 composerTools.append(action('脚本面板', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 $('notification').addEventListener('click', dismissNotification);

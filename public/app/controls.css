@@ -93,7 +93,7 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .global-world-control > .global-world-toggle { margin-block: -5px; }
 .world-entry-order input { width: 84px; }
 .world-entry-mode, .world-entry-position { min-width: 0; }
-.card-actions, .list-view .card-actions { grid-template-columns: repeat(auto-fit,minmax(var(--control-size),1fr)); gap: var(--control-gap); justify-items: center; }
+.card-actions { grid-template-columns: repeat(auto-fit,minmax(var(--control-size),1fr)); gap: var(--control-gap); justify-items: center; }
 .db-table-tabs { flex-wrap: wrap; }
 .check-field, .global-world-option { min-height: var(--control-size); }
 .prompt-drag-handle { font-size: var(--control-icon-size); }
@@ -109,32 +109,35 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     .connection-profile-bar .connection-profile-tools { max-width: 100%; flex-wrap: wrap; }
 }
 
-/* Text entry uses a borderless surface, including focus, rather than nested rings. */
-:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea) {
-    border-color: transparent;
+/* Text fields share the base select border, without a second focus ring. */
+:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea:not(#message-input)) {
+    border: 1px solid var(--line);
     outline: none;
     box-shadow: none;
 }
-:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea):focus {
+:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea:not(#message-input)):focus {
     background: color-mix(in srgb, var(--soft) 45%, var(--surface));
 }
 
 /* A collapsed preset row is one control high, including its visual boundary. */
-.preset-panel .prompt-list > .prompt-item {
+:is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-item, .regex-panel .regex-list > .regex-rule {
     border: 0;
+    border-radius: var(--control-radius);
+    background: var(--surface);
     box-shadow: inset 0 0 0 1px var(--line);
 }
-.preset-panel .prompt-summary {
+:is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-disabled { background: var(--soft); opacity: 1; }
+:is(.preset-panel,.regex-panel) .prompt-summary {
     height: var(--control-size);
     min-height: var(--control-size);
     padding: 0 12px;
     gap: var(--control-gap);
     flex-wrap: nowrap;
 }
-.preset-panel .prompt-summary .prompt-title { flex: 1; min-width: 0; overflow: hidden; }
-.preset-panel .prompt-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preset-panel .prompt-summary:has(.prompt-inline-actions:not([hidden])) { overflow: visible; flex-wrap: nowrap; }
-.preset-panel .prompt-summary:has(.prompt-inline-actions:not([hidden])) .prompt-title { flex-basis: auto; min-width: 40px; }
+:is(.preset-panel,.regex-panel) .prompt-summary .prompt-title { flex: 1; min-width: 0; overflow: hidden; }
+:is(.preset-panel,.regex-panel) .prompt-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.preset-panel,.regex-panel) .prompt-summary:has(.prompt-inline-actions:not([hidden])) { overflow: visible; flex-wrap: nowrap; }
+:is(.preset-panel,.regex-panel) .prompt-summary:has(.prompt-inline-actions:not([hidden])) .prompt-title { flex-basis: auto; min-width: 40px; }
 /* Embedded button state surfaces have a 5px inset; hit targets stay 42px. */
 :root { --control-inset-state: 32px; }
 :root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button) {
@@ -162,8 +165,8 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 }
 .prompt-action-anchor { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px; }
 @media (max-width: 700px) {
-    .preset-panel .prompt-summary .prompt-action-anchor { height: var(--control-size); }
-    .preset-panel .prompt-summary .prompt-inline-actions:not([hidden]) {
+    :is(.preset-panel,.regex-panel) .prompt-summary .prompt-action-anchor { height: var(--control-size); }
+    :is(.preset-panel,.regex-panel) .prompt-summary .prompt-inline-actions:not([hidden]) {
         position: absolute;
         right: 100%; top: 0;
         z-index: 2;
@@ -177,14 +180,13 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     content: '';
     position: absolute;
     inset: 5px;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface);
     box-shadow: -5px 0 10px color-mix(in srgb,var(--ink) 10%,transparent);
     pointer-events: none;
     z-index: -1;
-}
-@media (min-width: 701px) {
-    #panel.preset-panel .prompt-inline-actions::before { content: none; }
 }
 /* Bordered disclosure headers count their container border in the 42px height. */
 .advanced { padding: 0; }
@@ -211,3 +213,32 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     isolation: isolate;
 }
 .folder-action-anchor .folder-edit { opacity: 1; }
+:root body .select-control { border-color: var(--line); }
+.prompt-summary .prompt-inline-actions { position: relative; isolation: isolate; height: var(--control-size); }
+.regex-panel .regex-list { display: grid; gap: 9px; margin-top: 15px; }
+.regex-panel .regex-list > .regex-rule { padding: 0; margin: 0; }
+.regex-panel .prompt-title { display: block; white-space: nowrap; text-overflow: ellipsis; }
+.regex-panel .prompt-summary > small { order: 3; white-space: nowrap; }
+.regex-panel .regex-rule > :not(summary) { margin-inline: 12px; }
+.regex-panel .regex-rule > :last-child:not(summary) { margin-bottom: 12px; }
+
+/* List cards keep a 60px portrait and top/bottom-aligned metadata. */
+.list-view .card-info h3 { margin: 0; }
+.list-view .card-category { display: block; }
+.list-view .card-actions { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 0; }
+.list-view .card-action-menu { display: inline-flex; align-items: center; gap: var(--control-gap); }
+.list-view .card-actions-toggle { display: none; }
+@media (min-width: 701px) {
+    #panel .list-view .card-action-menu::before { content: none; }
+}
+@media (max-width: 700px) {
+    .list-view .card-actions-toggle { display: inline-flex; }
+    .list-view .card-action-menu:not(.is-open) { display: none; }
+    .list-view .card-action-menu.is-open {
+        position: absolute;
+        right: 100%; top: 50%; transform: translateY(-50%);
+        display: grid; grid-template-columns: repeat(3,var(--control-size));
+        gap: 2px; isolation: isolate; z-index: 2;
+    }
+    .list-view .character-file:has(.card-action-menu.is-open) { overflow: visible; z-index: 2; }
+}

@@ -1,3 +1,4 @@
+import { cardContextScript } from './html-card-context.js';
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
 export function isHtmlPreview(source, language = '') {
@@ -26,7 +27,7 @@ export function codeTokens(source, language) {
 // Message scripts run in an opaque-origin sandbox, never in the host document.
 const previewFrames = new Map();
 let previewListenerInstalled = false;
-function registerPreview(frame) {
+function registerPreview(frame, loaded = false) {
     if (!previewListenerInstalled) {
         window.addEventListener('message', event => {
             for (const [source, target] of previewFrames) {
@@ -50,12 +51,18 @@ function registerPreview(frame) {
     }
     if (frame.contentWindow) {
         previewFrames.set(frame.contentWindow, frame);
+        if (loaded && frame._avatars && !frame._avatarsRequested) {
+            frame._avatarsRequested = true;
+            Promise.resolve().then(() => frame._avatars()).then(records => {
+                if (frame.isConnected) frame.contentWindow?.postMessage({ type: 'tavern-html-avatars', records }, '*');
+            }).catch(() => {}); // Missing optional avatars keep the card's own fallback.
+        }
         // The iframe can finish its first measurement before it is mounted or
         // registered. Request a fresh measurement after registering on load.
         frame.contentWindow.postMessage({ type: 'tavern-html-measure' }, '*');
     }
 }
-export function previewDocument(source) {
+export function previewDocument(source, context = {}) {
     const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
     const bridge = `<script>(()=>{
         window.alert=text=>parent.postMessage({type:'tavern-html-alert',text:String(text)},'*');
@@ -71,10 +78,12 @@ export function previewDocument(source) {
         document.addEventListener('dblclick',event=>{if(canEdit(event.target)){event.preventDefault();parent.postMessage({type:'tavern-html-edit'},'*');}});
         let tap=null;document.addEventListener('pointerup',event=>{if(event.pointerType==='mouse'||!canEdit(event.target)){tap=null;return;}const next={time:Date.now(),x:event.clientX,y:event.clientY};if(tap&&next.time-tap.time<=350&&Math.hypot(next.x-tap.x,next.y-tap.y)<=24){tap=null;parent.postMessage({type:'tavern-html-edit'},'*');}else tap=next;});document.addEventListener('pointercancel',()=>{tap=null;});
     })();<\/script>`;
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}</head><body>${source}</body></html>`;
+    const snapshot = { messageId: 0, message: '', name: '', role: 'assistant', personaName: '', blockIndices: {}, ...context };
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}${cardContextScript(snapshot)}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId }) {
+export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', getAvatars } = {}) {
+    let fateIndex = 0;
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
         const language = codeLanguage([...code.classList].find(name => name.startsWith('language-')) || [...code.classList][0] || '');
@@ -83,11 +92,13 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify; frame._edit = edit;
+            frame._avatars = source.includes('头像库') ? getAvatars : null;
             // Form submit handlers need allow-forms even when they prevent the
             // default submission. CSP form-action 'none' still blocks navigation.
             frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
-            frame.addEventListener('load', () => registerPreview(frame));
-            frame.srcdoc = previewDocument(source); pre.replaceWith(frame); registerPreview(frame); continue;
+            frame.addEventListener('load', () => registerPreview(frame, true));
+            const blockIndices = /data-fate-marker\s*=/.test(source) ? { fate_ui: fateIndex++ } : {};
+            frame.srcdoc = previewDocument(source, { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices }); pre.replaceWith(frame); registerPreview(frame); continue;
         }
         const wrapper = document.createElement('section'); wrapper.className = 'code-block';
         const bar = document.createElement('div'); bar.className = 'code-toolbar';

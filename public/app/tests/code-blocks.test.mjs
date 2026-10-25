@@ -62,3 +62,18 @@ test('sample card send bridge compiles and preserves multiline form content', ()
     assert.ok(script.includes('triggerSlash'));
     assert.ok(html.includes('https://fonts.googleapis.com'));
 });
+
+test('multiple data-driven cards keep separate block ordinals within their owning message', () => {
+    const originalDocument = globalThis.document, originalWindow = globalThis.window, frames = [];
+    const sources = ['<div data-fate-marker="1"></div>', '<div>unrelated card</div>', '<div data-fate-marker="1"></div>'];
+    const codes = sources.map(source => ({ textContent: source, classList: ['language-html'], parentElement: { replaceWith() {} } }));
+    globalThis.document = { createElement() { const frame = { setAttribute() {}, addEventListener() {} }; frames.push(frame); return frame; } };
+    globalThis.window = { addEventListener() {} };
+    try {
+        decorateCodeBlocks({ querySelectorAll: () => codes }, { messageId: 7, message: 'owning message' });
+        assert.ok(frames[0].srcdoc.includes('"blockIndices":{"fate_ui":0}'));
+        assert.ok(frames[1].srcdoc.includes('"blockIndices":{}'));
+        assert.ok(frames[2].srcdoc.includes('"blockIndices":{"fate_ui":1}'));
+        for (const frame of frames) assert.ok(frame.srcdoc.includes('"message":"owning message"'));
+    } finally { globalThis.document = originalDocument; globalThis.window = originalWindow; }
+});

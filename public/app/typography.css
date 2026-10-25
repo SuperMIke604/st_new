@@ -54,7 +54,7 @@ body {
     line-height: var(--type-item-line);
     font-weight: var(--type-regular);
 }
-.note, .welcome p, .library-empty p, .persona-info p, .prompt-preview,
+.note, .welcome p, .library-empty p, .prompt-preview,
 .dm-status-card p, .dm-world-entry, .db-api-status, .database-progress,
 .db-table-scroll table, .database-preview-section table, .reference-cell-value,
 .reference-cell-value.button, .script-runtime-note, #notification,
@@ -97,7 +97,7 @@ select, .select-control, .select-search, .global-world-search {
 }
 
 .panel-header small, .eyebrow, .field small, .resource-row small,
-.folder-count, .item-count, .card-category, .library-breadcrumb, .library-bulk,
+.folder-count, .item-count, .card-category, .persona-info p, .library-breadcrumb, .library-bulk,
 .library-pager, .prompt-position, .prompt-kind, .prompt-token-count,
 .regex-list .prompt-summary small, .db-pager small, .db-save-status,
 .reference-preview-cell > small, .reference-card-head > small, .reference-diff-badge,
