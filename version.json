@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "53833c8589084cc821505dc792347ed76cb2d7ee67e8f70669b00c65907ca743",
-  "publishedAt": "2026-10-24T15:05:04.496043+00:00",
+  "revision": "0357b8e2054b919e0f0fbe07d4bf11c24f293c214332738eddb1116c76f172fb",
+  "publishedAt": "2026-10-25T01:37:49.429595+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "9aadb0802e3c281ee971cf8c95844ea4db2d9e3fcf4e02d0869d81640b6e2044",
@@ -22,7 +22,7 @@
     "public/app/index.html": "c65f07353843b7925dadaf22cc7bba9926701db9333246a247fe63a028b957af",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "beec5201e2559e4ecb9ab40046527d1df0b0e5a391e6a9416a5ae44ba78bd90a",
-    "public/app/main.js": "b63676518f375dccb60c090e667545e0e17b4d94901a18f554e1ac172a84986a",
+    "public/app/main.js": "5d950de98414aea837416eef997ed164a2b42073a99d41373a6200ec212e08c6",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/popover-toggle.js": "465c63c2b52bd659361a7c6701bdd82e40d381e1004c25eab41c948f5b883395",
@@ -33,11 +33,16 @@
     "public/app/reading.js": "7592ee8324ace58d4b897454fbbc74773c711d39020162d1528964ec9df814ea",
     "public/app/README.md": "5d45a1bc878f25bf68cbff0e3b536adc25786a8d39ab0ea0b3fbc67452da415a",
     "public/app/regex.js": "b0aa3dd6666fb5f6913c29d87a592e2acdb528a8247b0f3ecf03ae8073d2ef4c",
+    "public/app/script-bridge.js": "5fd9034654e3f808e84e55a8cc8d2539ece5e7556574745ebd02a2f037e9bc4e",
+    "public/app/script-runtime.js": "fbceb2bdbf527683cede462edcc76f8fe3be67acf9c6e8b04453c82462daf373",
+    "public/app/scripts.js": "fdf80cba87d8a16cdb4d310abda5a047aab7b1996e16e89780ba0acf14bd3980",
     "public/app/select.js": "dda029757357d41b3a33186dff54ea09006e4873528046000c1e22511fae2813",
-    "public/app/style.css": "ebb0bb74b128b19bfd805c22aae679ebcf307a3b8e7399a8d6cbe9d5b9fad8f4",
+    "public/app/style.css": "149dae96e56ced5894bfaae879ea25b388090cd6536b46ed6846c749e20bb994",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
     "public/app/vendor/DOMPURIFY-LICENSE": "968bdd5b053aa290a16cd073416c5ae4a8daa51076e43f2df423b9c4e2ccda0a",
+    "public/app/vendor/JQUERY-LICENSE": "f290c625a6b8388370d937f70e0ad43fdf704936aa5aa211d7764ae026b5d05e",
+    "public/app/vendor/jquery.min.js": "f7f6a5894f1d19ddad6fa392b2ece2c5e578cbf7da4ea805b6885eb6985b6e3d",
     "public/app/vendor/purify.min.js": "ef9a98b5b21aac33c73e316ef21f5cf06f68eff003a40ac953022129112cff3c",
     "public/app/vendor/SHOWDOWN-LICENSE": "56c14cb3c7835f93abce90f65b7ed58470981e2d768a8e60499ca34bae7764ad",
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
@@ -45,7 +50,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "75a937cd41dc2f08704d4546f8a473e25bd08fea103aab81002c4b3c9d10a9fc"
+    "public/app/version.js": "4fc7a5330cfbce07529caa038dfd7b44e13d8ef8e30920893ab805b07d7cfefe"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

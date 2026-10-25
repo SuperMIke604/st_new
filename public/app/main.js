@@ -1,5 +1,7 @@
 import { RecentCharacters } from './home-data.js';
 import { installMessageEdit } from './message-edit.js';
+import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, activeScripts, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
+import { ScriptRuntime } from './script-runtime.js';
 import { warmHistoryRegex } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
@@ -42,6 +44,7 @@ async function loadCharacterCatalog(force = false) {
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
+const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables });
 state.startupLoading = true;
 let startupPromise = null;
 const panelLoads = new WeakMap();
@@ -186,6 +189,8 @@ function selectPreset() {
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
 function synchronize() {
+    if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) scriptRuntime.dispose();
+    if (scriptRuntime.frame) scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
 
     document.title = 'SillyTavern';
     $('composer').setAttribute('aria-busy', String(!!state.busy));
@@ -928,25 +933,26 @@ async function renderPresetPanel(body, revision) {
 }
 
 async function regexPanel(scope = 'global', target = '') {
-    if (!['global', 'preset', 'character'].includes(scope)) scope = 'global';
+    if (!['global', 'preset', 'character', 'global-script', 'character-script'].includes(scope)) scope = 'global';
     const reuse = $('panel').open && $('panel').classList.contains('regex-panel');
     let host;
     if (reuse) {
-        if (panelDirty && !confirm('放弃未保存的正则修改？')) return;
+        if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
-    } else { host = showPanel('正则管理', '全局 · 预设 · 角色卡', 'regex-panel'); if (!host) return; }
-    return loadPanelContent(host, '正则', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target));
+    } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
+    return loadPanelContent(host, '正则与脚本', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target));
 }
 async function renderRegexPanel(body, revision, scope, target) {
     body.classList.add('regex-panel-content');
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
     const available = presetCatalog(fresh.bundle);
-    const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则范围');
-    for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则']]) {
+    const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则与脚本分类');
+    for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['character-script', '角色卡脚本']]) {
         const button = action(label, () => regexPanel(id), id === 'global' ? 'regex' : id === 'preset' ? 'tools' : 'card');
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
     body.append(tabs);
+    if (scope.endsWith('-script')) { await renderScriptManager(body, revision, scope, target); return; }
     let entity = null; let rules = []; let selected = target;
     const chooseTarget = (label, options, value) => {
         const wrap = el('label', 'field'); wrap.append(el('span', '', label)); const select = el('select');
@@ -1015,6 +1021,94 @@ async function renderRegexPanel(body, revision, scope, target) {
     }, 'edit', 'primary')); body.append(footer); render();
 }
 
+function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}`; }
+async function applyScriptVariables(payload, identity) {
+    assertSaved();
+    if (panelDirty) throw Error('请先保存或取消当前修改。');
+    if (!state.character || identity !== scriptIdentity()) throw Error('聊天已切换，脚本结果未写入。');
+    if (!payload?.variables || Object.prototype.toString.call(payload.variables) !== '[object Object]' || JSON.stringify(payload.variables).length > 1000000) throw Error('脚本变量格式无效或数据过大。');
+    if (payload.type === 'chat') { state.header.chat_metadata ||= {}; state.header.chat_metadata.variables = copy(payload.variables); }
+    else if (payload.type === 'message' && Number.isInteger(payload.message_id) && state.chat[payload.message_id]) {
+        const message = state.chat[payload.message_id]; (message.variables ||= {})[message.swipe_id || 0] = copy(payload.variables);
+    } else throw Error('暂不支持此变量写入范围。');
+    await saveChat();
+}
+async function openScriptWorkspace() {
+    assertViewable(); if (panelDirty) throw Error('请先保存或取消当前修改。');
+    const scripts = activeScripts(state.settings, state.character);
+    if (!scripts.length) throw Error('没有启用的脚本，请在“正则与脚本”中选择。');
+    if (!scripts.some(script => scriptSupport(script).supported)) throw Error('已启用的脚本依赖尚未接入的接口，请在管理页查看支持状态。');
+    if ($('panel').open && !closePanel()) return;
+    await scriptRuntime.show({ scripts, snapshot: scriptSnapshot(state), identity: scriptIdentity() });
+}
+async function renderScriptManager(body, revision, scope, target) {
+    const kind = scope === 'global-script' ? 'global' : 'character';
+    let entity = null, selected = target;
+    if (kind === 'character') {
+        await loadCharacterCatalog(); if (revision !== panelRevision) return;
+        selected = state.characters.some(card => card.avatar === selected) ? selected : state.characters.find(card => card.avatar === state.character?.avatar)?.avatar || state.characters[0]?.avatar;
+        const chooser = el('select'); chooser.setAttribute('aria-label', '管理脚本的角色卡');
+        for (const card of state.characters) { const option = el('option', '', card.name); option.value = card.avatar; chooser.append(option); }
+        chooser.value = selected || ''; body.append(chooser);
+        chooser.addEventListener('change', () => run(async () => {
+            if (panelDirty && !confirm('放弃未保存的脚本修改？')) { chooser.value = selected; return; }
+            panelDirty = false; await regexPanel(scope, chooser.value);
+        }));
+        if (!selected) { note(body, '没有可管理的角色卡。'); return; }
+        entity = await api.post('/api/characters/get', { avatar_url: selected }); if (revision !== panelRevision) return;
+    }
+    let tree = copy(scriptTrees(state.settings, entity)[kind]);
+    const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = scriptScopeEnabled(state.settings, entity, kind);
+    const enabledLabel = el('label', 'check-field'); enabledLabel.append(enabled, el('span', '', kind === 'global' ? '启用全局脚本' : '启用此角色卡的脚本')); body.append(enabledLabel);
+    const dirty = () => { panelDirty = true; };
+    enabled.addEventListener('change', dirty);
+    note(body, '脚本在独立的“脚本面板”中运行。可读取已有聊天变量；外部 MVU / Zod 模块、头像库和世界书读写暂未接入。原脚本及未知字段会保留。');
+    const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
+    const render = () => {
+        rows.replaceChildren(); const entries = scriptRows(tree);
+        if (!entries.length) { note(rows, '还没有脚本，可新建或导入。'); return; }
+        for (const row of entries) {
+            const script = row.script, support = scriptSupport(script), details = el('details', 'prompt-item');
+            const summary = el('summary', 'prompt-summary');
+            const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = script.enabled !== false; toggle.setAttribute('aria-label', `启用脚本 ${script.name || '未命名'}`);
+            toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; dirty(); });
+            const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
+            let built = false;
+            details.addEventListener('toggle', () => {
+                if (!details.open || built) return; built = true;
+                const content = el('div', 'prompt-form');
+                if (row.folder) note(content, `所在文件夹：${row.folder}${row.enabled ? '' : '（可能被文件夹停用）'}`);
+                note(content, support.reason);
+                const name = field(content, '脚本名称', script.name || ''); name.addEventListener('input', () => { script.name = name.value; title.textContent = name.value; dirty(); });
+                const code = field(content, '脚本代码', script.content || '', { multiline: true, rows: 14 }); code.spellcheck = false;
+                code.addEventListener('input', () => { script.content = code.value; dirty(); });
+                const controls = el('div', 'regex-toolbar');
+                controls.append(action('上移', () => { if (row.index > 0) { row.parent.splice(row.index - 1, 0, row.parent.splice(row.index, 1)[0]); dirty(); render(); } }, 'up'), action('下移', () => { if (row.index < row.parent.length - 1) { row.parent.splice(row.index + 1, 0, row.parent.splice(row.index, 1)[0]); dirty(); render(); } }, 'down'), action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash'));
+                content.append(controls); details.append(content);
+            }); rows.append(details);
+        }
+    };
+    toolbar.append(action('新建脚本', () => { tree.push({ type: 'script', id: uuid(), name: '新脚本', enabled: false, content: '', info: '', button: { enabled: false, buttons: [] }, data: {} }); dirty(); render(); rows.lastElementChild.open = true; }, 'plus'), action('导入脚本', async () => {
+        const file = await pickFile('.json'); if (!file) return; const value = JSON.parse(await file.text());
+        const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.data?.extensions?.tavern_helper?.scripts;
+        validateScriptTree(imported);
+        const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
+    }, 'folder'), action('导出脚本', () => {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'export'), action('打开脚本面板', openScriptWorkspace, 'tools'));
+    const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
+        assertIdle();
+        validateScriptTree(tree);
+        if (kind === 'global') {
+            state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'global', { tree, enabled: enabled.checked })); state.own = settingsOwn(state.settings);
+        } else {
+            const savedCard = await saveCharacterScripts(api, selected, tree);
+            state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'character', { enabled: enabled.checked, avatar: selected, allAvatars: state.characters.map(card => card.avatar) })); state.own = settingsOwn(state.settings);
+            if (state.character?.avatar === selected) state.character = savedCard; characterCatalog.invalidate();
+        }
+        scriptRuntime.dispose(); panelDirty = false; notify('脚本已保存，在“脚本面板”中运行。');
+    }, 'edit', 'primary')); body.append(footer); render();
+}
 function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
     parent._disposeDrag?.();
     rules.sort((a, b) => Number(!!a.disabled) - Number(!!b.disabled));
@@ -1935,7 +2029,7 @@ function setActiveTopPanel(callback) {
     for (const [target, button] of topPanelButtons) button.setAttribute('aria-pressed', String(callback === target));
 }
 $('panel').addEventListener('close', () => { if (!$('panel').open) setActiveTopPanel(null); });
-for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预设', 'tools', presetPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则', 'regex', regexPanel]]) {
+for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预设', 'tools', presetPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则与脚本', 'regex', regexPanel]]) {
     const button = action(label, () => {
         if ($('panel').open && activeTopPanel === callback) { closePanel(); return; }
         const revision = panelRevision;
@@ -1960,6 +2054,7 @@ $('panel').addEventListener('cancel', event => { event.preventDefault(); closePa
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
+composerTools.append(action('脚本面板', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 $('notification').addEventListener('click', dismissNotification);
 $('notification').title = '点击关闭提示'; $('notification').tabIndex = 0;
 $('notification').addEventListener('keydown', event => { if (['Enter', ' ', 'Escape'].includes(event.key)) { event.preventDefault(); dismissNotification(); } });
