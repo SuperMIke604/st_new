@@ -648,6 +648,7 @@ async function connectionPanel(profileId = '', draft = null) {
     const url = field(body, 'API 基础地址', current.url || '', { type: 'url' });
     const model = field(body, '模型', current.model || '', { options: [[current.model || '', current.model || '读取列表或输入模型 ID']] });
     model.dataset.searchable = 'true'; model.dataset.allowCustom = 'true';
+    const modelRow = el('div', 'connection-model-row'); model.before(modelRow); modelRow.append(model);
     const stream = field(body, '回复方式', current.stream === false ? 'normal' : 'stream', { options: [['stream', '流式 · 边生成边显示'], ['normal', '非流式 · 完整回复后显示']] });
     const postProcessing = field(body, '提示词后处理', current.postProcessing ?? 'merge', { options: [['merge', '合并相同角色的连续发言'], ['', '不处理']] });
     let savedKey = typeof current.proxyPassword === 'string' ? current.proxyPassword : sessionKeys.get(current.secretId) || '';
@@ -696,7 +697,7 @@ async function connectionPanel(profileId = '', draft = null) {
         panelDirty = false; notify('连接配置已保存');
     };
     body.append(action('保存连接', save, 'plug', 'primary'));
-    body.append(action('读取模型列表', async () => {
+    const readModels = action('读取模型列表', async () => {
         await save();
         const config = getConnection();
         const result = await api.post('/api/backends/chat-completions/status', { chat_completion_source: config.source, custom_url: config.url, secret_id: config.secretId });
@@ -706,7 +707,9 @@ async function connectionPanel(profileId = '', draft = null) {
         for (const [id, label] of models) { const option = el('option', '', label); option.value = id; model.append(option); }
         model.value = previous || models[0][0]; panelDirty = true;
         notify(`已读取 ${models.length} 个模型`);
-    }, 'refresh'));
+    }, 'refresh', 'model-refresh');
+    readModels.querySelector('span').remove(); readModels.title = '读取模型列表'; readModels.setAttribute('aria-label', '读取模型列表');
+    modelRow.append(readModels);
 }
 
 async function presetPanel() {
