@@ -1,0 +1,164 @@
+/* Application typography. Message reading preferences and isolated card UIs
+   keep their own styling. All sizes are CSS pixels. */
+:root {
+    --type-page-size: 22px;
+    --type-page-line: 30px;
+    --type-section-size: 16px;
+    --type-section-line: 24px;
+    --type-item-size: 14px;
+    --type-item-line: 22px;
+    --type-body-size: 14px;
+    --type-body-line: 22px;
+    --type-control-size: 14px;
+    --type-control-line: 22px;
+    --type-label-size: 12px;
+    --type-label-line: 18px;
+    --type-aux-size: 12px;
+    --type-aux-line: 18px;
+    --type-code-size: 13px;
+    --type-code-line: 20px;
+    --type-edit-size: 14px;
+    --type-edit-line: 22px;
+    --type-regular: 400;
+    --type-semibold: 600;
+    --type-mono: Consolas, "SFMono-Regular", "Microsoft YaHei", monospace;
+    --control-font-size: var(--type-control-size);
+    --control-line-height: var(--type-control-line);
+}
+body {
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-line);
+    font-weight: var(--type-regular);
+}
+:where(#panel-body,.script-runtime-dialog,.home-recent) :is(strong,b) { font-weight: var(--type-semibold); }
+.panel-header h1, .script-runtime-dialog h1, .welcome h1 {
+    font-size: var(--type-page-size);
+    line-height: var(--type-page-line);
+    font-weight: var(--type-semibold);
+}
+:where(#panel-body,.script-runtime-dialog) h2,
+.section-heading h2, .preset-panel .section-heading h2, .folder-heading h2,
+.home-recent h2, .database-preview-section h2, .dm-status-card h2,
+.dm-world-title, .db-sheet-heading h2, .db-prompt-heading h2 {
+    font-size: var(--type-section-size);
+    line-height: var(--type-section-line);
+    font-weight: var(--type-semibold);
+}
+:where(#panel-body,.script-runtime-dialog) h3,
+.card-info h3, .home-character-grid .home-character h3, .persona-info h2,
+.folder-form h3, .persona-draft-title, .prompt-title, .preset-panel .prompt-title,
+.world-entry-summary .prompt-title, .regex-summary .prompt-title,
+.regex-rule > summary, .regex-list .regex-rule > summary,
+.resource-row > span, .reference-card-head > strong {
+    font-size: var(--type-item-size);
+    line-height: var(--type-item-line);
+    font-weight: var(--type-regular);
+}
+.note, .welcome p, .library-empty p, .persona-info p, .prompt-preview,
+.dm-status-card p, .dm-world-entry, .db-api-status, .database-progress,
+.db-table-scroll table, .database-preview-section table, .reference-cell-value,
+.reference-cell-value.button, .script-runtime-note, #notification,
+.persona-name-error, .field .persona-name-error, .loading-label,
+.loading-compact .loading-label, .home-loading, #frontend-update, .update-progress {
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-line);
+    font-weight: var(--type-regular);
+}
+.library-empty h3 {
+    font-size: var(--type-page-size);
+    line-height: var(--type-page-line);
+    font-weight: var(--type-semibold);
+}
+
+/* Fixed-height controls retain a 22px line on both desktop and narrow screens. */
+.button, .icon-button, .send-button, .folder-button, .global-world-toggle,
+.select-option, .select-custom, .code-toolbar button, .floating-latest,
+#back-latest, .message-header .message-back-latest, .message > .message-back-latest {
+    font-size: var(--type-control-size);
+    line-height: var(--type-control-line);
+    font-weight: var(--type-regular);
+}
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]),
+select, .select-control, .select-search, .global-world-search {
+    font-size: var(--type-control-size);
+    line-height: var(--type-control-line);
+    font-weight: var(--type-regular);
+}
+.field, .check-field, .global-world-label, .world-entry-order {
+    font-size: var(--type-label-size);
+    line-height: var(--type-label-line);
+    font-weight: var(--type-regular);
+}
+.check-field input { flex-shrink: 0; }
+.global-world-placeholder, .global-world-tag, .global-world-option {
+    font-size: var(--type-control-size);
+    line-height: var(--type-control-line);
+    font-weight: var(--type-regular);
+}
+
+.panel-header small, .eyebrow, .field small, .resource-row small,
+.folder-count, .item-count, .card-category, .library-breadcrumb, .library-bulk,
+.library-pager, .prompt-position, .prompt-kind, .prompt-token-count,
+.regex-list .prompt-summary small, .db-pager small, .db-save-status,
+.reference-preview-cell > small, .reference-card-head > small, .reference-diff-badge,
+.loading-copy small, .composer-foot, .message-number, .message-name, #save-status,
+#current-name, .appbar #current-name, .code-toolbar, .native-link,
+.script-runtime-status, .db-row-number,
+.character-file.current-character .card-info h3::after,
+.home-character .portrait-missing::after, .persona-avatar-upload > span {
+    font-size: var(--type-aux-size);
+    line-height: var(--type-aux-line);
+    font-weight: var(--type-regular);
+}
+.message-name { font-weight: var(--type-regular); }
+.db-table-scroll th, .database-preview-section th, .timing-table th { font-weight: var(--type-regular); }
+.database-panel .db-sheet td[data-label]::before { font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--type-regular); }
+.advanced summary { font-size: var(--type-item-size); line-height: var(--type-item-line); font-weight: var(--type-regular); }
+
+textarea, .field textarea, .prompt-form textarea, .regex-rule .field textarea,
+.inline-editor textarea, .db-sheet textarea, .db-table-scroll textarea,
+.reference-cell-editor .field textarea {
+    font-size: var(--type-edit-size);
+    line-height: var(--type-edit-line);
+    font-weight: var(--type-regular);
+}
+.regex-rule textarea, .regex-panel .prompt-form textarea, .advanced textarea, .db-template-json, .inline-editor textarea {
+    font-family: var(--type-mono);
+}
+.message-content pre, .message-content .code-block pre, .message-reasoning pre,
+.timing-table, .db-sheet-heading small {
+    font-family: var(--type-mono);
+    font-size: var(--type-code-size);
+    line-height: var(--type-code-line);
+    font-weight: var(--type-regular);
+}
+.message-reasoning { font-size: var(--type-body-size); line-height: var(--type-body-line); }
+#message-input { font-size: var(--type-control-size); line-height: var(--type-control-line); font-weight: var(--type-regular); }
+
+/* Data preview has an existing user-selected reading size, separate from UI controls. */
+.reference-preview-grid { line-height: var(--type-body-line); }
+.reference-preview-grid .reference-preview-cell > small,
+.reference-preview-grid .reference-card-head > small,
+.reference-preview-grid .reference-card-head > strong,
+.reference-preview-grid .reference-cell-value {
+    font-size: inherit;
+    line-height: inherit;
+}
+
+@media (max-width: 700px) {
+    :root {
+        --type-page-size: 20px;
+        --type-page-line: 28px;
+        --type-item-size: 16px;
+        --type-item-line: 24px;
+        --type-body-size: 16px;
+        --type-body-line: 24px;
+        --type-control-size: 16px;
+        --type-label-size: 14px;
+        --type-label-line: 20px;
+        --type-code-size: 14px;
+        --type-code-line: 22px;
+        --type-edit-size: 16px;
+        --type-edit-line: 24px;
+    }
+}

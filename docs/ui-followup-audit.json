@@ -1,0 +1,94 @@
+{
+  "connection": {
+    "readModelsSaveNotice": false,
+    "verification": "源码检查；未向模型服务发起请求",
+    "explicitSaveNotice": true
+  },
+  "preset": {
+    "summaryHeight": 42,
+    "desktopRows": 38,
+    "collapsedRowHeight": 42
+  },
+  "date": "2026-10-25",
+  "tests": {
+    "failed": 0,
+    "passed": 183,
+    "skipped": 2
+  },
+  "focusedModelSearch": {
+    "border": "transparent",
+    "boxShadow": "none",
+    "outline": "none",
+    "height": 42
+  },
+  "mobilePresetOverlay": {
+    "rowHeight": 42,
+    "toggleClose": true,
+    "widths": [
+      320,
+      375,
+      430
+    ],
+    "direction": "left",
+    "narrow320": {
+      "moreLeft": 233.1875,
+      "menuRight": 233.1875,
+      "menuLeft": 59.1875
+    },
+    "layout": "overlay"
+  },
+  "embeddedButtonState": {
+    "hitSize": 42,
+    "inset": 5,
+    "stateSize": 32,
+    "passwordRemainedMasked": true
+  },
+  "insetCorrection": {
+    "cause": "纸色主题选中/悬停规则覆盖透明底色，且遗漏了世界书标签整体底色",
+    "world": {
+      "controlHeight": 42,
+      "tagHeights": [
+        32,
+        32,
+        32
+      ],
+      "removeHitSize": 42
+    },
+    "userSettingsChanged": false,
+    "apiSelected": {
+      "hitSize": 42,
+      "outerBackground": "transparent",
+      "stateSize": 32
+    }
+  },
+  "personaSpacing": {
+    "desktop": {
+      "buttonPadding": 0,
+      "avatarHeight": 64,
+      "afterGap": 15,
+      "selectHeight": 64,
+      "actionHeight": 42,
+      "beforeGap": 27
+    },
+    "mobile375": {
+      "overflow": false,
+      "buttonPadding": 0,
+      "leftGap": 11
+    }
+  },
+  "sharedInsetStates": {
+    "personaSelectPadding": 0,
+    "hitSize": 42,
+    "innerSize": 32,
+    "actualStatesChecked": [
+      "preset expanded desktop",
+      "preset expanded 375px",
+      "world expanded",
+      "persona edit expanded",
+      "character view pressed",
+      "API key pressed"
+    ],
+    "rule": "single shared CSS selector group",
+    "outerBackground": "transparent"
+  }
+}

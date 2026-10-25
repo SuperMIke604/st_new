@@ -1,0 +1,213 @@
+/* Shared application controls. Card HTML and role scripts use isolated documents. */
+:root {
+    --control-size: 42px;
+    --control-icon-size: 20px;
+    --control-radius: 10px;
+    --control-gap: 8px;
+    --control-tag-gap: 5px;
+    --control-font-size: 14px;
+    --control-line-height: 22px;
+}
+
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]),
+select, .select-control, .select-search, .global-world-search {
+    box-sizing: border-box;
+    height: var(--control-size);
+    min-height: var(--control-size);
+    max-height: var(--control-size);
+    padding: 9px 12px;
+    border-radius: var(--control-radius);
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+}
+.select-control { display: flex; align-items: center; justify-content: space-between; }
+.select-control > span:first-child { min-width: 0; }
+textarea { min-height: var(--control-size); }
+.field { gap: var(--control-gap); }
+
+.button, .icon-button, .send-button, .folder-button, .global-world-toggle,
+.select-option, .select-custom, .prompt-drag-handle, .code-toolbar button, #frontend-update button {
+    box-sizing: border-box;
+    height: var(--control-size);
+    min-height: var(--control-size);
+    padding: 9px 12px;
+    border-radius: var(--control-radius);
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    align-items: center;
+    justify-content: center;
+}
+.button { max-width: 100%; }
+.composer-tools .button { justify-content: flex-start; text-align: left; }
+.button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-option { padding-block: 0; justify-content: space-between; }
+.select-option > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.folder-button { justify-content: flex-start; }
+.button:is(.card-cover,.home-character,.persona-avatar-upload,.persona-select,.resource-row,.reference-cell-value) {
+    height: auto; min-height: 0;
+}
+.persona-select.button { padding: 0; align-items: stretch; justify-content: flex-start; }
+.resource-row { justify-content: flex-start; }
+.resource-row > span { white-space: normal; }
+
+/* Icon buttons share the same hit box, background and centered icon track. */
+.icon-button, .send-button, .model-refresh, .key-toggle, .global-world-toggle,
+#top-actions .top-shortcut, #composer #tools-toggle,
+.connection-profile-tools .button, .prompt-inline-actions .button, .prompt-actions-toggle,
+.world-entry-actions .button, .regex-title-actions .button, .persona-actions .button,
+.persona-add, .db-toolbar .button, .db-prompt-tools .button, .db-template-field > .button,
+.view-buttons .button, .folder-edit, .chat-history-tools .button, .message-jumps .button,
+.card-actions .button, .db-table-scroll th > .button, .prompt-drag-handle,
+.global-world-tag button, #frontend-update button {
+    display: inline-flex;
+    flex: 0 0 var(--control-size);
+    width: var(--control-size);
+    min-width: var(--control-size);
+    max-width: var(--control-size);
+    height: var(--control-size);
+    min-height: var(--control-size);
+    max-height: var(--control-size);
+    padding: 0;
+    border-radius: var(--control-radius);
+    align-items: center;
+    justify-content: center;
+    align-content: center;
+    gap: 0;
+}
+button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg {
+    flex: 0 0 var(--control-icon-size);
+    width: var(--control-icon-size);
+    min-width: var(--control-icon-size);
+    height: var(--control-icon-size);
+}
+.connection-profile-bar, .connection-profile-tools, .connection-model-row,
+.library-toolbar, .library-bulk, .regex-toolbar, .inline-edit-buttons,
+.persona-actions, .db-toolbar, .db-fill-bar, .db-template-field { gap: var(--control-gap); }
+.connection-model-row > .model-refresh { flex-basis: var(--control-size); }
+.key-input-wrap { height: var(--control-size); }
+.key-input-wrap input { padding-right: calc(var(--control-size) + 12px); }
+.key-toggle { right: 0; top: 0; transform: none; }
+.global-world-control { min-height: var(--control-size); padding: var(--control-tag-gap); border: 0; border-radius: var(--control-radius); box-shadow: inset 0 0 0 1px var(--line); }
+.global-world-tags { min-width: 0; gap: var(--control-tag-gap); padding: 0; }
+.global-world-tag { height: var(--control-inset-state); padding: 0 0 0 8px; }
+.global-world-control > .global-world-toggle { margin-block: -5px; }
+.world-entry-order input { width: 84px; }
+.world-entry-mode, .world-entry-position { min-width: 0; }
+.card-actions, .list-view .card-actions { grid-template-columns: repeat(auto-fit,minmax(var(--control-size),1fr)); gap: var(--control-gap); justify-items: center; }
+.db-table-tabs { flex-wrap: wrap; }
+.check-field, .global-world-option { min-height: var(--control-size); }
+.prompt-drag-handle { font-size: var(--control-icon-size); }
+#frontend-update button { font-size: var(--control-icon-size); }
+#top-actions .top-shortcut { flex: 0 0 var(--control-size); }
+#composer { align-items: center; }
+#message-input { min-height: var(--control-size); line-height: var(--control-line-height); padding: 10px 5px; }
+
+@media (max-width: 700px) {
+    :root { --control-font-size: 16px; }
+    .connection-profile-bar, .db-toolbar, .library-toolbar { flex-wrap: wrap; }
+    .connection-profile-bar > .select-control { flex: 1 1 110px; }
+    .connection-profile-bar .connection-profile-tools { max-width: 100%; flex-wrap: wrap; }
+}
+
+/* Text entry uses a borderless surface, including focus, rather than nested rings. */
+:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea) {
+    border-color: transparent;
+    outline: none;
+    box-shadow: none;
+}
+:root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea):focus {
+    background: color-mix(in srgb, var(--soft) 45%, var(--surface));
+}
+
+/* A collapsed preset row is one control high, including its visual boundary. */
+.preset-panel .prompt-list > .prompt-item {
+    border: 0;
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+.preset-panel .prompt-summary {
+    height: var(--control-size);
+    min-height: var(--control-size);
+    padding: 0 12px;
+    gap: var(--control-gap);
+    flex-wrap: nowrap;
+}
+.preset-panel .prompt-summary .prompt-title { flex: 1; min-width: 0; overflow: hidden; }
+.preset-panel .prompt-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-panel .prompt-summary:has(.prompt-inline-actions:not([hidden])) { overflow: visible; flex-wrap: nowrap; }
+.preset-panel .prompt-summary:has(.prompt-inline-actions:not([hidden])) .prompt-title { flex-basis: auto; min-width: 40px; }
+/* Embedded button state surfaces have a 5px inset; hit targets stay 42px. */
+:root { --control-inset-state: 32px; }
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button) {
+    background: transparent;
+    isolation: isolate;
+    outline: none;
+}
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):not(.key-toggle) { position: relative; }
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button)::before {
+    content: '';
+    position: absolute;
+    width: var(--control-inset-state);
+    height: var(--control-inset-state);
+    left: 50%; top: 50%; transform: translate(-50%,-50%);
+    border-radius: 8px;
+    z-index: -1;
+    pointer-events: none;
+}
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):is(:hover,:active,[aria-pressed=true],[aria-expanded=true])::before {
+    background: var(--soft);
+}
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):focus-visible::before {
+    outline: 2px solid var(--green);
+    outline-offset: -2px;
+}
+.prompt-action-anchor { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px; }
+@media (max-width: 700px) {
+    .preset-panel .prompt-summary .prompt-action-anchor { height: var(--control-size); }
+    .preset-panel .prompt-summary .prompt-inline-actions:not([hidden]) {
+        position: absolute;
+        right: 100%; top: 0;
+        z-index: 2;
+        height: var(--control-size);
+        margin: 0;
+        isolation: isolate;
+    }
+}
+/* The grouped action surface follows the same inset as its individual buttons. */
+#panel .inset-action-menu::before {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: -5px 0 10px color-mix(in srgb,var(--ink) 10%,transparent);
+    pointer-events: none;
+    z-index: -1;
+}
+@media (min-width: 701px) {
+    #panel.preset-panel .prompt-inline-actions::before { content: none; }
+}
+/* Bordered disclosure headers count their container border in the 42px height. */
+.advanced { padding: 0; }
+.advanced > summary {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    height: calc(var(--control-size) - 2px);
+    min-height: calc(var(--control-size) - 2px);
+    padding: 0 12px;
+}
+.advanced[open] { padding: 0 12px 12px; }
+.advanced[open] > summary { margin-inline: -12px; margin-bottom: 12px; }
+/* Folder actions share the preset menu surface and open left without relayout. */
+.folder-action-anchor { position: relative; display: inline-flex; flex: 0 0 var(--control-size); height: var(--control-size); }
+.folder-row .folder-inline-menu {
+    position: absolute;
+    right: 100%; top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: var(--control-size);
+    z-index: 2;
+    isolation: isolate;
+}
+.folder-action-anchor .folder-edit { opacity: 1; }

@@ -73,7 +73,9 @@ export function enhanceSelect(select) {
             });
         }
         (select.closest('dialog') || document.body).append(menu);
-        const rect = button.getBoundingClientRect(); const height = Math.min(300, items.length * 46 + Math.max(0, items.length - 1) * 5 + 12 + (filterInput ? 54 : 0));
+        const rect = button.getBoundingClientRect();
+        const controlSize = parseFloat(getComputedStyle(button).getPropertyValue('--control-size')) || 42;
+        const height = Math.min(300, items.length * controlSize + Math.max(0, items.length - 1) * 5 + 12 + (filterInput ? controlSize + 14 : 0));
         const below = innerHeight - rect.bottom - 12;
         menu.style.width = `${Math.min(Math.max(rect.width, 180), innerWidth - 24)}px`;
         menu.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - Math.max(rect.width, 180) - 12))}px`;

@@ -1,0 +1,449 @@
+{
+  "date": "2026-10-25",
+  "baseline": "327ce0b",
+  "targetHeight": 42,
+  "method": "真实应用：桌面 1280×720；同源嵌入视口 320/375/390/430px。未模拟真实手机键盘。",
+  "desktop": {
+    "API": {
+      "bad": [],
+      "count": 19,
+      "heights": [
+        42
+      ],
+      "model": [
+        {
+          "dx": 0,
+          "dy": 0,
+          "height": 42,
+          "kind": "button model-refresh",
+          "width": 42
+        }
+      ]
+    },
+    "预设": {
+      "bad": [],
+      "count": 57,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "用户设定": {
+      "bad": [],
+      "count": 62,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "世界书": {
+      "bad": [],
+      "count": 597,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "角色卡": {
+      "bad": [],
+      "count": 380,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "正则与脚本": {
+      "bad": [],
+      "count": 78,
+      "heights": [
+        42
+      ],
+      "model": []
+    }
+  },
+  "narrow": {
+    "320": {
+      "API": {
+        "width": 320,
+        "title": "连接与模型",
+        "count": 19,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "预设": {
+        "width": 320,
+        "title": "生成预设",
+        "count": 57,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "用户设定": {
+        "width": 320,
+        "title": "用户设定",
+        "count": 59,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "世界书": {
+        "width": 320,
+        "title": "世界书",
+        "count": 597,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "角色卡": {
+        "width": 320,
+        "title": "角色卡",
+        "count": 380,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "正则与脚本": {
+        "width": 320,
+        "title": "正则与脚本",
+        "count": 78,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      }
+    },
+    "375": {
+      "API": {
+        "ready": true,
+        "width": 375,
+        "title": "连接与模型",
+        "count": 19,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "预设": {
+        "ready": true,
+        "width": 375,
+        "title": "生成预设",
+        "count": 57,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "用户设定": {
+        "ready": true,
+        "width": 375,
+        "title": "用户设定",
+        "count": 59,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "世界书": {
+        "ready": true,
+        "width": 375,
+        "title": "世界书",
+        "count": 597,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "角色卡": {
+        "ready": true,
+        "width": 375,
+        "title": "角色卡",
+        "count": 380,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "正则与脚本": {
+        "ready": true,
+        "width": 375,
+        "title": "正则与脚本",
+        "count": 78,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      }
+    },
+    "390": {
+      "API": {
+        "ready": true,
+        "width": 390,
+        "title": "连接与模型",
+        "count": 19,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "预设": {
+        "ready": true,
+        "width": 390,
+        "title": "生成预设",
+        "count": 57,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "用户设定": {
+        "ready": true,
+        "width": 390,
+        "title": "用户设定",
+        "count": 59,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "世界书": {
+        "ready": true,
+        "width": 390,
+        "title": "世界书",
+        "count": 597,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "角色卡": {
+        "ready": true,
+        "width": 390,
+        "title": "角色卡",
+        "count": 380,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "正则与脚本": {
+        "ready": true,
+        "width": 390,
+        "title": "正则与脚本",
+        "count": 78,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      }
+    },
+    "430": {
+      "API": {
+        "ready": true,
+        "width": 430,
+        "title": "连接与模型",
+        "count": 19,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "预设": {
+        "ready": true,
+        "width": 430,
+        "title": "生成预设",
+        "count": 57,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "用户设定": {
+        "ready": true,
+        "width": 430,
+        "title": "用户设定",
+        "count": 59,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "世界书": {
+        "ready": true,
+        "width": 430,
+        "title": "世界书",
+        "count": 597,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "角色卡": {
+        "ready": true,
+        "width": 430,
+        "title": "角色卡",
+        "count": 380,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      },
+      "正则与脚本": {
+        "ready": true,
+        "width": 430,
+        "title": "正则与脚本",
+        "count": 78,
+        "heights": [
+          42
+        ],
+        "bad": [],
+        "overflow": []
+      }
+    }
+  },
+  "narrowPersonaEditor": {
+    "ready": true,
+    "width": 430,
+    "title": "用户设定",
+    "count": 62,
+    "heights": [
+      42
+    ],
+    "bad": [],
+    "overflow": []
+  },
+  "databaseDesktop": {
+    "状态与操作": {
+      "bad": [],
+      "count": 22,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "AI 指令预设": {
+      "bad": [],
+      "count": 32,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "API 与连接": {
+      "bad": [],
+      "count": 20,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "世界书参考": {
+      "bad": [],
+      "count": 15,
+      "heights": [
+        42
+      ],
+      "model": []
+    },
+    "模板": {
+      "bad": [],
+      "count": 65,
+      "heights": [
+        42
+      ],
+      "model": []
+    }
+  },
+  "databaseNarrow": {
+    "状态与操作": {
+      "ready": true,
+      "width": 430,
+      "title": "数据管理",
+      "count": 25,
+      "heights": [
+        42
+      ],
+      "bad": [],
+      "overflow": []
+    },
+    "AI 指令预设": {
+      "ready": true,
+      "width": 430,
+      "title": "数据管理",
+      "count": 35,
+      "heights": [
+        42
+      ],
+      "bad": [],
+      "overflow": []
+    },
+    "API 与连接": {
+      "ready": true,
+      "width": 430,
+      "title": "数据管理",
+      "count": 23,
+      "heights": [
+        42
+      ],
+      "bad": [],
+      "overflow": []
+    },
+    "世界书参考": {
+      "ready": true,
+      "width": 430,
+      "title": "数据管理",
+      "count": 18,
+      "heights": [
+        42
+      ],
+      "bad": [],
+      "overflow": []
+    },
+    "模板": {
+      "ready": true,
+      "width": 430,
+      "title": "数据管理",
+      "count": 68,
+      "heights": [
+        42
+      ],
+      "bad": [],
+      "overflow": []
+    }
+  },
+  "selectToggle": "窄屏实际点击展开，再次点击收起；未改变选项值。",
+  "tests": {
+    "total": 183,
+    "passed": 181,
+    "skipped": 2,
+    "failed": 0
+  }
+}

@@ -678,7 +678,7 @@ async function connectionPanel(profileId = '', draft = null) {
     postProcessing.closest('label').after(model.closest('label'));
     const getConnection = () => normalizeConnection({ id: current.id, name: profileName.value.trim(), source: 'custom', url: url.value.trim(), model: model.value.trim(), stream: stream.value === 'stream', postProcessing: postProcessing.value, secretId: current.source === 'custom' ? current.secretId : undefined,
         ...((enteredKey() || current.proxyPassword) ? { proxyPassword: enteredKey() || current.proxyPassword } : {}) });
-    const save = async () => {
+    const save = async (showNotice = true) => {
         assertIdle(); const value = getConnection();
         if (!value.name) throw new Error('请输入连接名称。');
         if (value.source === 'custom' && current.source === 'openai' && !enteredKey() && current.secretId && !secretState?.api_key_custom) {
@@ -694,11 +694,11 @@ async function connectionPanel(profileId = '', draft = null) {
         current = value; url.value = value.url;
         if (![...picker.options].some(option => option.value === value.id)) { const option = el('option'); option.value = value.id; picker.append(option); }
         [...picker.options].find(option => option.value === value.id).textContent = value.name; picker.value = value.id;
-        panelDirty = false; notify('连接配置已保存');
+        panelDirty = false; if (showNotice) notify('连接配置已保存');
     };
     body.append(action('保存连接', save, 'plug', 'primary'));
     const readModels = action('读取模型列表', async () => {
-        await save();
+        await save(false);
         const config = getConnection();
         const result = await api.post('/api/backends/chat-completions/status', { chat_completion_source: config.source, custom_url: config.url, secret_id: config.secretId });
         const models = modelOptions(result);
@@ -787,7 +787,7 @@ async function renderPresetPanel(body, revision) {
             void updateTokens();
             details.append(summary);
             const content = el('div', 'prompt-form');
-            const toolbar = el('span', 'prompt-actions prompt-inline-actions'); toolbar.hidden = true;
+            const toolbar = el('span', 'prompt-actions prompt-inline-actions inset-action-menu'); toolbar.hidden = true;
             toolbar.id = `prompt-actions-${uuid()}`; toolbar.setAttribute('role', 'group'); toolbar.setAttribute('aria-label', '条目操作');
             toolbar.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
             const more = action('条目操作', () => {
@@ -798,7 +798,8 @@ async function renderPresetPanel(body, revision) {
             }, 'more', 'prompt-actions-toggle');
             more.title = '条目操作'; more.setAttribute('aria-label', `${prompt.name || prompt.identifier} 的条目操作`); more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', toolbar.id);
             more.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
-            summary.insertBefore(toolbar, tokenCount); summary.insertBefore(more, tokenCount);
+            const actionAnchor = el('span', 'prompt-action-anchor'); actionAnchor.append(toolbar, more);
+            summary.insertBefore(actionAnchor, tokenCount);
             summary.addEventListener('keydown', event => {
                 if (event.key !== 'Escape' || toolbar.hidden) return;
                 event.preventDefault(); event.stopPropagation(); toolbar.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
@@ -1352,8 +1353,21 @@ async function renderCharacterPanel(body, revision, force = false) {
             if (!['all', 'unfiled'].includes(id)) {
                 const rename = action(`重命名 ${label}`, () => folderForm(id), 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
                 const remove = action(`删除 ${label}`, async () => { if (!confirm(`删除分类「${label}」？角色卡将保留并回到未分类。`)) return; await persist(raw => deleteFolder(raw, id)); if (folder === id) chooseFolder('unfiled'); }, 'trash', 'folder-edit danger'); remove.title = '删除分类'; remove.setAttribute('aria-label', `删除分类 ${label}`);
-                const menu = el('span', 'folder-inline-menu'); menu.hidden = true; menu.append(rename, remove);
-                const more = action('分类操作', () => { menu.hidden = !menu.hidden; }, 'more', 'folder-edit'); more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作'; row.append(more, menu);
+                const menu = el('span', 'folder-inline-menu inset-action-menu'); menu.hidden = true; menu.append(rename, remove);
+                menu.id = `folder-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '分类操作');
+                const more = action('分类操作', () => {
+                    const expand = menu.hidden;
+                    for (const other of sidebar.querySelectorAll('.folder-inline-menu')) other.hidden = true;
+                    for (const other of sidebar.querySelectorAll('.folder-actions-toggle')) other.setAttribute('aria-expanded', 'false');
+                    menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
+                }, 'more', 'folder-edit folder-actions-toggle');
+                more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作';
+                more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', menu.id);
+                const actionAnchor = el('span', 'folder-action-anchor'); actionAnchor.append(menu, more); row.append(actionAnchor);
+                actionAnchor.addEventListener('keydown', event => {
+                    if (event.key !== 'Escape' || menu.hidden) return;
+                    event.preventDefault(); event.stopPropagation(); menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
+                });
                 row.dataset.folderId = id;
                 let timer, dragging = false, pointer, blockClick = false, startX, startY;
                 row.addEventListener('pointerdown', event => {
@@ -2112,7 +2126,7 @@ for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预�
     }, glyph, 'icon-button top-shortcut');
     button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', 'false'); topPanelButtons.set(callback, button); $('top-actions').append(button);
 }
-for (const [id, glyph] of [['quick-replies-toggle', 'message'], ['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).append(icon(glyph));
+for (const [id, glyph] of [['quick-replies-toggle', 'message'], ['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).prepend(icon(glyph));
 $('tools-toggle').title = '对话工具'; $('tools-toggle').setAttribute('aria-label', '对话工具');
 $('tools-toggle').setAttribute('aria-expanded', 'false');
 const composerTools = $('composer-tools');
@@ -2131,7 +2145,7 @@ quickRepliesToggle.addEventListener('click', () => {
     quickReplies.querySelector('.quick-replies-empty')?.remove();
     if (!scriptRuntime.buttons.size) quickReplies.append(el('p', 'note quick-replies-empty', scriptRuntime.identity ? '当前角色没有可用的快捷回复。' : '当前角色没有快捷回复，或脚本尚未加载。'));
     quickReplies.hidden = !quickReplies.hidden; quickRepliesToggle.setAttribute('aria-expanded', String(!quickReplies.hidden));
-    if (!quickReplies.hidden) positionComposerMenu(quickReplies, quickRepliesToggle);
+    if (!quickReplies.hidden) positionComposerMenu(quickReplies, document.getElementById('tools-toggle'));
 });
 document.addEventListener('click', event => { if (!quickReplies.contains(event.target) && !quickRepliesToggle.contains(event.target)) closeQuickReplies(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
@@ -2139,7 +2153,7 @@ for (const [label, glyph, callback] of [['加载日志', 'history', timingPanel]
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
-const repositionComposerMenus = () => { if (!quickReplies.hidden) positionComposerMenu(quickReplies, quickRepliesToggle); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); };
+const repositionComposerMenus = () => { if (!quickReplies.hidden) positionComposerMenu(quickReplies, document.getElementById('tools-toggle')); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); };
 window.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('scroll', repositionComposerMenus);
 document.addEventListener('click', event => { if (!composerTools.contains(event.target) && !$('tools-toggle').contains(event.target)) { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });

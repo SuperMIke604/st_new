@@ -9,6 +9,8 @@
   <link rel="icon" href="data:,">
   <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./controls.css">
+  <link rel="stylesheet" href="./typography.css">
   <script defer src="./vendor/showdown.min.js"></script>
   <script defer src="./vendor/purify.min.js"></script>
   <script type="module" src="./main.js"></script>
@@ -28,10 +30,9 @@
     </div>
     <button type="button" id="back-latest" class="floating-latest" hidden>回到最新</button>
     <form id="composer" hidden>
-      <button type="button" id="quick-replies-toggle" class="icon-button" aria-label="快捷回复" title="快捷回复" aria-expanded="false" aria-controls="quick-replies"></button>
       <div id="quick-replies" class="composer-tools quick-replies" hidden></div>
       <button type="button" id="tools-toggle" class="icon-button" aria-label="对话工具" title="对话工具"></button>
-      <div id="composer-tools" class="composer-tools" hidden></div>
+      <div id="composer-tools" class="composer-tools" hidden><button type="button" id="quick-replies-toggle" class="button" aria-label="快捷回复" title="快捷回复" aria-expanded="false" aria-controls="quick-replies"><span>快捷回复</span></button></div>
       <textarea id="message-input" aria-label="消息" placeholder="写下你的下一句…" rows="1" enterkeyhint="enter"></textarea>
       <button type="button" id="stop-button" class="icon-button" aria-label="停止生成" title="停止生成" hidden></button>
       <button type="submit" id="send-button" class="send-button" aria-label="发送消息" title="发送"></button>

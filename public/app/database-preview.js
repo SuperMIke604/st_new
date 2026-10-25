@@ -1,7 +1,7 @@
 import { referencePreviewRows, referencePagination } from './database-reference.js';
 export function renderDatabasePreview(body, context) {
  const {el,action,field}=context;
- let data=structuredClone(context.data), active=0,page=1,search='',diffMode=!!context.settings?.previewOnlyShowChanges,fontSize=Number(context.settings?.dpFontSize)||14;
+ let data=structuredClone(context.data), active=0,page=1,search='',diffMode=!!context.settings?.previewOnlyShowChanges,fontSize=Number(context.settings?.dpFontSize)||null;
  const awaitPreference = patch => { if(context.savePreferences)void context.savePreferences(patch).catch(error=>context.notify?.(error.message,true)); };
  const undo=[];
  const tables=()=>Object.entries(data).filter(([key,value])=>key.startsWith('sheet_')&&Array.isArray(value.content)).map(([key,value])=>({key,name:value.name,headers:value.content[0],rows:value.content.slice(1)}));
@@ -14,11 +14,11 @@ export function renderDatabasePreview(body, context) {
   if(!table){body.append(el('p','note','没有聊天数据库数据'));return;}
   const controls=el('div','reference-preview-toolbar');
   const toggle=el('label','check-field'),check=el('input');check.type='checkbox';check.checked=diffMode;check.addEventListener('change',()=>{diffMode=check.checked;awaitPreference({previewOnlyShowChanges:diffMode});page=1;render();});toggle.append(check,el('span','','仅显示变化'));controls.append(toggle);
-  button(controls,'字体大小',()=>{const value=prompt('字体大小',String(fontSize));if(value===null)return;const size=Number(value);if(!Number.isFinite(size)||size<10||size>30)throw Error('请输入 10–30 的字号');fontSize=size;awaitPreference({dpFontSize:size});render();},'tools');
+  button(controls,'字体大小',()=>{const value=prompt('字体大小',String(fontSize||parseFloat(getComputedStyle(body).fontSize)||14));if(value===null)return;const size=Number(value);if(!Number.isFinite(size)||size<10||size>30)throw Error('请输入 10–30 的字号');fontSize=size;awaitPreference({dpFontSize:size});render();},'tools');
   const undoButton=button(controls,'撤销',async()=>{const previous=undo.at(-1);if(!previous)return;await context.saveData(previous);data=undo.pop();render();context.dirty?.(false);},'history');undoButton.disabled=!undo.length;body.append(controls);
   const rows=referencePreviewRows(table,{search,diffMode,previousData:context.previousData});const pages=Math.max(1,Math.ceil(rows.length/20));page=Math.min(page,pages);
   body.append(el('p','note',`${table.name} · 楼层 ${context.index} · ${(page-1)*20+1}–${Math.min(page*20,rows.length)} / 共 ${rows.length} 项`));
-  const grid=el('div','reference-preview-grid');grid.style.fontSize=`${fontSize}px`;
+  const grid=el('div','reference-preview-grid');grid.style.fontSize=fontSize?`${fontSize}px`:'var(--type-body-size,14px)';if(fontSize)grid.style.lineHeight='1.5';
   for(const item of rows.slice((page-1)*20,page*20)){
    const card=el('article',`reference-preview-card ${item.diffType}`);
    const head=el('header','reference-card-head');head.append(el('small','',`#${item.realIndex+1}`),el('strong','',String(item.row.slice(1).find(value=>value&&String(value).trim()) || item.row[0] || `条目 ${item.realIndex+1}`)));

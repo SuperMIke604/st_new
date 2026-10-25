@@ -1,0 +1,34 @@
+{
+  "desktop": {
+    "bottom": 5,
+    "controlHeight": 42,
+    "disclosureHeight": 42,
+    "left": 5,
+    "overflow": false,
+    "padding": "5px",
+    "summaryHeight": 40,
+    "tagHeight": [
+      32,
+      32,
+      32
+    ],
+    "top": 5,
+    "width": 1280
+  },
+  "mobile375": {
+    "bottom": 5,
+    "controlHeight": 84,
+    "disclosureHeight": 42,
+    "left": 5,
+    "overflow": false,
+    "padding": "5px",
+    "summaryHeight": 40,
+    "tagHeight": [
+      32,
+      32,
+      32
+    ],
+    "top": 5,
+    "width": 375
+  }
+}

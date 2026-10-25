@@ -1,0 +1,1002 @@
+{
+  "date": "2026-10-25",
+  "scope": "字号、行高、字重、功能文字最小字号、42px 控件高度、图标居中及控件横向越界。",
+  "method": "桌面实际应用及同源 iframe 窄屏视口。只读取 DOM 样式；不改变表单值。",
+  "desktopTokens": {
+    "aux": [
+      12,
+      18
+    ],
+    "body": [
+      14,
+      22
+    ],
+    "code": [
+      13,
+      20
+    ],
+    "control": [
+      14,
+      22
+    ],
+    "edit": [
+      14,
+      22
+    ],
+    "item": [
+      14,
+      22
+    ],
+    "label": [
+      12,
+      18
+    ],
+    "page": [
+      22,
+      30
+    ],
+    "section": [
+      16,
+      24
+    ]
+  },
+  "narrowTokens": {
+    "page": [
+      20,
+      28
+    ],
+    "section": [
+      16,
+      24
+    ],
+    "item": [
+      16,
+      24
+    ],
+    "body": [
+      16,
+      24
+    ],
+    "control": [
+      16,
+      22
+    ],
+    "label": [
+      14,
+      20
+    ],
+    "aux": [
+      12,
+      18
+    ],
+    "code": [
+      14,
+      22
+    ],
+    "edit": [
+      16,
+      24
+    ]
+  },
+  "desktop": {
+    "API": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 10,
+        "button": 31,
+        "control": 8,
+        "edit": 1,
+        "label": 6,
+        "page": 1
+      },
+      "small": [],
+      "title": "连接与模型",
+      "width": 1280
+    },
+    "预设": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 77,
+        "button": 53,
+        "control": 6,
+        "item": 44,
+        "label": 5,
+        "page": 1,
+        "section": 2
+      },
+      "small": [],
+      "title": "生成预设",
+      "width": 1280
+    },
+    "用户设定": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 1,
+        "body": 13,
+        "button": 63,
+        "control": 1,
+        "edit": 1,
+        "item": 19,
+        "label": 2,
+        "page": 1,
+        "section": 1
+      },
+      "small": [],
+      "title": "用户设定",
+      "width": 1280
+    },
+    "世界书": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 74,
+        "button": 165,
+        "control": 435,
+        "edit": 74,
+        "item": 80,
+        "label": 512,
+        "page": 1,
+        "section": 2
+      },
+      "small": [],
+      "title": "世界书",
+      "width": 1280
+    },
+    "角色卡": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 65,
+        "button": 380,
+        "control": 2,
+        "item": 66,
+        "page": 1,
+        "section": 2
+      },
+      "small": [],
+      "title": "角色卡",
+      "width": 1280
+    },
+    "正则与脚本": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 16,
+        "body": 3,
+        "button": 48,
+        "control": 32,
+        "edit": 24,
+        "item": 22,
+        "label": 96,
+        "page": 1,
+        "section": 1
+      },
+      "small": [],
+      "title": "正则与脚本",
+      "width": 1280
+    }
+  },
+  "narrow": {
+    "320": {
+      "API": {
+        "width": 320,
+        "title": "连接与模型",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 6,
+          "label": 6,
+          "control": 7,
+          "button": 14
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "预设": {
+        "width": 320,
+        "title": "生成预设",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 44,
+          "label": 5,
+          "aux": 77,
+          "control": 6,
+          "button": 53
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "用户设定": {
+        "width": 320,
+        "title": "用户设定",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 19,
+          "body": 13,
+          "aux": 1,
+          "button": 61
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "世界书": {
+        "width": 320,
+        "title": "世界书",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 80,
+          "label": 512,
+          "aux": 74,
+          "control": 435,
+          "button": 165,
+          "edit": 74
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "角色卡": {
+        "width": 320,
+        "title": "角色卡",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 66,
+          "aux": 65,
+          "control": 2,
+          "button": 380
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "正则与脚本": {
+        "width": 320,
+        "title": "正则与脚本",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 22,
+          "body": 3,
+          "label": 96,
+          "aux": 16,
+          "control": 32,
+          "button": 48,
+          "edit": 24
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      }
+    },
+    "375": {
+      "API": {
+        "width": 375,
+        "title": "连接与模型",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 6,
+          "label": 6,
+          "control": 7,
+          "button": 14
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "预设": {
+        "width": 375,
+        "title": "生成预设",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 44,
+          "label": 5,
+          "aux": 77,
+          "control": 6,
+          "button": 53
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "用户设定": {
+        "width": 375,
+        "title": "用户设定",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 19,
+          "body": 13,
+          "aux": 1,
+          "button": 61
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "世界书": {
+        "width": 375,
+        "title": "世界书",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 80,
+          "label": 512,
+          "aux": 74,
+          "control": 435,
+          "button": 165,
+          "edit": 74
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "角色卡": {
+        "width": 375,
+        "title": "角色卡",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 66,
+          "aux": 65,
+          "control": 2,
+          "button": 380
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "正则与脚本": {
+        "width": 375,
+        "title": "正则与脚本",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 22,
+          "body": 3,
+          "label": 96,
+          "aux": 16,
+          "control": 32,
+          "button": 48,
+          "edit": 24
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      }
+    },
+    "390": {
+      "API": {
+        "width": 390,
+        "title": "连接与模型",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 6,
+          "label": 6,
+          "control": 7,
+          "button": 14
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "预设": {
+        "width": 390,
+        "title": "生成预设",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 44,
+          "label": 5,
+          "aux": 77,
+          "control": 6,
+          "button": 53
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "用户设定": {
+        "width": 390,
+        "title": "用户设定",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 19,
+          "body": 13,
+          "aux": 1,
+          "button": 61
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "世界书": {
+        "width": 390,
+        "title": "世界书",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 80,
+          "label": 512,
+          "aux": 74,
+          "control": 435,
+          "button": 165,
+          "edit": 74
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "角色卡": {
+        "width": 390,
+        "title": "角色卡",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 66,
+          "aux": 65,
+          "control": 2,
+          "button": 380
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "正则与脚本": {
+        "width": 390,
+        "title": "正则与脚本",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 22,
+          "body": 3,
+          "label": 96,
+          "aux": 16,
+          "control": 32,
+          "button": 48,
+          "edit": 24
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      }
+    },
+    "430": {
+      "API": {
+        "width": 430,
+        "title": "连接与模型",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 6,
+          "label": 6,
+          "control": 7,
+          "button": 14
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "预设": {
+        "width": 430,
+        "title": "生成预设",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 44,
+          "label": 5,
+          "aux": 77,
+          "control": 6,
+          "button": 53
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "用户设定": {
+        "width": 430,
+        "title": "用户设定",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 19,
+          "body": 13,
+          "aux": 1,
+          "button": 61
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "世界书": {
+        "width": 430,
+        "title": "世界书",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 80,
+          "label": 512,
+          "aux": 74,
+          "control": 435,
+          "button": 165,
+          "edit": 74
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "角色卡": {
+        "width": 430,
+        "title": "角色卡",
+        "roles": {
+          "page": 1,
+          "section": 2,
+          "item": 66,
+          "aux": 65,
+          "control": 2,
+          "button": 380
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "正则与脚本": {
+        "width": 430,
+        "title": "正则与脚本",
+        "roles": {
+          "page": 1,
+          "section": 1,
+          "item": 22,
+          "body": 3,
+          "label": 96,
+          "aux": 16,
+          "control": 32,
+          "button": 48,
+          "edit": 24
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      }
+    }
+  },
+  "presetEditor": {
+    "desktop": {
+      "bad": [],
+      "controlHeights": [
+        42
+      ],
+      "geometry": [],
+      "roles": {
+        "aux": 78,
+        "button": 53,
+        "control": 9,
+        "edit": 1,
+        "item": 44,
+        "label": 9,
+        "page": 1,
+        "section": 2
+      },
+      "small": [],
+      "title": "生成预设",
+      "width": 1280
+    },
+    "narrow": {
+      "width": 430,
+      "title": "生成预设",
+      "roles": {
+        "page": 1,
+        "section": 2,
+        "item": 44,
+        "label": 9,
+        "aux": 78,
+        "control": 9,
+        "button": 53,
+        "edit": 1
+      },
+      "bad": [],
+      "geometry": [],
+      "controlHeights": [
+        42
+      ],
+      "small": [],
+      "ready": true
+    }
+  },
+  "database": {
+    "desktop": {
+      "状态与操作": {
+        "bad": [],
+        "controlHeights": [
+          42
+        ],
+        "geometry": [],
+        "roles": {
+          "aux": 9,
+          "body": 4,
+          "button": 32,
+          "control": 7,
+          "label": 9,
+          "page": 1,
+          "section": 3
+        },
+        "small": [],
+        "title": "数据管理",
+        "width": 1280
+      },
+      "AI 指令预设": {
+        "bad": [],
+        "controlHeights": [
+          42
+        ],
+        "geometry": [],
+        "roles": {
+          "aux": 9,
+          "body": 1,
+          "button": 43,
+          "control": 6,
+          "edit": 3,
+          "label": 7,
+          "page": 1
+        },
+        "small": [],
+        "title": "数据管理",
+        "width": 1280
+      },
+      "API 与连接": {
+        "bad": [],
+        "controlHeights": [
+          42
+        ],
+        "geometry": [],
+        "roles": {
+          "aux": 9,
+          "button": 30,
+          "control": 7,
+          "label": 6,
+          "page": 1
+        },
+        "small": [],
+        "title": "数据管理",
+        "width": 1280
+      },
+      "世界书参考": {
+        "bad": [],
+        "controlHeights": [
+          42
+        ],
+        "geometry": [],
+        "roles": {
+          "aux": 9,
+          "button": 30,
+          "control": 2,
+          "label": 1,
+          "page": 1
+        },
+        "small": [],
+        "title": "数据管理",
+        "width": 1280
+      },
+      "模板": {
+        "bad": [],
+        "controlHeights": [
+          42
+        ],
+        "geometry": [],
+        "roles": {
+          "aux": 9,
+          "body": 1,
+          "button": 62,
+          "code": 1,
+          "control": 20,
+          "edit": 1,
+          "label": 19,
+          "page": 1
+        },
+        "small": [],
+        "title": "数据管理",
+        "width": 1280
+      }
+    },
+    "narrow": {
+      "状态与操作": {
+        "width": 430,
+        "title": "数据管理",
+        "roles": {
+          "page": 1,
+          "section": 3,
+          "body": 4,
+          "label": 9,
+          "aux": 9,
+          "control": 7,
+          "button": 32
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "AI 指令预设": {
+        "width": 430,
+        "title": "数据管理",
+        "roles": {
+          "page": 1,
+          "body": 1,
+          "label": 7,
+          "aux": 9,
+          "control": 6,
+          "button": 43,
+          "edit": 3
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "API 与连接": {
+        "width": 430,
+        "title": "数据管理",
+        "roles": {
+          "page": 1,
+          "label": 6,
+          "aux": 9,
+          "control": 7,
+          "button": 30
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "世界书参考": {
+        "width": 430,
+        "title": "数据管理",
+        "roles": {
+          "page": 1,
+          "label": 1,
+          "aux": 9,
+          "control": 2,
+          "button": 30
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      },
+      "模板": {
+        "width": 430,
+        "title": "数据管理",
+        "roles": {
+          "page": 1,
+          "body": 1,
+          "label": 19,
+          "aux": 9,
+          "control": 20,
+          "button": 62,
+          "edit": 1,
+          "code": 1
+        },
+        "bad": [],
+        "geometry": [],
+        "controlHeights": [
+          42
+        ],
+        "small": [],
+        "ready": true
+      }
+    }
+  },
+  "logs": {
+    "bad": [],
+    "controlHeights": [
+      42
+    ],
+    "geometry": [],
+    "roles": {
+      "aux": 9,
+      "body": 2,
+      "button": 25,
+      "code": 1,
+      "control": 1,
+      "page": 1
+    },
+    "small": [],
+    "title": "加载日志",
+    "width": 1280
+  },
+  "messageEditor": {
+    "buttons": [
+      {
+        "font": "14px",
+        "height": 42,
+        "icons": 0,
+        "text": "保存",
+        "weight": "500"
+      },
+      {
+        "font": "14px",
+        "height": 42,
+        "icons": 0,
+        "text": "取消",
+        "weight": "500"
+      },
+      {
+        "font": "14px",
+        "height": 42,
+        "icons": 0,
+        "text": "删除",
+        "weight": "500"
+      }
+    ],
+    "family": "Consolas, SFMono-Regular, \"Microsoft YaHei\", monospace",
+    "font": "14px",
+    "line": "22px",
+    "weight": "400"
+  },
+  "readingPreference": {
+    "actual": "26px",
+    "configured": "26px"
+  },
+  "dataPreviewPreference": {
+    "custom-preview": {
+      "grid": "23px",
+      "height": 42,
+      "line": "34.5px",
+      "toolbar": "14px",
+      "value": "23px"
+    },
+    "default-preview": {
+      "grid": "14px",
+      "height": 42,
+      "line": "22px",
+      "toolbar": "14px",
+      "value": "14px"
+    }
+  },
+  "tests": {
+    "total": 185,
+    "passed": 183,
+    "skipped": 2,
+    "failed": 0
+  },
+  "limitations": "窄屏为实际应用的嵌入视口，未测试真实手机的软键盘、手势和系统字体缩放。"
+}
