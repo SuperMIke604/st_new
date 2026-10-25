@@ -1,5 +1,6 @@
 import { scriptSupport } from './scripts.js';
 import { scriptBridge } from './script-bridge.js';
+import { roleScriptContent } from './role-script-adapters.js';
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 export function scriptClip(rects, width, height) {
     if (!Array.isArray(rects) || rects.length > 64) return 'path("M0 0Z")';
@@ -18,13 +19,13 @@ export function scriptDocument(scripts, snapshot, jquery) {
         const support = scriptSupport(script);
         if (script.scope === 'global' || script.enabled === false || !support.supported) return [];
         const id = `${script.scope || 'script'}-${script.id || index}`;
-        const content = support.adapter === 'mvu' ? '' : script.content || '';
-        return [tag(`(async()=>{const getScriptId=()=>${json(id)};const getButtonEvent=name=>${json(id)}+':'+name;const appendInexistentScriptButtons=buttons=>window.__scriptButtons(${json(id)},buttons);try{\n${content}\nparent.postMessage({channel:'st-new-scripts',type:'executed',id:${json(id)}},'*');}catch(error){parent.postMessage({channel:'st-new-scripts',type:'failed',id:${json(id)},text:${json(script.name || '脚本')}+': '+error.message,error:true},'*');}})();`)];
+        const content = roleScriptContent(script, support.adapter);
+        return [tag(`(async()=>{const getScriptId=()=>${json(id)};const getButtonEvent=name=>${json(id)}+':'+name;const appendInexistentScriptButtons=buttons=>window.__scriptButtons(${json(id)},buttons);const __avatarStore=(operation,args={})=>window.__roleCall(${json(id)},'avatars',{operation,...args});const createChatMessages=(messages,options)=>window.__roleCall(${json(id)},'create-messages',{messages,options});const triggerSlash=command=>window.__roleCall(${json(id)},'slash',{command});const replaceWorldbook=(name,entries)=>window.__roleCall(${json(id)},'replace-worldbook',{name,entries});try{\n${content}\nparent.postMessage({channel:'st-new-scripts',type:'executed',id:${json(id)}},'*');}catch(error){parent.postMessage({channel:'st-new-scripts',type:'failed',id:${json(id)},text:${json(script.name || '脚本')}+': '+error.message,error:true},'*');}})();`)];
     });
     return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0;width:100%;height:100%;font:14px system-ui;background:#f5f0e7}#script-empty{margin:20px;padding:16px;border:1px solid #c9bcaa;border-radius:12px;line-height:1.8;color:#66594c}#script-actions{position:fixed;bottom:8px;left:8px;z-index:10000;display:flex;gap:5px;flex-wrap:wrap}#script-actions button{padding:7px;border:1px solid #bba78e;background:#fff7e8;border-radius:8px}</style><div id="script-empty" role="status">正在启动角色卡脚本…</div><div id="script-actions"></div>${tag(`(${scriptBridge.toString()})(${json(snapshot)});`)}${tag(jquery)}${runs.join('')}`;
 }
 export class ScriptRuntime {
-    constructor({ notify, applyVariables, worldbook, onRetry }) { Object.assign(this, { notify, applyVariables, worldbook, onRetry }); this.dialog = null; this.frame = null; this.identity = ''; this.epoch = 0; this.jquery = null; this.statusRows = new Map(); this.buttons = new Map(); this.listener = event => void this.receive(event); }
+    constructor({ notify, applyVariables, worldbook, roleAction, onRetry }) { Object.assign(this, { notify, applyVariables, worldbook, roleAction, onRetry }); this.dialog = null; this.frame = null; this.identity = ''; this.epoch = 0; this.jquery = null; this.statusRows = new Map(); this.buttons = new Map(); this.listener = event => void this.receive(event); }
     dispose() { this.epoch++; clearTimeout(this.readyTimer); window.removeEventListener('message', this.listener); this.dialog?.remove(); this.frame?.remove(); this.actions?.replaceChildren(); if (this.actions) this.actions.hidden = true; document.getElementById('quick-replies-toggle')?.setAttribute('aria-expanded', 'false'); this.dialog = null; this.frame = null; this.identity = ''; this.statusRows.clear(); this.buttons.clear(); }
     refresh(snapshot, identity) {
         if (!this.frame) return;
@@ -53,7 +54,7 @@ export class ScriptRuntime {
             this.statusRows.set(`${script.scope || 'script'}-${script.id || index}`, detail);
         });
         statuses.open = !scripts.some(script => script.enabled !== false && scriptSupport(script).supported);
-        const frame = document.createElement('iframe'); frame.className = 'script-page-frame'; frame.title = '角色卡小手机与脚本'; frame.style.clipPath = scriptClip([]); frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
+        const frame = document.createElement('iframe'); frame.className = 'script-page-frame'; frame.title = '角色卡小手机与脚本'; frame.style.clipPath = scriptClip([]); frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-downloads'); frame.referrerPolicy = 'no-referrer';
         this.actions = actions; actions?.replaceChildren();
         this.dialog = dialog; this.frame = frame; this.identity = identity;
         window.addEventListener('message', this.listener); dialog.append(header, note, statuses); document.body.append(dialog, frame); if (diagnostics) dialog.showModal();
@@ -76,7 +77,7 @@ export class ScriptRuntime {
             }
             return;
         }
-        if (data.type === 'executed') { const row = this.statusRows.get(data.id); if (row) row.textContent = row.dataset?.adapter === 'mvu' ? '内置 MVU 兼容已就绪' : '已执行'; return; }
+        if (data.type === 'executed') { const row = this.statusRows.get(data.id); if (row) row.textContent = row.dataset?.adapter === 'mvu' ? '内置 MVU 兼容已就绪' : row.dataset?.adapter === 'mvu-schema' ? '本地 Zod 校验已接入' : '已执行'; return; }
         if (data.type === 'notice' || data.type === 'failed') {
             let text = String(data.text || '').slice(0, 1000);
             if (/Blocked a frame|cross-origin|SecurityError/i.test(text)) text = '此脚本需要访问酒馆原生页面，当前隔离环境暂不支持。';
@@ -84,10 +85,15 @@ export class ScriptRuntime {
             if (data.error && this.note) this.note.textContent = text;
             this.notify(text, !!data.error); return;
         }
-        if (data.type !== 'request' || !['variables', 'read-worldbook', 'toggle-worldbook'].includes(data.action) || !Number.isSafeInteger(data.id)) return;
+        if (data.type !== 'request' || !['variables', 'read-worldbook', 'toggle-worldbook', 'role-action'].includes(data.action) || !Number.isSafeInteger(data.id)) return;
         const frame = this.frame, identity = this.identity;
         try {
-            const value = data.action === 'variables' ? await this.applyVariables(data.payload, identity) : this.worldbook ? await this.worldbook(data.action, data.payload, identity) : (() => { throw Error('世界书接口未接入。'); })();
+            let value;
+            if (data.action === 'role-action') {
+                const adapter = this.statusRows.get(data.payload?.scriptId)?.dataset?.adapter, action = data.payload?.action;
+                if (!(adapter === 'role-avatar' && action === 'avatars' || adapter === 'role-archive' && ['create-messages', 'slash', 'replace-worldbook'].includes(action) || adapter === 'world-switch' && action === 'replace-worldbook')) throw Error('此脚本没有对应接口权限。');
+                value = await this.roleAction(action, data.payload.payload, identity, adapter);
+            } else value = data.action === 'variables' ? await this.applyVariables(data.payload, identity) : this.worldbook ? await this.worldbook(data.action, data.payload, identity) : (() => { throw Error('世界书接口未接入。'); })();
             if (this.frame === frame) frame.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'response', id: data.id, value: value ?? true }, '*');
         } catch (error) { if (this.frame === frame) frame.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'response', id: data.id, error: error.message }, '*'); }
     }

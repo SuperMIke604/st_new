@@ -102,8 +102,9 @@ export function messageMvuPatch(text) {
     });
 }
 function fingerprint(text) { let value = 2166136261; for (let i = 0; i < text.length; i++) value = Math.imul(value ^ text.charCodeAt(i), 16777619); return `${text.length}:${value >>> 0}`; }
-export function prepareMvuSnapshots(chat, seed, sourceText = message => message.mes || '') {
-    let data = seed ? clone(seed) : null;
+function* snapshotPlan(chat, seed, sourceText) {
+    let data = seed ? yield clone(seed) : null;
+    if (data) validateObject(data);
     let replaying = false;
     const staged = [];
     for (const message of chat) {
@@ -116,10 +117,22 @@ export function prepareMvuSnapshots(chat, seed, sourceText = message => message.
         if (!operations.length && !/<UpdateVariable\b/i.test(raw) && Array.isArray(stamp?.detachedOperations)) operations = clone(stamp.detachedOperations);
         if (!data) { if (operations.length) throw Error('缺少 MVU 初始变量，不能处理更新。'); continue; }
         if (operations.length) data = applyMvuPatch(data, operations);
+        data = yield data;
+        validateObject(data);
         replaying = true;
         const detachedOperations = operations.length && !/<UpdateVariable\b/i.test(message.mes || '') ? clone(operations) : null;
         staged.push({ message, swipe, variables: { ...(variables || {}), stat_data: clone(data) }, source, detachedOperations });
     }
     // Parse every message before mutating any snapshots; failures keep originals.
     return { count: staged.length, data, commit() { for (const item of staged) { (item.message.variables ||= {})[item.swipe] = item.variables; ((item.message.extra ||= {}).independentMvu ||= {})[item.swipe] = { version: 1, source: item.source, ...(item.detachedOperations ? { detachedOperations: item.detachedOperations } : {}) }; } } };
+}
+export function prepareMvuSnapshots(chat, seed, sourceText = message => message.mes || '') {
+    const plan = snapshotPlan(chat, seed, sourceText); let step = plan.next();
+    while (!step.done) step = plan.next(step.value);
+    return step.value;
+}
+export async function prepareValidatedMvuSnapshots(chat, seed, sourceText, normalize) {
+    const plan = snapshotPlan(chat, seed, sourceText); let step = plan.next();
+    while (!step.done) step = plan.next(await normalize(step.value));
+    return step.value;
 }

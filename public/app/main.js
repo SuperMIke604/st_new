@@ -2,8 +2,10 @@ import { RecentCharacters } from './home-data.js';
 import { installMessageEdit } from './message-edit.js';
 import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
-import { initialVariablesFromBook, prepareMvuSnapshots } from './mvu-compat.js';
-import { roleWorldEntries, toggleRoleWorldEntries } from './role-worldbook.js';
+import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
+import { ScriptSchema } from './script-schema.js';
+import { RoleAvatarStore } from './role-avatar-store.js';
+import { roleWorldEntries, toggleRoleWorldEntries, archiveRoleWorldEntries } from './role-worldbook.js';
 import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
 import { warmHistoryRegex } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
@@ -47,7 +49,8 @@ async function loadCharacterCatalog(force = false) {
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
-const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, onRetry: openScriptWorkspace });
+const scriptSchema = new ScriptSchema(), roleAvatars = new RoleAvatarStore();
+const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, roleAction: roleScriptAction, onRetry: openScriptWorkspace });
 let scriptAutoIdentity = '';
 state.startupLoading = true;
 let startupPromise = null;
@@ -194,7 +197,8 @@ function selectPreset() {
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
 function synchronize() {
-    if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) scriptRuntime.dispose();
+    if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) { scriptRuntime.dispose(); scriptSchema.dispose(); }
+    if (scriptSchema.identity && scriptSchema.identity !== scriptIdentity()) scriptSchema.dispose();
     if (scriptRuntime.frame) scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
     if (!state.character) scriptAutoIdentity = '';
     if (state.ready && state.character && !state.loading && !state.busy && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
@@ -1041,6 +1045,9 @@ async function applyScriptVariables(payload, identity) {
     if (!payload?.variables || Object.prototype.toString.call(payload.variables) !== '[object Object]' || JSON.stringify(payload.variables).length > 1000000) throw Error('脚本变量格式无效或数据过大。');
     if (payload.type === 'chat') { state.header.chat_metadata ||= {}; state.header.chat_metadata.variables = copy(payload.variables); }
     else if (payload.type === 'message' && Number.isInteger(payload.message_id) && state.chat[payload.message_id]) {
+        try { if (payload.variables.stat_data) payload.variables.stat_data = await normalizeRoleMvu(payload.variables.stat_data); }
+        catch (error) { scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity()); throw error; }
+        assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，变量未写入。');
         const message = state.chat[payload.message_id]; (message.variables ||= {})[message.swipe_id || 0] = copy(payload.variables);
     } else throw Error('暂不支持此变量写入范围。');
     await saveChat();
@@ -1079,6 +1086,47 @@ async function scriptWorldbook(action, payload, identity) {
     if (Object.entries(updated.entries).some(([key, entry]) => verified.entries?.[key]?.disable !== entry.disable)) throw Error('世界书开关保存核验失败，请重新读取。');
     return true;
 }
+async function roleScriptAction(action, payload, identity, adapter) {
+    const check = () => { assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，请重新打开脚本。'); };
+    check();
+    if (action === 'avatars') return { value: await roleAvatars.run(state.character.avatar, payload) };
+    if (action === 'replace-worldbook') {
+        if (adapter === 'world-switch') return { value: await scriptWorldbook('toggle-worldbook', payload, identity) };
+        const book = await roleWorldbook(payload?.name, identity); check();
+        const updated = archiveRoleWorldEntries(book, payload.entries);
+        await api.post('/api/worldinfo/edit', { name: payload.name, data: updated });
+        const verified = await roleWorldbook(payload.name, identity);
+        if (JSON.stringify(verified.entries) !== JSON.stringify(updated.entries)) throw Error('归档保存核验失败，请重新读取。');
+        api.readCache.clear(); generationPreload.invalidate(); return { value: true };
+    }
+    if ($('message-input').value.trim()) throw Error('请先发送或清空输入框中的内容。');
+    if (action === 'create-messages') {
+        const messages = payload?.messages, options = payload?.options || {};
+        if (!Array.isArray(messages) || messages.length !== 1 || messages[0]?.role !== 'user' || typeof messages[0].message !== 'string' || !messages[0].message.trim() || messages[0].message.length > 200000 || options.insert_at !== undefined || options.insert_before !== undefined) throw Error('当前只支持在聊天末尾添加一条用户指令。');
+        state.chat.push({ name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: messages[0].message, extra: { independentRoleScript: true } });
+        list.setMessages(state.chat, { latest: true }); await saveChat(); return { snapshot: scriptSnapshot(state) };
+    }
+    const command = payload?.command?.trim();
+    if (action !== 'slash') throw Error('不支持此角色脚本操作。');
+    if (/^\/trigger(?:\s+await=true)?$/.test(command)) {
+        const last = state.chat.at(-1);
+        if (!last?.is_user || !last.extra?.independentRoleScript) throw Error('请先添加角色脚本的用户指令。');
+        if (last.extra.independentRoleScriptAttempted) throw Error('这条指令已尝试生成，请在聊天中手动重试，避免重复发送。');
+        last.extra.independentRoleScriptAttempted = true;
+        const result = await generate('retry');
+        if (identity !== scriptIdentity()) throw Error('聊天已切换。');
+        if (!result?.completed || state.dirty) throw Error('角色脚本生成未完成，请在聊天中检查或重试；不会自动重复发送。');
+        return { value: '', snapshot: scriptSnapshot(state) };
+    }
+    const hide = /^\/hide\s+(\d+)$/.exec(command);
+    if (!hide) throw Error('此环境只支持 /trigger 和 /hide 指令。');
+    const message = state.chat[Number(hide[1])]; if (!message?.extra?.independentRoleScript || !message.is_user) throw Error('只允许隐藏角色脚本自己创建的指令。');
+    message.is_system = true; list.update(Number(hide[1])); await saveChat(); return { value: '', snapshot: scriptSnapshot(state) };
+}
+async function normalizeRoleMvu(data) {
+    const schema = characterScriptPlan(state.settings, state.character).find(script => script.enabled && scriptSupport(script).adapter === 'mvu-schema');
+    return schema ? scriptSchema.validate(schema, data, scriptIdentity()) : copy(data);
+}
 async function prepareRoleMvu(generation = false, rawReply = null) {
     if (!usesMvuCompat(state.settings, state.character)) return { changed: false, message: '此卡未启用 MVU 兼容脚本。' };
     const identity = scriptIdentity(); if (!generation) assertSaved();
@@ -1092,11 +1140,12 @@ async function prepareRoleMvu(generation = false, rawReply = null) {
         if (identity !== scriptIdentity()) throw Error('聊天已切换，变量未写入。');
         if (!generation) assertSaved();
         if (generation && state.controller?.signal.aborted) throw new DOMException('变量更新已取消', 'AbortError');
-        const prepared = prepareMvuSnapshots(state.chat, seed, message => rawReply?.message === message ? rawReply.text : message.mes || '');
+        const prepared = await prepareValidatedMvuSnapshots(state.chat, seed, message => rawReply?.message === message ? rawReply.text : message.mes || '', normalizeRoleMvu);
+        if (identity !== scriptIdentity()) throw Error('聊天已切换，变量未写入。');
         let seeded = false;
         if (seed && !state.header.chat_metadata?.independentMvuSeed) { (state.header.chat_metadata ||= {}).independentMvuSeed = copy(seed); seeded = true; }
         prepared.commit();
-        return { changed: seeded || prepared.count > 0, message: prepared.data ? 'MVU 变量已就绪：支持 InitVar 初始化与 JSONPatch 更新。Zod schema 校验暂未接入。' : '未找到 InitVar 初始变量或已有 MVU 快照，请检查角色关联的世界书。' };
+        return { changed: seeded || prepared.count > 0, message: prepared.data ? 'MVU 变量已就绪：支持初始化、JSONPatch 更新及已启用的 Zod 结构校验。' : '未找到 InitVar 初始变量或已有 MVU 快照，请检查角色关联的世界书。' };
     });
 }
 async function renderScriptManager(body, revision, scope, target) {
@@ -1120,7 +1169,7 @@ async function renderScriptManager(body, revision, scope, target) {
     const enabledLabel = el('label', 'check-field'); enabledLabel.append(enabled, el('span', '', kind === 'global' ? '启用全局脚本' : '启用此角色卡的脚本')); body.append(enabledLabel);
     const dirty = () => { panelDirty = true; };
     enabled.addEventListener('change', dirty);
-    note(body, kind === 'global' ? '全局脚本只管理和保留，不在本前端执行或适配。' : '角色脚本在“脚本面板”运行。已适配 MVU 初始化、JSONPatch 更新和关联世界书的场景开关；Zod 校验、头像库和生成类脚本仍未接入。');
+    note(body, kind === 'global' ? '全局脚本只管理和保留，不在本前端执行或适配。' : '进入聊天后自动运行已启用的兼容脚本。逐梦演艺圈已接入变量校验、状态栏与编辑器、头像库、场景开关和人设/剧本/总结归档；原本停用的脚本需自行启用。');
     const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
     const render = () => {
         rows.replaceChildren(); const entries = scriptRows(tree);
@@ -1164,7 +1213,7 @@ async function renderScriptManager(body, revision, scope, target) {
             state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'character', { enabled: enabled.checked, avatar: selected, allAvatars: state.characters.map(card => card.avatar) })); state.own = settingsOwn(state.settings);
             if (state.character?.avatar === selected) state.character = savedCard; characterCatalog.invalidate();
         }
-        scriptRuntime.dispose(); scriptAutoIdentity = ''; panelDirty = false; synchronize(); notify('脚本已保存，当前角色脚本已自动加载。');
+        scriptRuntime.dispose(); scriptSchema.dispose(); scriptAutoIdentity = ''; panelDirty = false; synchronize(); notify('脚本已保存，当前角色脚本已自动加载。');
     }, 'edit', 'primary')); body.append(footer); render();
 }
 function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
@@ -1956,6 +2005,7 @@ async function generate(mode = false) {
         state.error = '';
         if (completed && !state.dirty) { await autoUpdateDatabase(); preloadNextGeneration(); }
     }
+    return { completed };
 }
 
 function beginMessageEdit(message) {

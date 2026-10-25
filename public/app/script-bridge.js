@@ -6,9 +6,9 @@ export function scriptBridge(initial) {
     const clone = value => structuredClone(value);
     const post = data => parent.postMessage({ channel: 'st-new-scripts', ...data }, '*');
     const emit = (event, ...args) => { for (const fn of events.get(event) || []) { try { fn(...args); } catch (error) { post({ type: 'notice', text: error.message, error: true }); } } };
-    const rpc = (action, payload) => new Promise((resolve, reject) => {
+    const rpc = (action, payload, timeout = 20000) => new Promise((resolve, reject) => {
         const id = ++sequence;
-        const timer = setTimeout(() => { pending.delete(id); reject(Error('脚本操作超时')); }, 20000);
+        const timer = setTimeout(() => { pending.delete(id); reject(Error('脚本操作超时')); }, timeout);
         pending.set(id, { resolve, reject, timer }); post({ type: 'request', id, action, payload });
     });
     const get = (object, path, fallback) => {
@@ -33,6 +33,7 @@ export function scriptBridge(initial) {
     const localStorage = { getItem: key => memory.get(String(key)) ?? null, setItem: (key, value) => memory.set(String(key), String(value)), removeItem: key => memory.delete(String(key)), clear: () => memory.clear() };
     try { Object.defineProperty(window, 'localStorage', { value: localStorage }); } catch {}
     const context = { chat: snapshot.chat, chatMetadata: snapshot.chatVariables, name1: snapshot.userName, name2: snapshot.characterName };
+    const updateSnapshot = value => { snapshot = value; context.chat = value.chat; context.chatMetadata = value.chatVariables; window.SillyTavern.chat = value.chat; window.SillyTavern.chatMetadata = value.chatVariables; };
     Object.assign(window, {
         _: { get, uniq: values => [...new Set(values)], cloneDeep: clone },
         SillyTavern: { ...context, getContext: () => context },
@@ -42,7 +43,9 @@ export function scriptBridge(initial) {
         getWorldbook: name => rpc('read-worldbook', { name }),
         replaceWorldbook: (name, entries) => rpc('toggle-worldbook', { name, entries }),
         getLastMessageId: () => snapshot.chat.length - 1,
-        getChatMessages: target => { if (target === 'latest' || target === -1) return clone(snapshot.chat.slice(-1)); if (Number.isInteger(Number(target))) return clone(snapshot.chat.slice(Number(target), Number(target) + 1)); throw Error('暂不支持此消息范围格式'); },
+        getChatMessages: target => { const index = target === 'latest' ? snapshot.chat.length - 1 : Number(target); if (!Number.isInteger(index)) throw Error('暂不支持此消息范围格式'); const offset = index < 0 ? snapshot.chat.length + index : index; const message = snapshot.chat[offset]; return message ? [{ ...clone(message), message: message.mes, role: message.is_user ? 'user' : 'assistant', is_hidden: !!message.is_system, data: clone(message.variables?.[message.swipe_id || 0] || {}) }] : []; },
+        createChatMessages: () => { throw Error('此调用必须来自已适配的角色脚本。'); }, triggerSlash: () => { throw Error('此调用必须来自已适配的角色脚本。'); },
+        __roleCall: async (scriptId, action, payload) => { const result = await rpc('role-action', { scriptId, action, payload }, action === 'slash' ? 600000 : 20000); if (result?.snapshot) updateSnapshot(result.snapshot); return result?.value; },
         eventOn: (event, callback) => { if (!events.has(event)) events.set(event, new Set()); events.get(event).add(callback); return () => events.get(event)?.delete(callback); },
         eventRemoveListener: (event, callback) => events.get(event)?.delete(callback), eventEmit: emit,
         tavern_events: { MESSAGE_RECEIVED: 'message_received', CHAT_ID_CHANGED: 'chat_changed' },
@@ -57,8 +60,7 @@ export function scriptBridge(initial) {
         if (event.source !== parent || event.data?.channel !== 'st-new-scripts') return;
         const data = event.data;
         if (data.type === 'snapshot') {
-            snapshot = data.snapshot; context.chat = snapshot.chat; context.chatMetadata = snapshot.chatVariables;
-            window.SillyTavern.chat = snapshot.chat; window.SillyTavern.chatMetadata = snapshot.chatVariables;
+            updateSnapshot(data.snapshot);
             emit('message_received'); emit('mvu_update');
         } else if (data.type === 'button' && typeof data.event === 'string') {
             emit(data.event);
@@ -69,6 +71,7 @@ export function scriptBridge(initial) {
     });
     addEventListener('error', event => post({ type: 'notice', text: event.message || '脚本执行异常', error: true }));
     addEventListener('unhandledrejection', event => post({ type: 'notice', text: String(event.reason?.message || event.reason || '脚本异步执行异常'), error: true }));
+    addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key) && event.target.matches('[role="button"][tabindex="0"]')) { event.preventDefault(); event.target.click(); } });
     addEventListener('DOMContentLoaded', () => {
         const placeholder = document.getElementById('script-empty');
         if (initial.pageDisplay) {
@@ -76,7 +79,8 @@ export function scriptBridge(initial) {
             let scheduled = false, lastLayout = '';
             const measure = () => {
                 scheduled = false;
-                const rects = [...document.body.children].filter(node => node !== placeholder && !['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)).flatMap(node => {
+                const roots = [...document.body.children, ...document.documentElement.children].filter(node => node !== placeholder && !['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName));
+                const rects = roots.flatMap(node => {
                     const style = getComputedStyle(node), rect = node.getBoundingClientRect();
                     return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0 ? [[rect.x, rect.y, rect.width, rect.height]] : [];
                 });
@@ -86,8 +90,11 @@ export function scriptBridge(initial) {
             // allow the first asynchronously-created floating widget to appear.
             const schedule = () => { if (!scheduled) { scheduled = true; setTimeout(measure, 16); } };
             const resize = new ResizeObserver(schedule);
-            const observe = () => { resize.disconnect(); for (const node of document.body.children) if (!['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)) resize.observe(node); schedule(); };
-            new MutationObserver(observe).observe(document.body, { childList: true, subtree: true, attributes: true });
+            const observe = () => {
+                for (const node of document.querySelectorAll('[data-edit]:not([role])')) { node.setAttribute('role', 'button'); node.setAttribute('tabindex', '0'); node.setAttribute('aria-label', '编辑' + (node.getAttribute('data-edit-label') || node.getAttribute('data-edit'))); }
+                resize.disconnect(); for (const node of [...document.body.children, ...document.documentElement.children]) if (!['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)) resize.observe(node); schedule();
+            };
+            new MutationObserver(observe).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
             addEventListener('resize', schedule); addEventListener('scroll', schedule, true); observe();
         }
         const started = Date.now();

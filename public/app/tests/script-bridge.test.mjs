@@ -24,7 +24,8 @@ test('host accepts script variable writes only for the current chat and preserve
     const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
     const functions = source.slice(source.indexOf('function scriptIdentity('), source.indexOf('async function openScriptWorkspace('));
     let saved = 0; const state = { character: { avatar: 'a.png' }, file: 'chat', header: { chat_metadata: { integrity: 'id' } }, chat: [{ mes: 'unchanged', swipe_id: 1, variables: { 0: { keep: true } } }] };
-    const context = vm.createContext({ state, panelDirty: false, copy: structuredClone, assertSaved() { if (state.busy) throw Error('busy'); }, saveChat: async () => { saved++; } });
+    let refreshes = 0;
+    const context = vm.createContext({ state, panelDirty: false, copy: structuredClone, normalizeRoleMvu: async value => structuredClone(value), scriptRuntime: { refresh() { refreshes++; } }, scriptSnapshot: () => ({}), assertSaved() { if (state.busy) throw Error('busy'); }, saveChat: async () => { saved++; } });
     vm.runInContext(functions, context);
     const payload = { type: 'message', message_id: 0, variables: { stat_data: { value: 2 } } };
     await assert.rejects(context.applyScriptVariables(payload, 'other'), /聊天已切换/);
@@ -32,6 +33,9 @@ test('host accepts script variable writes only for the current chat and preserve
     await context.applyScriptVariables(payload, 'a.png/chat/id'); assert.equal(saved, 1); assert.equal(state.chat[0].mes, 'unchanged'); assert.equal(state.chat[0].variables[0].keep, true); assert.equal(state.chat[0].variables[1].stat_data.value, 2);
     await assert.rejects(context.applyScriptVariables({ ...payload, type: 'global' }, 'a.png/chat/id'), /写入范围/);
     await assert.rejects(context.applyScriptVariables({ ...payload, message_id: -1 }, 'a.png/chat/id'), /写入范围/);
+    context.normalizeRoleMvu = async () => { throw Error('schema invalid'); };
+    await assert.rejects(context.applyScriptVariables({ ...payload, variables: { stat_data: { value: 'invalid' } } }, 'a.png/chat/id'), /schema invalid/);
+    assert.equal(state.chat[0].variables[1].stat_data.value, 2); assert.equal(saved, 1); assert.equal(refreshes, 1);
 });
 test('runtime ignores requests from other frames and returns write errors to its own frame', async () => {
     let writes = 0; const responses = [], frameWindow = { postMessage: value => responses.push(value) };

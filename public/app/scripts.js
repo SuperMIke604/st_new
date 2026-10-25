@@ -55,6 +55,10 @@ export function patchScriptScope(settings, scope, { tree, enabled, avatar, allAv
 }
 export function scriptSupport(script) {
     const text = String(script.content || '');
+    if (/^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*['"]https:\/\/[^'"]+\/mvu_zod\.js['"]/m.test(text) && text.includes('export const Schema = z.object(')) return { supported: true, adapter: 'mvu-schema', reason: '使用本地 Zod 校验变量结构、默认值和转换，不加载远程模块。' };
+    if (text.includes('逐梦演艺圈_头像库') && text.includes('  function 开库() {') && text.includes('  function 规范名(')) return { supported: true, adapter: 'role-avatar', reason: '头像库使用按角色隔离的本地持久存储，支持本地图片与导入导出。' };
+    if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('updateVariablesWith')) return { supported: true, adapter: 'mvu-status', reason: '支持角色状态栏及变量编辑器。' };
+    if (text.includes('世界书名前缀') && text.includes('createChatMessages') && text.includes('triggerSlash') && /条目名前缀:\s*['"](?:Char_|Script_|Summary_)/.test(text)) return { supported: true, adapter: 'role-archive', reason: '支持当前角色的人设、剧本和总结生成，以及关联世界书归档。' };
     if (/^\s*import\s*['"]https:\/\/[^'"\s]+\/MagVarUpdate@[^'"\s]+\/artifact\/bundle\.js['"]\s*;?\s*$/.test(text)) return { supported: true, adapter: 'mvu', reason: '使用内置 MVU 兼容：InitVar 初始化和 JSONPatch 更新；不加载外部 beta 模块。' };
     if (text.includes('世界书名前缀') && text.includes('切换场景') && /\bgetWorldbook\b/.test(text)) return { supported: true, adapter: 'world-switch', reason: '支持切换此角色关联世界书的条目启用状态。' };
     if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('initFatePhone')) return { supported: true, adapter: 'mvu-status', reason: '已适配此状态栏在独立面板读取当前聊天的 MVU 变量。' };
@@ -79,7 +83,7 @@ export function scriptSnapshot({ chat = [], header, character, settings = {} }) 
     const recent = Math.max(0, chat.length - 40);
     const latest = chat.findLastIndex(message => message.variables?.[message.swipe_id || 0]?.stat_data);
     let budget = 2000000;
-    const messages = chat.map((message, index) => ({ message_id: index, name: message.name, is_user: !!message.is_user, mes: index >= recent ? String(message.mes || '').slice(0, 20000) : '', swipe_id: message.swipe_id || 0, variables: {} }));
+    const messages = chat.map((message, index) => ({ message_id: index, name: message.name, is_user: !!message.is_user, is_system: !!message.is_system, mes: index >= recent ? String(message.mes || '').slice(0, 100000) : '', swipe_id: message.swipe_id || 0, variables: {} }));
     for (let index = chat.length - 1; index >= 0; index--) {
         if (index < recent && index !== latest) continue;
         const variables = chat[index].variables || {}, size = JSON.stringify(variables).length;
