@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { LoadTimings } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const generate = source.slice(source.indexOf('async function generate('), source.indexOf('\nfunction messageActions('));
+const generate = source.slice(source.indexOf('async function generate('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture() {

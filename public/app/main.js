@@ -60,7 +60,6 @@ let panelRevision = 0;
 let preview = null;
 let streamFrame = 0;
 let inlineEdit = null;
-const expandedMessages = new WeakSet();
 const sessionKeys = new Map();
 let profileStore = { version: 1, activeId: '', profiles: [] };
 const copy = value => structuredClone(value);
@@ -241,14 +240,8 @@ function renderMessage(message, index, existing) {
             node.addEventListener('touchstart', event => { if (event.target.closest('button,input,textarea,pre,iframe')) return; const t=event.touches[0]; touch={x:t.clientX,y:t.clientY}; }, {passive:true});
             node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy) return; void run(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
         }
-        let actions;
-        if (message.is_user) {
-            const more = action('消息操作', () => messageActions(index), 'more', 'message-more');
-            more.setAttribute('aria-label', `第 ${index} 楼消息操作`); more.title = '消息操作'; header.append(more);
-            actions = el('div', 'message-actions');
-        }
         const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop);
-        node.prepend(...(actions ? [header, actions] : [header]));
+        node.prepend(header);
         const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
         installMessageEdit(node, () => beginMessageEdit(node._message));
     }
@@ -274,20 +267,19 @@ function renderMessage(message, index, existing) {
         floor.textContent = `#${index} · -`;
         if (source?.trim()) void api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{role:message.is_user?'user':'assistant',content:source}]).then(result => { if(node._countedText===source) floor.textContent=`#${index} · ${result.token_count || '-'}`; }).catch(()=>{});
     }
-    renderInlineActions(node, message, index);
     if (inlineEdit?.message === message) {
         if (!node.querySelector('.inline-editor')) {
             const editor = el('div', 'inline-editor');
             const text = el('textarea'); text.value = inlineEdit.text; text.rows = 8; text.setAttribute('aria-label', `修改第 ${index} 楼消息`);
             text.addEventListener('input', () => { inlineEdit.text = text.value; });
             const buttons = el('div', 'inline-edit-buttons');
-            buttons.append(action('保存修改', async () => {
+            buttons.append(action('保存', async () => {
                 assertIdle(); if (state.dirty) throw new Error('请先重试保存当前聊天。');
                 message.mes = regexText(inlineEdit.text, message.is_user ? 1 : 2, { edit: true, depth: state.chat.length - index - 1 });
                 invalidateDatabases(state.chat, index);
                 if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.mes;
                 inlineEdit = null; list.update(index); await saveChat();
-            }, 'edit', 'primary'), action('取消修改', () => { inlineEdit = null; list.update(index); }, 'close'));
+            }, undefined, 'primary'), action('取消', () => { inlineEdit = null; list.update(index); }), action('删除', () => deleteEditedMessage(message), undefined, 'danger'));
             editor.append(text, buttons); node.append(editor);
         }
         node.querySelector('.message-content').hidden = true;
@@ -2016,48 +2008,13 @@ function beginMessageEdit(message) {
         document.querySelector('.inline-editor textarea')?.focus();
     });
 }
-function messageActions(index) {
-    const message = state.chat[index]; if (!message) return;
-    if (expandedMessages.has(message)) expandedMessages.delete(message); else expandedMessages.add(message);
-    list.update(index);
-}
-function renderInlineActions(node, message, index) {
-    const bar = node.querySelector('.message-actions');
-    if (!bar) return;
-    bar.hidden = !expandedMessages.has(message);
-    node.querySelector('.message-more').setAttribute('aria-expanded', String(!bar.hidden));
-    if (bar.hidden) return;
-    // Rebuild only when the applicable actions change; keep the editor's focus intact.
-    const key = `${state.chat.length}:${message.swipes?.length || 0}:${state.busy}`;
-    if (bar.dataset.key === key) return;
-    bar.dataset.key = key; bar.replaceChildren();
-    bar.append(action('修改', () => {
-        assertSaved(); inlineEdit = { message, text: message.mes }; list.update(index);
-        node.querySelector('.inline-editor textarea')?.focus();
-    }, 'edit'), action('复制', async () => {
-        const text = inlineEdit?.message === message ? inlineEdit.text : message.mes;
-        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-        else {
-            const area = el('textarea'); area.value = text; node.append(area); area.select();
-            const ok = document.execCommand('copy'); area.remove(); if (!ok) throw new Error('请选中文字后复制。');
-        }
-        notify('已复制');
-    }, 'chat'));
-    bar.append(action('删除', async () => {
-        assertSaved(); if (!confirm(`删除第 ${index} 楼消息？酒馆会保留聊天备份。`)) return;
-        state.chat.splice(index, 1); invalidateDatabases(state.chat, index); await saveChat(); list.setMessages(state.chat, { reset: true });
-    }, 'close', 'danger'));
-    if (message.swipes?.length > 1) {
-        const select = el('select'); select.setAttribute('aria-label', '切换回复');
-        message.swipes.forEach((text, id) => { const option = el('option', '', `回复 ${id + 1}`); option.value = id; select.append(option); });
-        select.value = message.swipe_id || 0;
-        select.addEventListener('change', () => run(async () => {
-            assertSaved(); const id = Number(select.value); message.swipe_id = id; message.mes = message.swipes[id];
-            if (message.swipe_info?.[id]) Object.assign(message, copy(message.swipe_info[id]));
-            invalidateDatabases(state.chat, index);
-            list.update(index); await saveChat();
-        })); bar.append(select);
-    }
+async function deleteEditedMessage(message) {
+    assertIdle(); if (state.dirty) throw new Error('请先重试保存当前聊天。');
+    const index = state.chat.indexOf(message);
+    if (index < 0 || inlineEdit?.message !== message) throw new Error('消息已变化，请重新打开编辑。');
+    if (!confirm(`删除第 ${index} 楼消息？酒馆会保留聊天备份。`)) return;
+    state.chat.splice(index, 1); inlineEdit = null; invalidateDatabases(state.chat, index);
+    list.setMessages(state.chat, { reset: true }); await saveChat();
 }
 
 function searchPanel() {
