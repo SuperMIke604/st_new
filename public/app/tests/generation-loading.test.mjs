@@ -12,7 +12,7 @@ function fixture() {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
-    let requests = 0;
+    let requests = 0; const mvuCalls = [];
     const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
@@ -20,10 +20,11 @@ function fixture() {
         list: { follow: true, update() {}, setMessages() { renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message }))); } },
         api: { response() { requests++; return response.promise; } },
         generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
+        prepareRoleMvu: async (...args) => { mvuCalls.push(args); assert.equal(state.busy, true); return { changed: false }; },
         saveChat: async () => {}, rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, postGeneration, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -43,6 +44,7 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.state.chat.at(-1).mes, '测试回复');
     assert.equal(f.renders.at(-1).at(-1).pending, false);
     assert.deepEqual(f.postGeneration, ['database', 'preload'], 'warm resources only after saving and automatic database updates');
+    assert.equal(f.mvuCalls.length, 2); assert.equal(f.mvuCalls[0][0], true); assert.equal(f.mvuCalls[0][1], undefined); assert.equal(f.mvuCalls[1][1].text, '测试回复');
 });
 
 test('stopping regeneration clears loading and restores the previous reply', async () => {
@@ -61,6 +63,7 @@ test('stopping regeneration clears loading and restores the previous reply', asy
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.match(f.notices.at(-1), /生成已停止/);
     assert.deepEqual(f.postGeneration, []);
+    assert.equal(f.mvuCalls.length, 1, 'initialize existing state before the request, but never apply an aborted reply');
 });
 
 test('prompt failure clears loading without sending a request or losing the input', async () => {

@@ -1,7 +1,10 @@
 import { RecentCharacters } from './home-data.js';
 import { installMessageEdit } from './message-edit.js';
-import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, activeScripts, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
+import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
+import { initialVariablesFromBook, prepareMvuSnapshots } from './mvu-compat.js';
+import { roleWorldEntries, toggleRoleWorldEntries } from './role-worldbook.js';
+import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
 import { warmHistoryRegex } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
 import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
@@ -44,7 +47,7 @@ async function loadCharacterCatalog(force = false) {
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
-const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables });
+const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, onRetry: openScriptWorkspace });
 state.startupLoading = true;
 let startupPromise = null;
 const panelLoads = new WeakMap();
@@ -177,7 +180,8 @@ function connection() {
     return profileStore.profiles.find(profile => profile.id === profileStore.activeId) || inheritedConnection(state.settings);
 }
 function regexText(text, placement, options = {}) {
-    return applyRegex(text, activeRegexes({ settings: state.settings, preset: state.preset, character: state.character }), placement, { variables: { char: state.character?.name || '', user: persona().name, description: state.character?.data?.description || '', persona: persona().description }, ...options });
+    const index = typeof options.depth === 'number' ? state.chat.length - options.depth : state.chat.length;
+    return applyRegex(text, activeRegexes({ settings: state.settings, preset: state.preset, character: state.character }), placement, { variables: { [MESSAGE_VARIABLES]: messageVariableContext(state.chat.slice(0, index), state.header?.chat_metadata?.independentMvuSeed), char: state.character?.name || '', user: persona().name, description: state.character?.data?.description || '', persona: persona().description }, ...options });
 }
 function presets() {
     return presetCatalog(state.bundle);
@@ -1035,11 +1039,57 @@ async function applyScriptVariables(payload, identity) {
 }
 async function openScriptWorkspace() {
     assertViewable(); if (panelDirty) throw Error('请先保存或取消当前修改。');
-    const scripts = activeScripts(state.settings, state.character);
-    if (!scripts.length) throw Error('没有启用的脚本，请在“正则与脚本”中选择。');
-    if (!scripts.some(script => scriptSupport(script).supported)) throw Error('已启用的脚本依赖尚未接入的接口，请在管理页查看支持状态。');
+    if (!state.character) throw Error('请先进入角色卡聊天。全局脚本不在本前端运行。');
+    const identity = scriptIdentity(); let preparation = '';
+    if (usesMvuCompat(state.settings, state.character) && !state.busy && !state.dirty) {
+        try { const result = await prepareRoleMvu(); if (result.changed) await saveChat(); preparation = result.message; }
+        catch (error) { preparation = `变量准备未完成：${error.message}`; }
+    }
+    if (identity !== scriptIdentity()) return;
+    const scripts = characterScriptPlan(state.settings, state.character), snapshot = scriptSnapshot(state);
+    if (!preparation) preparation = !scripts.length ? '这张角色卡没有自带脚本。' : !scripts.some(script => script.enabled) ? '此角色脚本已停用，请到“正则与脚本 → 角色卡脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。只运行角色卡脚本，全局脚本不参与适配。' : '当前聊天还没有 MVU 变量，请查看下方脚本状态。';
     if ($('panel').open && !closePanel()) return;
-    await scriptRuntime.show({ scripts, snapshot: scriptSnapshot(state), identity: scriptIdentity() });
+    await scriptRuntime.show({ scripts, snapshot, identity, preparation });
+}
+async function roleWorldbook(name, identity) {
+    const current = () => identity === scriptIdentity() && name && name === (state.character?.data || state.character)?.extensions?.world;
+    if (!current()) throw Error('只允许读取当前角色关联的世界书。');
+    const book = await api.post('/api/worldinfo/get', { name }, { signal: AbortSignal.timeout(15000) });
+    if (!current()) throw Error('聊天或关联世界书已切换。');
+    return book;
+}
+async function scriptWorldbook(action, payload, identity) {
+    const name = payload?.name;
+    if (action === 'toggle-worldbook') { assertSaved(); if (panelDirty) throw Error('请先保存或取消当前修改。'); }
+    const book = await roleWorldbook(name, identity);
+    if (action === 'read-worldbook') return roleWorldEntries(book);
+    if (action !== 'toggle-worldbook') throw Error('不支持的世界书操作。');
+    assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化。');
+    const updated = toggleRoleWorldEntries(book, payload.entries);
+    await api.post('/api/worldinfo/edit', { name, data: updated });
+    const verified = await roleWorldbook(name, identity);
+    if (Object.entries(updated.entries).some(([key, entry]) => verified.entries?.[key]?.disable !== entry.disable)) throw Error('世界书开关保存核验失败，请重新读取。');
+    return true;
+}
+async function prepareRoleMvu(generation = false, rawReply = null) {
+    if (!usesMvuCompat(state.settings, state.character)) return { changed: false, message: '此卡未启用 MVU 兼容脚本。' };
+    const identity = scriptIdentity(); if (!generation) assertSaved();
+    return loadTimings.measure('角色卡 MVU 变量更新', 'generation', async () => {
+        let seed = state.header?.chat_metadata?.independentMvuSeed;
+        if (!seed) {
+            const card = state.character?.data || state.character, name = card?.extensions?.world;
+            const book = name ? await roleWorldbook(name, identity) : card?.character_book;
+            seed = initialVariablesFromBook(book);
+        }
+        if (identity !== scriptIdentity()) throw Error('聊天已切换，变量未写入。');
+        if (!generation) assertSaved();
+        if (generation && state.controller?.signal.aborted) throw new DOMException('变量更新已取消', 'AbortError');
+        const prepared = prepareMvuSnapshots(state.chat, seed, message => rawReply?.message === message ? rawReply.text : message.mes || '');
+        let seeded = false;
+        if (seed && !state.header.chat_metadata?.independentMvuSeed) { (state.header.chat_metadata ||= {}).independentMvuSeed = copy(seed); seeded = true; }
+        prepared.commit();
+        return { changed: seeded || prepared.count > 0, message: prepared.data ? 'MVU 变量已就绪：支持 InitVar 初始化与 JSONPatch 更新。Zod schema 校验暂未接入。' : '未找到 InitVar 初始变量或已有 MVU 快照，请检查角色关联的世界书。' };
+    });
 }
 async function renderScriptManager(body, revision, scope, target) {
     const kind = scope === 'global-script' ? 'global' : 'character';
@@ -1062,17 +1112,17 @@ async function renderScriptManager(body, revision, scope, target) {
     const enabledLabel = el('label', 'check-field'); enabledLabel.append(enabled, el('span', '', kind === 'global' ? '启用全局脚本' : '启用此角色卡的脚本')); body.append(enabledLabel);
     const dirty = () => { panelDirty = true; };
     enabled.addEventListener('change', dirty);
-    note(body, '脚本在独立的“脚本面板”中运行。可读取已有聊天变量；外部 MVU / Zod 模块、头像库和世界书读写暂未接入。原脚本及未知字段会保留。');
+    note(body, kind === 'global' ? '全局脚本只管理和保留，不在本前端执行或适配。' : '角色脚本在“脚本面板”运行。已适配 MVU 初始化、JSONPatch 更新和关联世界书的场景开关；Zod 校验、头像库和生成类脚本仍未接入。');
     const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
     const render = () => {
         rows.replaceChildren(); const entries = scriptRows(tree);
         if (!entries.length) { note(rows, '还没有脚本，可新建或导入。'); return; }
         for (const row of entries) {
-            const script = row.script, support = scriptSupport(script), details = el('details', 'prompt-item');
+            const script = row.script, support = kind === 'global' ? { supported: false, reason: '仅管理，不在本前端执行或适配。' } : scriptSupport(script), details = el('details', 'prompt-item');
             const summary = el('summary', 'prompt-summary');
             const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = script.enabled !== false; toggle.setAttribute('aria-label', `启用脚本 ${script.name || '未命名'}`);
             toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; dirty(); });
-            const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
+            const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', kind === 'global' ? '仅管理' : support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
             let built = false;
             details.addEventListener('toggle', () => {
                 if (!details.open || built) return; built = true;
@@ -1095,7 +1145,7 @@ async function renderScriptManager(body, revision, scope, target) {
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
     }, 'folder'), action('导出脚本', () => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'export'), action('打开脚本面板', openScriptWorkspace, 'tools'));
+    }, 'export'), action('打开当前角色脚本', openScriptWorkspace, 'tools'));
     const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
         assertIdle();
         validateScriptTree(tree);
@@ -1795,7 +1845,7 @@ async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = generationPreload.get(chat, state.header, state.own.database);
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation') };
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation') };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);
@@ -1832,6 +1882,7 @@ async function generate(mode = false) {
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
     try {
+        await prepareRoleMvu(true);
         const prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
         const body = generationBody(connection(), state.preset, prepared.messages);
         if (state.controller.signal.aborted) return;
@@ -1873,6 +1924,7 @@ async function generate(mode = false) {
     } finally {
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
+        const rawReplyText = reply?.mes;
         if (reply) {
             reply.mes = regexText(reply.mes, 2, { depth: 0 });
             if (reply.extra?.reasoning) reply.extra.reasoning = regexText(reply.extra.reasoning, 6, { depth: 0 });
@@ -1882,6 +1934,9 @@ async function generate(mode = false) {
                 reply.gen_finished = new Date().toISOString(); reply.extra.model = connection().model;
                 if (regenerate) { reply.swipes.push(reply.mes); reply.swipe_info.push({ extra: copy(reply.extra), gen_started: reply.gen_started, gen_finished: reply.gen_finished }); }
             }
+        }
+        if (completed && reply) {
+            try { await prepareRoleMvu(true, { message: reply, text: rawReplyText }); } catch (error) { notify(`回复已保留，角色变量更新失败：${error.message}`, true); }
         }
         if (reply || pendingUser) {
             try { await saveChat(); await rememberChat(); } catch (error) { notify(error.message, true); }

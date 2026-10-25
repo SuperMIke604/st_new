@@ -1,3 +1,4 @@
+import { MESSAGE_VARIABLES, resolveMessageVariableMacro } from './variable-macros.js';
 // Native preset regex data, executed without loading extensions or scripts.
 export function presetRegexes(preset) {
     const rules = preset?.extensions?.regex_scripts ?? preset?.regex_scripts;
@@ -14,6 +15,8 @@ export function activeRegexes(input) {
 }
 function macros(text, variables, escaped = false) {
     return String(text ?? '').replace(/{{\s*([^{}]+?)\s*}}/g, (raw, key) => {
+        const messageValue = resolveMessageVariableMacro(key, variables[MESSAGE_VARIABLES]);
+        if (messageValue !== undefined) return escaped ? messageValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : messageValue;
         if (!Object.hasOwn(variables, key.toLowerCase())) return raw;
         const value = String(variables[key.toLowerCase()] ?? '');
         return escaped ? value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') : value;

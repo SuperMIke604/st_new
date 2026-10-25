@@ -1,5 +1,6 @@
 import { expand, activateWorlds, copyVariableState } from './engine.js';
 import { applyRegex, activeRegexes } from './regex.js';
+import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
 import { databaseSettings, databaseForChat, referenceDatabaseText, sheetText } from './database.js';
 
 function check(signal) { if (signal.aborted) throw new DOMException('预设计数已取消', 'AbortError'); }
@@ -59,7 +60,7 @@ export class PresetTokenPreview {
     }
     variables() {
         const card = this.character?.data || this.character;
-        const base = { char: this.character?.name || '', user: this.persona.name, description: card?.description || '', personality: card?.personality || '', scenario: card?.scenario || '', persona: this.persona.description };
+        const base = { [MESSAGE_VARIABLES]: messageVariableContext(this.chat, this.header?.chat_metadata?.independentMvuSeed), char: this.character?.name || '', user: this.persona.name, description: card?.description || '', personality: card?.personality || '', scenario: card?.scenario || '', persona: this.persona.description };
         const known = key => key === 'tabledata' || /^sheet_(?:\d|1\d)$/.test(key);
         const custom = key => /^sheet_[\w-]+$/.test(key) && Object.hasOwn(this.database(), key);
         // Database extraction is lazy: {{char}} and {{getvar}} alone must not

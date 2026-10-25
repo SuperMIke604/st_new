@@ -1,5 +1,6 @@
 import { applyRegex, activeRegexes } from './regex.js';
 import { historyRegexCache } from './history-regex-cache.js';
+import { MESSAGE_VARIABLES, messageVariableContext, resolveMessageVariableMacro } from './variable-macros.js';
 export class CompatibilityError extends Error {
     constructor(message) { super(message); this.name = 'CompatibilityError'; }
 }
@@ -19,6 +20,8 @@ export function expand(text, variables = {}) {
             if (setter) { locals.set(setter[1].trim(), setter[2]); return ''; }
             const getter = key.match(/^getvar::([^:]+)$/i);
             if (getter) return locals.get(getter[1].trim()) ?? '';
+            const messageValue = resolveMessageVariableMacro(key, variables[MESSAGE_VARIABLES]);
+            if (messageValue !== undefined) return messageValue;
             key = key.trim().toLowerCase();
             if (key === 'trim') return '';
             return Object.hasOwn(variables, key) ? String(variables[key] ?? '') : raw;
@@ -111,9 +114,10 @@ export function parseExamples(text, variables, namesBehavior = 0) {
     return messages;
 }
 
-export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {} }) {
+export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, mvuSeed = null }) {
     const card = character.data || character;
     const variables = {
+        [MESSAGE_VARIABLES]: messageVariableContext(chat, mvuSeed),
         char: character.name || card.name || 'Assistant', user: persona.name || settings.username || 'User',
         description: card.description || '', personality: card.personality || '', scenario: card.scenario || '',
         persona: persona.description || '', charprompt: card.system_prompt || '',

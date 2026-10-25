@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scriptTrees, scriptRows, activeScripts, scriptScopeEnabled, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchScriptScope } from '../scripts.js';
+import { scriptTrees, scriptRows, activeScripts, scriptScopeEnabled, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchScriptScope, characterScriptPlan, usesMvuCompat } from '../scripts.js';
 import { scriptDocument } from '../script-runtime.js';
 
 test('global and character scripts remain separate and disabled folders suppress children', () => {
@@ -63,4 +63,17 @@ test('snapshot keeps floor indexes while bounding old message text and preservin
     const chat = Array.from({ length: 100 }, (_, index) => ({ mes: 'message ' + index, variables: index === 2 ? { 0: { stat_data: { value: 2 } } } : {} }));
     const snapshot = scriptSnapshot({ chat }); assert.equal(snapshot.chat.length, 100);
     assert.equal(snapshot.chat[0].mes, ''); assert.equal(snapshot.chat[99].message_id, 99); assert.equal(snapshot.chat[99].mes, 'message 99'); assert.equal(latestMvuData(snapshot).stat_data.value, 2);
+});
+test('role plan excludes global scripts and known MVU import uses the built-in adapter without executing its URL', () => {
+    const content = "import 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artifact/bundle.js'";
+    const card = { avatar: 'a.png', data: { extensions: { tavern_helper: { scripts: [{ id: 'mvu', enabled: true, content }] } } } };
+    const settings = { extension_settings: { tavern_helper: { script: { scripts: [{ id: 'global', content: 'window.globalRan=true' }] } } } };
+    assert.deepEqual(characterScriptPlan(settings, card).map(script => script.id), ['mvu']); assert.equal(usesMvuCompat(settings, card), true);
+    const document = scriptDocument([{ id: 'global', scope: 'global', content: 'window.globalRan=true' }, ...characterScriptPlan(settings, card)], { chat: [] }, '/* jQuery */');
+    assert.ok(!document.includes('window.globalRan=true')); assert.ok(!document.includes('https://testingcf.jsdelivr.net')); assert.ok(document.includes('script-empty'));
+    assert.equal(scriptSupport({ content }).adapter, 'mvu');
+});
+test('role status bar fallback probes of parent DOM do not block its working local MVU adapter', () => {
+    const content = '/* fate-phone-container getMvuDataSafe initFatePhone */ try { const p=window.parent; p.document; } catch {}';
+    assert.equal(scriptSupport({ content }).adapter, 'mvu-status'); assert.equal(scriptSupport({ content }).supported, true);
 });

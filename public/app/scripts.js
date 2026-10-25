@@ -55,6 +55,9 @@ export function patchScriptScope(settings, scope, { tree, enabled, avatar, allAv
 }
 export function scriptSupport(script) {
     const text = String(script.content || '');
+    if (/^\s*import\s*['"]https:\/\/[^'"\s]+\/MagVarUpdate@[^'"\s]+\/artifact\/bundle\.js['"]\s*;?\s*$/.test(text)) return { supported: true, adapter: 'mvu', reason: '使用内置 MVU 兼容：InitVar 初始化和 JSONPatch 更新；不加载外部 beta 模块。' };
+    if (text.includes('世界书名前缀') && text.includes('切换场景') && /\bgetWorldbook\b/.test(text)) return { supported: true, adapter: 'world-switch', reason: '支持切换此角色关联世界书的条目启用状态。' };
+    if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('initFatePhone')) return { supported: true, adapter: 'mvu-status', reason: '已适配此状态栏在独立面板读取当前聊天的 MVU 变量。' };
     if (/^\s*import\s|\bimport\s*\(/m.test(text)) return { supported: false, reason: '依赖外部模块导入，当前兼容环境暂不支持。' };
     if (/\bindexedDB\b/.test(text)) return { supported: false, reason: '依赖本地数据库（IndexedDB），当前隔离环境暂不支持。' };
     const nativeParent = /\b(?:parent|top)\s*\.\s*(?:document|jQuery)\b/.test(text) || [...text.matchAll(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*window\.(?:parent|top)\b/g)].some(match => text.includes(match[1] + '.document') || text.includes(match[1] + '.jQuery'));
@@ -63,6 +66,11 @@ export function scriptSupport(script) {
     if (/\bcreateChatMessages\s*\(/.test(text)) return { supported: false, reason: '依赖创建聊天消息接口，暂未接入。' };
     return { supported: true, reason: '可在脚本面板中尝试运行；仅提供已接入的兼容接口。' };
 }
+export function characterScriptPlan(settings, character) {
+    const enabled = scriptScopeEnabled(settings, character, 'character');
+    return scriptRows(scriptTrees(settings, character).character).map(row => ({ ...row.script, scope: 'character', enabled: enabled && row.enabled }));
+}
+export function usesMvuCompat(settings, character) { return characterScriptPlan(settings, character).some(script => script.enabled && scriptSupport(script).adapter === 'mvu'); }
 export function activeScripts(settings, character) {
     const trees = scriptTrees(settings, character);
     return ['global', 'character'].flatMap(scope => scriptScopeEnabled(settings, character, scope) ? scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })) : []);
@@ -79,6 +87,8 @@ export function scriptSnapshot({ chat = [], header, character, settings = {} }) 
     }
     return {
         characterName: character?.name || '', userName: settings.username || 'User',
+        worldbookName: (character?.data || character)?.extensions?.world || '',
+        mvuSeed: header?.chat_metadata?.independentMvuSeed ? { stat_data: structuredClone(header.chat_metadata.independentMvuSeed) } : null,
         characterVariables: structuredClone((character?.data || character)?.extensions?.tavern_helper?.variables || {}),
         chatVariables: structuredClone(header?.chat_metadata?.variables || {}),
         chat: messages,
@@ -93,5 +103,5 @@ export function latestMvuData(snapshot, target = 'latest') {
         const message = messages[i], vars = message.variables?.[message.swipe_id || 0];
         if (vars?.stat_data) return vars;
     }
-    return {};
+    return snapshot.mvuSeed || {};
 }
