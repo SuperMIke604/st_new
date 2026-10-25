@@ -48,6 +48,7 @@ async function loadCharacterCatalog(force = false) {
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, onRetry: openScriptWorkspace });
+let scriptAutoIdentity = '';
 state.startupLoading = true;
 let startupPromise = null;
 const panelLoads = new WeakMap();
@@ -195,6 +196,13 @@ function selectPreset() {
 function synchronize() {
     if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) scriptRuntime.dispose();
     if (scriptRuntime.frame) scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
+    if (!state.character) scriptAutoIdentity = '';
+    if (state.ready && state.character && !state.loading && !state.busy && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
+        scriptAutoIdentity = scriptIdentity();
+        if (characterScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+            void openScriptWorkspace(false).catch(error => notify(`角色脚本启动失败：${error.message}`, true));
+        }
+    }
 
     document.title = 'SillyTavern';
     $('composer').setAttribute('aria-busy', String(!!state.busy));
@@ -1037,7 +1045,7 @@ async function applyScriptVariables(payload, identity) {
     } else throw Error('暂不支持此变量写入范围。');
     await saveChat();
 }
-async function openScriptWorkspace() {
+async function openScriptWorkspace(diagnostics = true) {
     assertViewable(); if (panelDirty) throw Error('请先保存或取消当前修改。');
     if (!state.character) throw Error('请先进入角色卡聊天。全局脚本不在本前端运行。');
     const identity = scriptIdentity(); let preparation = '';
@@ -1048,8 +1056,8 @@ async function openScriptWorkspace() {
     if (identity !== scriptIdentity()) return;
     const scripts = characterScriptPlan(state.settings, state.character), snapshot = scriptSnapshot(state);
     if (!preparation) preparation = !scripts.length ? '这张角色卡没有自带脚本。' : !scripts.some(script => script.enabled) ? '此角色脚本已停用，请到“正则与脚本 → 角色卡脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。只运行角色卡脚本，全局脚本不参与适配。' : '当前聊天还没有 MVU 变量，请查看下方脚本状态。';
-    if ($('panel').open && !closePanel()) return;
-    await scriptRuntime.show({ scripts, snapshot, identity, preparation });
+    if (diagnostics && $('panel').open && !closePanel()) return;
+    await scriptRuntime.show({ scripts, snapshot, identity, preparation, diagnostics, actions: $('quick-replies') });
 }
 async function roleWorldbook(name, identity) {
     const current = () => identity === scriptIdentity() && name && name === (state.character?.data || state.character)?.extensions?.world;
@@ -1156,7 +1164,7 @@ async function renderScriptManager(body, revision, scope, target) {
             state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'character', { enabled: enabled.checked, avatar: selected, allAvatars: state.characters.map(card => card.avatar) })); state.own = settingsOwn(state.settings);
             if (state.character?.avatar === selected) state.character = savedCard; characterCatalog.invalidate();
         }
-        scriptRuntime.dispose(); panelDirty = false; notify('脚本已保存，在“脚本面板”中运行。');
+        scriptRuntime.dispose(); scriptAutoIdentity = ''; panelDirty = false; synchronize(); notify('脚本已保存，当前角色脚本已自动加载。');
     }, 'edit', 'primary')); body.append(footer); render();
 }
 function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
@@ -2094,14 +2102,35 @@ for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预�
     }, glyph, 'icon-button top-shortcut');
     button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', 'false'); topPanelButtons.set(callback, button); $('top-actions').append(button);
 }
-for (const [id, glyph] of [['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).append(icon(glyph));
+for (const [id, glyph] of [['quick-replies-toggle', 'message'], ['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).append(icon(glyph));
 $('tools-toggle').title = '对话工具'; $('tools-toggle').setAttribute('aria-label', '对话工具');
 $('tools-toggle').setAttribute('aria-expanded', 'false');
 const composerTools = $('composer-tools');
+const quickReplies = $('quick-replies'), quickRepliesToggle = $('quick-replies-toggle');
+// Keep these menus above page scripts without raising the entire chat history.
+document.body.append(composerTools, quickReplies);
+function positionComposerMenu(menu, toggle) {
+    const rect = toggle.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.bottom = `${Math.max(8, innerHeight - rect.top + 8)}px`;
+    menu.style.maxHeight = `${Math.max(60, rect.top - 16)}px`;
+}
+const closeQuickReplies = () => { quickReplies.hidden = true; quickRepliesToggle.setAttribute('aria-expanded', 'false'); };
+quickRepliesToggle.addEventListener('click', () => {
+    composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false');
+    quickReplies.querySelector('.quick-replies-empty')?.remove();
+    if (!scriptRuntime.buttons.size) quickReplies.append(el('p', 'note quick-replies-empty', scriptRuntime.identity ? '当前角色没有可用的快捷回复。' : '当前角色没有快捷回复，或脚本尚未加载。'));
+    quickReplies.hidden = !quickReplies.hidden; quickRepliesToggle.setAttribute('aria-expanded', String(!quickReplies.hidden));
+    if (!quickReplies.hidden) positionComposerMenu(quickReplies, quickRepliesToggle);
+});
+document.addEventListener('click', event => { if (!quickReplies.contains(event.target) && !quickRepliesToggle.contains(event.target)) closeQuickReplies(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
 for (const [label, glyph, callback] of [['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
-$('tools-toggle').addEventListener('click', () => { composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); });
+$('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
+const repositionComposerMenus = () => { if (!quickReplies.hidden) positionComposerMenu(quickReplies, quickRepliesToggle); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); };
+window.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('scroll', repositionComposerMenus);
 document.addEventListener('click', event => { if (!composerTools.contains(event.target) && !$('tools-toggle').contains(event.target)) { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });
 $('close-panel').addEventListener('click', closePanel);

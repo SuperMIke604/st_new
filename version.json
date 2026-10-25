@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "1f07d645d9c61253bbf1501dd1bad960fdd12a6cc2e84df45b3e555458eb1c41",
-  "publishedAt": "2026-10-25T02:23:57.618998+00:00",
+  "revision": "559c3f434d84b9d76d0ffef9299c50703a2f3c70950e68629fe3bd2265733b10",
+  "publishedAt": "2026-10-25T02:48:43.189391+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "9aadb0802e3c281ee971cf8c95844ea4db2d9e3fcf4e02d0869d81640b6e2044",
@@ -18,11 +18,11 @@
     "public/app/generation-preload.js": "09f5d6c60e07f213a720685379e5325056744c0c5447b179e45e5a4cb990d6e3",
     "public/app/history-regex-cache.js": "d3ec4b05b4b55873668daf28e8b79674f2d0d4ba3660d0aba982b85e9302d171",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
-    "public/app/icons.js": "17a6359f2036485834c1fa8439612dd7bac3db726d42e8674f218732c1461e03",
-    "public/app/index.html": "c65f07353843b7925dadaf22cc7bba9926701db9333246a247fe63a028b957af",
+    "public/app/icons.js": "29590774be20ee5371ead29dfb2c35f3fd72cd7eb1f3b85aeb1f69e52b187417",
+    "public/app/index.html": "27f98572f148da89e71bae0a0e72f06aa0b55f47c4443ffe7b35040ca829111e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "beec5201e2559e4ecb9ab40046527d1df0b0e5a391e6a9416a5ae44ba78bd90a",
-    "public/app/main.js": "0b882e90d519594eaa903e6702a6c0e6df6a6c1c22db79ddb4aa415396e30935",
+    "public/app/main.js": "d4465aa0d3714ce8f12acca938a4e13d194677a6cf624ab642a9bfa152cf2166",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "cb50b89d51642eccac50b7df5cc0348cb0b61efc2afde4971197802125f2bde4",
@@ -35,11 +35,11 @@
     "public/app/README.md": "5d45a1bc878f25bf68cbff0e3b536adc25786a8d39ab0ea0b3fbc67452da415a",
     "public/app/regex.js": "275bf3d11b6eb6182885db9cabcce756bf93e0c825bf62334fbeee9e154038d7",
     "public/app/role-worldbook.js": "02b0a851beacb0462c8a9a4e7917bf417a7b5a1f812b44cd1dc0212c616b46bc",
-    "public/app/script-bridge.js": "d4fa0be877b8a0d002e033fb55e02016053b8c12de80de6e9b270b46dfd169c5",
-    "public/app/script-runtime.js": "b4d7118bb7b39ef09b7ce937d2662971198eba4d4aebd3f27ae0cd814c0dd3db",
+    "public/app/script-bridge.js": "abbbed0719633f21a2a5864f1dace858b539a8de43723786dc40dc41baf245ef",
+    "public/app/script-runtime.js": "50156c93e1c5ea6cbdc47f2f07d800d88643d5817a18a69b7cc0ff415559a03b",
     "public/app/scripts.js": "71e7141168f8f2eeb55dab7e20eddba5a56d8a8cbad3b59a63736c670cae93c8",
     "public/app/select.js": "dda029757357d41b3a33186dff54ea09006e4873528046000c1e22511fae2813",
-    "public/app/style.css": "f64f90437ed5fb21c08d7127962e0fe8c5c9bbc08ed7603a593e16f3a83335c7",
+    "public/app/style.css": "2c5c1751afd6bd2923569713d6540a0e21dbbe72d7bda2ba37da3ef87f74cd14",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
     "public/app/variable-macros.js": "ffbb832059012d5411dc0d43996454b67e8cb686d59f717061bc7b746a016d1f",
@@ -53,7 +53,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "88d4680aceea9d21de67c2fd49557912d554604c3877d51333050d9dc1d71a54"
+    "public/app/version.js": "50955dc82c251e47b157003c19edba83d6c081853f9f07dd6671894204eeebf1"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

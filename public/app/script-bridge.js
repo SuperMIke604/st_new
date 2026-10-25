@@ -71,6 +71,25 @@ export function scriptBridge(initial) {
     addEventListener('unhandledrejection', event => post({ type: 'notice', text: String(event.reason?.message || event.reason || '脚本异步执行异常'), error: true }));
     addEventListener('DOMContentLoaded', () => {
         const placeholder = document.getElementById('script-empty');
+        if (initial.pageDisplay) {
+            const style = document.createElement('style'); style.textContent = 'html,body{background:transparent!important;overflow:hidden}#script-empty{display:none!important}'; document.head.append(style);
+            let scheduled = false, lastLayout = '';
+            const measure = () => {
+                scheduled = false;
+                const rects = [...document.body.children].filter(node => node !== placeholder && !['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)).flatMap(node => {
+                    const style = getComputedStyle(node), rect = node.getBoundingClientRect();
+                    return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0 ? [[rect.x, rect.y, rect.width, rect.height]] : [];
+                });
+                const layout = JSON.stringify(rects); if (layout !== lastLayout) { lastLayout = layout; post({ type: 'layout', rects }); }
+            };
+            // A fully clipped iframe may not receive animation frames. Timers also
+            // allow the first asynchronously-created floating widget to appear.
+            const schedule = () => { if (!scheduled) { scheduled = true; setTimeout(measure, 16); } };
+            const resize = new ResizeObserver(schedule);
+            const observe = () => { resize.disconnect(); for (const node of document.body.children) if (!['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)) resize.observe(node); schedule(); };
+            new MutationObserver(observe).observe(document.body, { childList: true, subtree: true, attributes: true });
+            addEventListener('resize', schedule); addEventListener('scroll', schedule, true); observe();
+        }
         const started = Date.now();
         const inspect = () => {
             if (!placeholder) return;

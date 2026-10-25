@@ -1,6 +1,16 @@
 import { scriptSupport } from './scripts.js';
 import { scriptBridge } from './script-bridge.js';
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+export function scriptClip(rects, width, height) {
+    if (!Array.isArray(rects) || rects.length > 64) return 'path("M0 0Z")';
+    const paths = rects.flatMap(rect => {
+        if (!Array.isArray(rect) || rect.length !== 4 || !rect.every(Number.isFinite)) return [];
+        const [x, y, w, h] = rect, left = Math.max(0, x), top = Math.max(0, y), right = Math.min(width, x + w), bottom = Math.min(height, y + h);
+        if (w <= 0 || h <= 0 || right <= left || bottom <= top) return [];
+        return [`M${left} ${top}H${right}V${bottom}H${left}Z`];
+    });
+    return `path("${paths.join(' ') || 'M0 0Z'}")`;
+}
 export function scriptDocument(scripts, snapshot, jquery) {
     const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'";
     const tag = code => `<script>${code.replace(/<\/script/gi, '<\\/script')}<\/script>`;
@@ -15,14 +25,14 @@ export function scriptDocument(scripts, snapshot, jquery) {
 }
 export class ScriptRuntime {
     constructor({ notify, applyVariables, worldbook, onRetry }) { Object.assign(this, { notify, applyVariables, worldbook, onRetry }); this.dialog = null; this.frame = null; this.identity = ''; this.epoch = 0; this.jquery = null; this.statusRows = new Map(); this.buttons = new Map(); this.listener = event => void this.receive(event); }
-    dispose() { this.epoch++; clearTimeout(this.readyTimer); window.removeEventListener('message', this.listener); this.dialog?.remove(); this.dialog = null; this.frame = null; this.identity = ''; this.statusRows.clear(); this.buttons.clear(); }
+    dispose() { this.epoch++; clearTimeout(this.readyTimer); window.removeEventListener('message', this.listener); this.dialog?.remove(); this.frame?.remove(); this.actions?.replaceChildren(); if (this.actions) this.actions.hidden = true; document.getElementById('quick-replies-toggle')?.setAttribute('aria-expanded', 'false'); this.dialog = null; this.frame = null; this.identity = ''; this.statusRows.clear(); this.buttons.clear(); }
     refresh(snapshot, identity) {
         if (!this.frame) return;
         if (identity !== this.identity) { this.dispose(); return; }
         this.frame.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'snapshot', snapshot }, '*');
     }
-    async show({ scripts, snapshot, identity, preparation = '' }) {
-        if (this.frame && this.identity === identity) { if (!this.dialog.open) this.dialog.showModal(); this.refresh(snapshot, identity); return; }
+    async show({ scripts, snapshot, identity, preparation = '', diagnostics = true, actions }) {
+        if (this.frame && this.identity === identity) { if (diagnostics && !this.dialog.open) this.dialog.showModal(); this.refresh(snapshot, identity); return; }
         this.dispose(); this.identity = identity; const epoch = this.epoch;
         if (!this.jquery) {
             const response = await fetch('./vendor/jquery.min.js', { signal: AbortSignal.timeout(15000) }); if (!response.ok) throw Error('脚本运行库读取失败'); this.jquery = await response.text();
@@ -43,26 +53,28 @@ export class ScriptRuntime {
             this.statusRows.set(`${script.scope || 'script'}-${script.id || index}`, detail);
         });
         statuses.open = !scripts.some(script => script.enabled !== false && scriptSupport(script).supported);
-        const frame = document.createElement('iframe'); frame.className = 'script-runtime-frame'; frame.title = '脚本运行界面'; frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
-        const actions = document.createElement('div'); actions.className = 'script-runtime-actions'; actions.hidden = true; this.actions = actions;
+        const frame = document.createElement('iframe'); frame.className = 'script-page-frame'; frame.title = '角色卡小手机与脚本'; frame.style.clipPath = scriptClip([]); frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
+        this.actions = actions; actions?.replaceChildren();
         this.dialog = dialog; this.frame = frame; this.identity = identity;
-        window.addEventListener('message', this.listener); dialog.append(header, note, statuses, frame, actions); document.body.append(dialog); dialog.showModal();
-        frame.srcdoc = scriptDocument(scripts, snapshot, this.jquery);
+        window.addEventListener('message', this.listener); dialog.append(header, note, statuses); document.body.append(dialog, frame); if (diagnostics) dialog.showModal();
+        frame.srcdoc = scriptDocument(scripts, { ...snapshot, pageDisplay: true }, this.jquery);
         this.readyTimer = setTimeout(() => { if (this.frame === frame) { note.textContent = '未收到脚本启动确认。请查看脚本状态，或点击“重新启动”。'; statuses.open = true; } }, 8000);
     }
     async receive(event) {
         if (!this.frame || event.source !== this.frame.contentWindow || event.data?.channel !== 'st-new-scripts') return;
         const data = event.data;
+        if (data.type === 'layout') { this.frame.style.clipPath = scriptClip(data.rects, this.frame.clientWidth, this.frame.clientHeight); return; }
         if (data.type === 'ready') { clearTimeout(this.readyTimer); return; }
         if (data.type === 'buttons') {
             if (!this.statusRows.has(data.id) || !Array.isArray(data.buttons) || data.buttons.length > 100 || !this.actions) return;
+            this.actions.querySelector('.quick-replies-empty')?.remove();
             for (const item of data.buttons) {
                 if (!item?.visible || typeof item.name !== 'string' || item.name.length > 100) continue;
                 const key = data.id + ':' + item.name; if (this.buttons.has(key)) continue;
                 const button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.textContent = item.name;
-                button.onclick = () => this.frame?.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'button', event: key }, '*'); this.buttons.set(key, button); this.actions.append(button);
+                button.onclick = () => { this.actions.hidden = true; document.getElementById('quick-replies-toggle')?.setAttribute('aria-expanded', 'false'); this.frame?.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'button', event: key }, '*'); }; this.buttons.set(key, button); this.actions.append(button);
             }
-            this.actions.hidden = this.buttons.size === 0; return;
+            return;
         }
         if (data.type === 'executed') { const row = this.statusRows.get(data.id); if (row) row.textContent = row.dataset?.adapter === 'mvu' ? '内置 MVU 兼容已就绪' : '已执行'; return; }
         if (data.type === 'notice' || data.type === 'failed') {

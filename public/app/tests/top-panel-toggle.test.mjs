@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const toggles = source.slice(source.indexOf('let activeTopPanel ='), source.indexOf("for (const [id, glyph] of [['tools-toggle'"));
+const toggles = source.slice(source.indexOf('let activeTopPanel ='), source.indexOf('for (const [id, glyph] of'));
 const close = source.slice(source.indexOf('function closePanel('), source.indexOf('function timingPanel('));
 test('top buttons clear selection on repeat click and native close, and preserve refused close', () => {
     const buttons = new Map(), handlers = new Map(); let permitted = true;
