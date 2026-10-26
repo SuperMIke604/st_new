@@ -90,32 +90,38 @@ function loadingIndicator(text, detail = '', compact = false) {
     node.append(spinner, copy); return node;
 }
 const nextPaint = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
-async function loadPanelContent(host, label, render, retry) {
+async function loadPanelContent(host, label, render, retry, { retainContent = false } = {}) {
     const revision = panelRevision, token = {}, finish = loadTimings.start(label, 'page');
     panelLoads.set(host, token);
     const current = () => panelRevision === revision && panelLoads.get(host) === token;
     const loading = loadingIndicator(`正在加载${label}…`);
-    host.replaceChildren(loading); host.setAttribute('aria-busy', 'true');
+    const previous = retainContent ? host.querySelector(':scope > .panel-content') : null;
+    if (previous) previous.inert = true;
+    if (!retainContent) host.replaceChildren(loading);
+    host.setAttribute('aria-busy', 'true');
     let outcome = 'cancelled', content;
     try {
-        // Paint the indicator before synchronous parsing/rendering of cached data.
-        await nextPaint();
+        // Category changes keep the current page visible until its replacement is ready.
+        if (!retainContent) await nextPaint();
         if (state.startupLoading) await startupPromise;
         if (!current()) return;
         if (!state.ready) throw new Error(state.startupError || '应用初始化未完成，请刷新后重试。');
         content = el('div', 'panel-content');
         await render(content, revision);
         if (!current()) return;
+        previous?._dispose?.();
         host.replaceChildren(content); await nextPaint();
         if (current()) { outcome = 'success'; content._onReady?.(); }
     } catch (error) {
         outcome = current() ? 'error' : 'cancelled';
         if (current()) {
+            previous?._dispose?.();
             host.replaceChildren(el('p', 'note warning', `${label}加载失败：${error.message}`));
             if (retry) host.append(action('重新加载', retry, 'refresh'));
         }
         if (current()) throw error;
     } finally {
+        if (previous && current()) previous.inert = false;
         if (outcome !== 'success') content?._dispose?.();
         loading.remove();
         if (current()) { host.removeAttribute('aria-busy'); panelLoads.delete(host); }
@@ -750,6 +756,7 @@ async function renderPresetPanel(body, revision) {
     let draft = presetDraft(available.length ? state.preset : createPreset());
     const presetBar = el('div', 'connection-profile-bar preset-profile-bar');
     const select = el('select'); select.setAttribute('aria-label', '当前预设');
+    select.dataset.searchable = 'true'; select.dataset.searchPlaceholder = '搜索预设…'; select.dataset.searchLabel = '搜索预设';
     for (const preset of available) { const option = el('option', '', preset.name); option.value = preset.name; select.append(option); }
     if (state.presetMissing) { const missing = el('option', '', '保存的预设不存在，请重新选择'); missing.value = ''; missing.disabled = true; select.prepend(missing); }
     select.value = state.presetMissing ? '' : state.own.preset;
@@ -827,7 +834,7 @@ async function renderPresetPanel(body, revision) {
             more.title = '条目操作'; more.setAttribute('aria-label', `${prompt.name || prompt.identifier} 的条目操作`); more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', toolbar.id);
             more.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
             const actionAnchor = el('span', 'prompt-action-anchor'); actionAnchor.append(toolbar, more);
-            summary.insertBefore(actionAnchor, tokenCount);
+            summary.append(actionAnchor);
             summary.addEventListener('keydown', event => {
                 if (event.key !== 'Escape' || toolbar.hidden) return;
                 event.preventDefault(); event.stopPropagation(); toolbar.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
@@ -980,7 +987,7 @@ async function regexPanel(scope = 'global', target = '') {
         if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
     } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
-    return loadPanelContent(host, '正则与脚本', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target));
+    return loadPanelContent(host, '正则与脚本', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target), { retainContent: reuse });
 }
 async function renderRegexPanel(body, revision, scope, target) {
     body.classList.add('regex-panel-content');
@@ -988,7 +995,7 @@ async function renderRegexPanel(body, revision, scope, target) {
     const available = presetCatalog(fresh.bundle);
     const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则与脚本分类');
     for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['character-script', '角色卡脚本']]) {
-        const button = action(label, () => regexPanel(id), id === 'global' ? 'regex' : id === 'preset' ? 'tools' : 'card');
+        const button = action(label, () => { if (scope !== id) return regexPanel(id); }, id === 'global' ? 'regex' : id === 'preset' ? 'tools' : 'card');
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
     body.append(tabs);
@@ -1024,6 +1031,7 @@ async function renderRegexPanel(body, revision, scope, target) {
     const count = el('p', 'note'); body.append(count);
     const toolbar = el('div', 'regex-toolbar'); body.append(toolbar);
     const rows = el('div', 'regex-list'); body.append(rows);
+    body._dispose = () => rows._disposeDrag?.();
     const updateCount = () => { count.textContent = `${rules.length} 条规则 · ${rules.filter(rule => !rule.disabled).length} 条启用`; };
     const dirty = () => { panelDirty = true; updateCount(); };
     const render = () => { updateCount(); renderRegexEditor(rows, rules, dirty); };
@@ -1361,8 +1369,8 @@ async function renderCharacterPanel(body, revision, force = false) {
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
     const sort = el('select'); sort.setAttribute('aria-label', '角色排序');
     for (const [value, label] of [['name', '名称排序'], ['recent', '最近创建']]) { const option = el('option', '', label); option.value = value; sort.append(option); }
-    const create = action('新建角色', () => characterEditor(null), 'plus', 'primary icon-button');
-    const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'card', 'icon-button');
+    const create = action('新建角色', () => characterEditor(null), 'plus', 'icon-button');
+    const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'import', 'icon-button');
     for (const [button, label] of [[create, '新建角色'], [importButton, '导入角色']]) { button.querySelector('span').remove(); button.title = label; button.setAttribute('aria-label', label); }
     toolbar.append(search, sort, create, importButton); body.append(toolbar);
     const layout = el('div', 'library-layout');
@@ -2207,7 +2215,7 @@ function setActiveTopPanel(callback) {
     for (const [target, button] of topPanelButtons) button.setAttribute('aria-pressed', String(callback === target));
 }
 $('panel').addEventListener('close', () => { if (!$('panel').open) setActiveTopPanel(null); });
-for (const [label, glyph, callback] of [['API', 'plug', connectionPanel], ['预设', 'tools', presetPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则与脚本', 'regex', regexPanel]]) {
+for (const [label, glyph, callback] of [['预设', 'tools', presetPanel], ['API', 'plug', connectionPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则与脚本', 'regex', regexPanel]]) {
     const button = action(label, () => {
         if ($('panel').open && activeTopPanel === callback) { closePanel(); return; }
         const revision = panelRevision;

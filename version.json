@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "revision": "8fc48602ea21eda649792f28953744cb16bb47e52f009e1f1e97fbdd5ff7011b",
-  "publishedAt": "2026-10-25T14:27:38.404766+00:00",
+  "revision": "3a39eb3483b8cb24a79177da75bd00a645015a2946beed0df19fce0fe5a6ee10",
+  "publishedAt": "2026-10-26T04:03:22.296404+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "9aadb0802e3c281ee971cf8c95844ea4db2d9e3fcf4e02d0869d81640b6e2044",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
     "public/app/code-blocks.js": "ea2a4286aeb8ebc8a01a29f633f2e6760e02a067e1de47dfc1a897a08c2d5109",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
-    "public/app/controls.css": "55254122111efcb6687befe891a33d8235b3050f8a649270c0c6a9107b6046be",
+    "public/app/controls.css": "eb7192dc6e59841ee712c4ece0c7f1097eadea31f8e82b9d294182f8440aa5a1",
     "public/app/database-defaults.js": "cf5750c807c6be67bf02350a841758a81c1b5e103e50243e05bdc055ab568034",
     "public/app/DATABASE-PARITY.md": "f88c283bc1a6a3653dde4ca6ad26cd67d8c891927f9ef51bd16a76dc75077e7b",
     "public/app/database-preview.js": "a68a6ed36c8efafd7dec86844614c6ed6d7c1759b77640fc6929185ed13389e7",
@@ -24,7 +24,7 @@
     "public/app/index.html": "cb23085c19191da49c72beca296d63c78c1b8bce0c7739efe0c2856d2f94a5a3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "beec5201e2559e4ecb9ab40046527d1df0b0e5a391e6a9416a5ae44ba78bd90a",
-    "public/app/main.js": "3c1ef474d2690b1a1bc90c14fd6e58c5fc03b2ef3abc5945b2d006802e209acb",
+    "public/app/main.js": "7f770256c6ec4da674e86e305563f6cf82f34d3b43a992cdaf259f7f6e980073",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -43,7 +43,7 @@
     "public/app/script-runtime.js": "566172b5c1bf9dae59dd7f69283fc6c8ee0cf9c0f1b3857d028bc56e0a7e637e",
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "52505eb6c6882b6995b84f49ddfc68ff1adb9965b8a3fbb4691de03eb5283d85",
-    "public/app/select.js": "213bee631e7dbe94636b567c32429bed033b978d276e6ca19d50eabbda743066",
+    "public/app/select.js": "e1f0a56b4b87a2c9db6e13e1b41fd61ee5abf8c315ee767cc7d226bfe592715e",
     "public/app/style.css": "cd3234689f362b56e291d4bc3fa7a573cd03a03662bec874a1f43c755217ac84",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/typography.css": "355e6a37c5e96c11f8ba8907cd05abdab092a46611c380d14cb26a05da93fcd0",
@@ -62,7 +62,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "8509bd4334e0d3e8e9ed9fe02487d17479638c20896fcb85842dc5d87575df5c"
+    "public/app/version.js": "8eefc221c7670a3dd4d100e853783ee20ee2336306e49bca8ccb252fac5df8f4"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

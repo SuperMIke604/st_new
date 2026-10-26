@@ -51,7 +51,7 @@ export function enhanceSelect(select) {
         if (filterInput) {
             const custom = document.createElement('button'); custom.type = 'button'; custom.className = 'select-custom'; custom.hidden = true; menu.append(custom);
             const useCustom = () => {
-                const value = filterInput.value.trim(); if (!value) return;
+                const value = filterInput.value.trim(); if (!value || select.dataset.allowCustom !== 'true') return;
                 const option = document.createElement('option'); option.value = value; option.textContent = value; select.append(option); choose(select.options.length - 1);
             };
             custom.addEventListener('click', useCustom);

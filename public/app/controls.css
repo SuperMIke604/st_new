@@ -133,11 +133,14 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     padding: 0 12px;
     gap: var(--control-gap);
     flex-wrap: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 :is(.preset-panel,.regex-panel) .prompt-summary .prompt-title { flex: 1; min-width: 0; overflow: hidden; }
 :is(.preset-panel,.regex-panel) .prompt-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :is(.preset-panel,.regex-panel) .prompt-summary:has(.prompt-inline-actions:not([hidden])) { overflow: visible; flex-wrap: nowrap; }
-:is(.preset-panel,.regex-panel) .prompt-summary:has(.prompt-inline-actions:not([hidden])) .prompt-title { flex-basis: auto; min-width: 40px; }
 /* Embedded button state surfaces have a 5px inset; hit targets stay 42px. */
 :root { --control-inset-state: 32px; }
 :root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button) {
@@ -164,16 +167,15 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     outline-offset: -2px;
 }
 .prompt-action-anchor { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px; }
-@media (max-width: 700px) {
-    :is(.preset-panel,.regex-panel) .prompt-summary .prompt-action-anchor { height: var(--control-size); }
-    :is(.preset-panel,.regex-panel) .prompt-summary .prompt-inline-actions:not([hidden]) {
-        position: absolute;
-        right: 100%; top: 0;
-        z-index: 2;
-        height: var(--control-size);
-        margin: 0;
-        isolation: isolate;
-    }
+/* Open over the count/title without changing the row's layout on any screen. */
+:is(.preset-panel,.regex-panel) .prompt-summary .prompt-action-anchor { height: var(--control-size); }
+:is(.preset-panel,.regex-panel) .prompt-summary .prompt-inline-actions:not([hidden]) {
+    position: absolute;
+    right: 100%; top: 0;
+    z-index: 2;
+    height: var(--control-size);
+    margin: 0;
+    isolation: isolate;
 }
 /* The grouped action surface follows the same inset as its individual buttons. */
 #panel .inset-action-menu::before {
@@ -219,8 +221,16 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .regex-panel .regex-list > .regex-rule { padding: 0; margin: 0; }
 .regex-panel .prompt-title { display: block; white-space: nowrap; text-overflow: ellipsis; }
 .regex-panel .prompt-summary > small { order: 3; white-space: nowrap; }
+.regex-panel .prompt-summary > .prompt-action-anchor { order: 4; margin-left: auto; }
 .regex-panel .regex-rule > :not(summary) { margin-inline: 12px; }
 .regex-panel .regex-rule > :last-child:not(summary) { margin-bottom: 12px; }
+
+/* Keep the mobile sort label readable; search takes its own row when needed. */
+.library-toolbar > .select-control { flex: 0 0 auto; width: auto; min-width: max-content; }
+@media (max-width: 700px) {
+    .library-panel .library-toolbar > .library-search { flex-basis: 100%; }
+    .library-panel .library-toolbar > .select-control { flex: 1 0 auto; }
+}
 
 /* List cards keep a 60px portrait and top/bottom-aligned metadata. */
 .list-view .card-info h3 { margin: 0; }

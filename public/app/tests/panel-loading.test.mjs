@@ -12,6 +12,7 @@ class Node {
     setAttribute(key, value) { this.attributes[key] = value; }
     removeAttribute(key) { delete this.attributes[key]; }
     remove() { this.removed = true; }
+    querySelector() { return this.children[0] || null; }
 }
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -23,7 +24,7 @@ function fixture() {
     });
     vm.runInContext(helper, context);
     const host = new Node(); context.host = host;
-    return { host, context, state, logs, paint: async () => { frames.shift()?.(); await tick(); }, run: render => { context.render = render; return vm.runInContext("loadPanelContent(host, '测试页面', render, () => {})", context); } };
+    return { host, context, state, logs, paint: async () => { frames.shift()?.(); await tick(); }, run: (render, retainContent = false) => { context.render = render; context.options = { retainContent }; return vm.runInContext("loadPanelContent(host, '测试页面', render, () => {}, options)", context); } };
 }
 test('even cached pages paint a loader before rendering and finish after their content is displayed', async () => {
     const f = fixture(); let rendered = false;
@@ -62,4 +63,30 @@ test('a page replaced before its first paint disposes its paused background work
     await f.paint(); await running;
     assert.equal(started, 0); assert.equal(disposed, 1);
     assert.equal(f.logs.snapshot()[0].status, 'cancelled');
+});
+
+test('category switches retain the old content until async rendering succeeds', async () => {
+    const f = fixture(), ready = deferred(), old = new Node('当前分类');
+    let disposed = 0; old._dispose = () => disposed++;
+    f.host.append(old);
+    const running = f.run(async content => { await ready.promise; content.append(new Node('新分类')); }, true);
+    assert.equal(f.host.children[0], old);
+    assert.equal(old.inert, true);
+    assert.equal(disposed, 0);
+    ready.resolve(); await tick();
+    assert.equal(f.host.children[0].children[0].textContent, '新分类');
+    assert.equal(disposed, 1);
+    await f.paint(); await running;
+    assert.equal(f.host.attributes['aria-busy'], undefined);
+});
+
+test('a stale category cannot replace a newer category', async () => {
+    const f = fixture(), slow = deferred();
+    f.host.append(new Node('初始分类'));
+    const first = f.run(async content => { await slow.promise; content.append(new Node('旧分类')); }, true);
+    f.context.panelRevision++;
+    const second = f.run(content => content.append(new Node('最新分类')), true);
+    await tick(); slow.resolve(); await first; await f.paint(); await second;
+    assert.equal(f.host.children[0].children[0].textContent, '最新分类');
+    assert.equal(f.host.attributes['aria-busy'], undefined);
 });
