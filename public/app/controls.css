@@ -133,6 +133,8 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     padding: 0 12px;
     gap: var(--control-gap);
     flex-wrap: nowrap;
+}
+:is(.preset-panel,.regex-panel) .prompt-summary, .world-global-settings > summary {
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
     user-select: none;
