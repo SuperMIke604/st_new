@@ -5,10 +5,11 @@ export function renderDatabasePanel(body, context) {
     let data = validateDatabase(context.data), settings = databaseSettings(context.settings), tab = context.preview ? 'data' : 'settings', dataDirty = false, settingsDirty = false;
     let activeTable = '';
     const undo = { data: [], template: [] }, pages = new Map();
-    let saveTimer, editVersion=0, saveQueue=Promise.resolve();
+    let saveTimer, editVersion=0, saveQueue=Promise.resolve(), disposed=false;
+    body._dispose = () => { disposed=true; clearTimeout(saveTimer); };
     const dirty = kind => {
         if (kind === 'data') dataDirty = true; else settingsDirty = true; context.dirty(dataDirty || settingsDirty);
-        if(kind!=='data') { const version=++editVersion;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{let value;try{value=databaseSettings(settings);}catch{return;}saveQueue=saveQueue.catch(()=>{}).then(()=>context.saveSettings(value)).then(()=>{if(version===editVersion){settingsDirty=false;context.dirty(dataDirty);}}).catch(error=>notify(error.message,true));},500); }
+        if(kind!=='data') { const version=++editVersion;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{let value;try{value=databaseSettings(settings);}catch{return;}saveQueue=saveQueue.catch(()=>{}).then(()=>{if(!disposed)return context.saveSettings(value);}).then(()=>{if(!disposed&&version===editVersion){settingsDirty=false;context.dirty(dataDirty);}}).catch(error=>notify(error.message,true));},500); }
     };
     const download = (value, filename) => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));

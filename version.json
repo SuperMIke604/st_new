@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "5a3dce435cb91a5e15c3ba6a2571b4d31e003481965f7ab3d4645c046ff78aac",
-  "publishedAt": "2026-10-26T12:50:54.256950+00:00",
+  "revision": "81aec3d225f7dd5a4b8a493be1f6eb4e6799f67468a7f0cd63734420bdef779c",
+  "publishedAt": "2026-10-26T13:06:29.260466+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "9aadb0802e3c281ee971cf8c95844ea4db2d9e3fcf4e02d0869d81640b6e2044",
@@ -13,7 +13,7 @@
     "public/app/DATABASE-PARITY.md": "c5e720819ec036b9866da21b608f5ca2ac0b97e687a475fd0dfd8600d3423d3c",
     "public/app/database-preview.js": "24d2bd036ba984422ae095bf53d65a17dfd93ee1412aa35a7183888563e2146b",
     "public/app/database-reference.js": "fc772882566307f421979b9476b23ba044f1c80e13a70d34d62a85e914b3f7ce",
-    "public/app/database-ui.js": "536c6cac26bc5936561a49fc2531306a2307be17793ae0004ea667b4750bd87f",
+    "public/app/database-ui.js": "54ebf62066834c324ea3ed143a0d84afc8f5ddb74a921ca35a36f2c8b4627436",
     "public/app/database.js": "a4fd7913c4362ba73106ed8a83e6fc99bb23ee89b83ff0a2e1954055a176a369",
     "public/app/engine.js": "e6d0cc0f4518a59fa4459ca37b595270de4889faf6d44816bb9651b105d99e0b",
     "public/app/generation-preload.js": "09f5d6c60e07f213a720685379e5325056744c0c5447b179e45e5a4cb990d6e3",
@@ -25,7 +25,7 @@
     "public/app/index.html": "1c6a7b5c87f8c8e4eff20fdfca2b2e19913f1a265dc42917e0d1f69b922f950e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "beec5201e2559e4ecb9ab40046527d1df0b0e5a391e6a9416a5ae44ba78bd90a",
-    "public/app/main.js": "5e80316d4311769e0b2be85998ab334f4300204d47c0f643fc34f8f428b54858",
+    "public/app/main.js": "c0a9bf0a22630e1b38daa8bb8544e1729e44b4a00e5ae9b3167a4311fbd3c597",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -66,7 +66,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "3ecb93738f0297f5d1a234fa18a3f16c143a88f7b1c3ae07802397b5a20c2f41"
+    "public/app/version.js": "32f1141c22305fa3877ba469ed6bebd6e3424895770909f52ba15ec5c9c91f46"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

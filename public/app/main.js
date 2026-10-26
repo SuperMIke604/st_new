@@ -1980,24 +1980,50 @@ async function databaseModels(config) {
  let secretId='no-key-database';if(config.apiKey){const secret=await api.post('/api/secrets/write',{key:'api_key_custom',value:config.apiKey,label:'数据管理'});secretId=secret.id;}
  const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
 }
+function assertDatabaseWritable() {
+    if (state.loading) throw new Error('正在切换聊天，请稍候。');
+    if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。');
+    if (state.dirty && !state.busy) throw new Error('当前聊天尚未保存，请先重试保存。');
+}
+function databaseWriteGuard(index) {
+    const chat = state.chat, header = state.header, identity = `${state.character?.avatar}/${state.file}`, target = chat[index];
+    const hash = sourceHash(chat, index);
+    const snapshot = () => JSON.stringify([header.chat_metadata?.independentDatabase?.seed, chat.slice(0, index + 1).map(message => message.TavernDB_ACU_Data)]);
+    let original = snapshot();
+    return {
+        check() {
+            assertDatabaseWritable();
+            if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity || chat[index] !== target || sourceHash(chat, index) !== hash || snapshot() !== original)
+                throw new Error('聊天或数据库已变化，请重新打开数据库后重试。');
+            if (target && state.generation?.reply === target) throw new Error('该楼层正在生成，请选择已完成的楼层。');
+        },
+        saved() { original = snapshot(); },
+    };
+}
 async function databasePanel(preview = false) {
     assertViewable(); if (!state.character) throw new Error('请先打开一个角色的聊天。');
     const current = currentDatabase();
     const body = showPanel(preview ? '数据预览' : '数据管理', `${state.character.name} · 当前聊天`, 'database-panel'); if (!body) return;
     const identity = `${state.character.avatar}/${state.file}`;
-    const sameChat = () => { if (`${state.character?.avatar}/${state.file}` !== identity) throw new Error('聊天已切换，请重新打开数据库。'); };
-    renderDatabasePanel(body, {
+    const chat = state.chat, header = state.header;
+    const revision = panelRevision;
+    const target = state.chat.findLastIndex(message => !message.is_user && message !== state.generation?.reply);
+    const write = databaseWriteGuard(target);
+    const sameChat = () => { if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity) throw new Error('聊天已切换，请重新打开数据库。'); };
+    const content = el('div', 'panel-content'); body.append(content);
+    renderDatabasePanel(content, {
         worlds: databaseWorlds, models: databaseModels, preview, el, field, action, icon, notify, pickFile, chatName: state.file, chat: state.chat,
         settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
         history: () => state.header.chat_metadata?.independentDatabase?.history || [],
-        dirty: value => { panelDirty = value; }, stop: () => state.controller?.abort(),
+        dirty: value => { if (revision === panelRevision) panelDirty = value; }, stop: () => state.databaseController?.abort(),
         saveSettings: async value => {
-            assertIdle(); sameChat(); const enabling = !state.own.database?.auto && value.auto;
+            sameChat(); const enabling = !state.own.database?.auto && value.auto;
             await saveOwn({ database: databaseSettings(value) });
+            sameChat();
             if (enabling) { ((state.header.chat_metadata ||= {}).independentDatabase ||= {}).autoStart = state.chat.length; await saveChat(); }
         },
-        saveData: async value => { assertSaved(); sameChat(); storeDatabase(state.chat, state.header, value); await saveChat(); await rememberChat(); },
-        fill: async (from, to) => { sameChat(); await updateDatabase(from, to); panelDirty = false; await databasePanel(preview); },
+        saveData: async value => { write.check(); sameChat(); storeDatabase(state.chat, state.header, value, target); write.saved(); await saveChat(); await rememberChat(); },
+        fill: async (from, to) => { sameChat(); await updateDatabase(from, to); },
     });
 }
 function databaseProgress(message, controller) {
@@ -2008,22 +2034,25 @@ function databaseProgress(message, controller) {
     return {update:value=>{text.textContent=value;},close:()=>{if(notice.matches(':popover-open'))notice.hidePopover();notice.remove();}};
 }
 async function updateDatabase(from, to, automatic = false) {
-    assertSaved(); if (!state.character) throw new Error('请先打开聊天。');
+    assertDatabaseWritable(); if (!state.character) throw new Error('请先打开聊天。');
+    if (state.databaseController) throw new Error('数据库正在更新，请等待完成或终止填表。');
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= state.chat.length) throw new Error('请填写有效的起始和结束楼层。');
     const aiIndices=state.chat.map((message,index)=>!message.is_user&&index>=from&&index<=to?index:-1).filter(index=>index>=0);
     if(!aiIndices.length){notify('没有消息需要更新', 'info');return;}
     const rangeStart=from,rangeEnd=to;from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;to=aiIndices.at(-1);
+    const write = databaseWriteGuard(to);
+    write.check();
     const current = currentDatabase(), settings = current.settings;
     let config = databaseConnection(settings);
     if (!config) throw new Error('填表连接已删除，请在数据库更新设置中重新选择。');
     config = { ...config, stream: false };
     const preset = { temperature: settings.temperature, top_p: 1, openai_max_tokens: settings.maxTokens, names_behavior: 0 };
     generationBody(config, preset, []);
-    const identity = `${state.character.avatar}/${state.file}`, originalHash = sourceHash(state.chat), chat = copy(state.chat);
+    const chat = copy(state.chat);
     let result=settings.template;for(let index=aiIndices[0];index>=0;index--)if(!chat[index].is_user&&chat[index].TavernDB_ACU_Data){result=copy(chat[index].TavernDB_ACU_Data);break;}
     let reference = '';
-    state.busy = true; state.controller = new AbortController(); synchronize(); status(automatic ? '自动填表中…' : 'AI 填表中…');
-    const progress=databaseProgress('正在准备填表数据，请稍候…',state.controller);
+    const controller = new AbortController(); state.databaseController = controller;
+    const progress=databaseProgress('正在准备填表数据，请稍候…',controller);
     try {
         if (config.proxyPassword && (!config.secretId || config.secretId.startsWith('no-key-'))) {
             const secret = await api.post('/api/secrets/write', { key: config.source === 'custom' ? 'api_key_custom' : 'api_key_openai', value: config.proxyPassword, label: config.name || '数据库连接' });
@@ -2035,7 +2064,7 @@ async function updateDatabase(from, to, automatic = false) {
         let start = from, batches = 0;
         const updateCounts = { operations: 0, tables: 0 };
         while (start <= to) {
-            if (state.controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
+            if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
             let end = to;
             while (end > start && chat[end].is_user) end--;
             if (chat[end].is_user) { end = chat.findIndex((message, index) => index >= start && index <= to && !message.is_user); if (end < start) throw new Error('整理范围内没有角色回复。'); }
@@ -2043,8 +2072,8 @@ async function updateDatabase(from, to, automatic = false) {
             for (const [key] of Object.entries(result).filter(([key]) => key.startsWith('sheet_'))) variables[key] = sheetText(result, key);
             const messages = fillMessages({...settings,userName:persona().name}, result, chat, start, end, reference).map(message => ({ ...message, content: expand(message.content, variables) }));
 
-            status(`AI 填表 #${start}–${end}…`);progress.update(automatic?'正在填表，请稍候…':`正在处理手动更新（${batches+1}/1），楼层 ${rangeStart}–${rangeEnd}…`);
-            const response = await api.response('/api/backends/chat-completions/generate', generationBody(config, preset, messages), { signal: state.controller.signal });
+            progress.update(automatic?'正在填表，请稍候…':`正在处理手动更新（${batches+1}/1），楼层 ${rangeStart}–${rangeEnd}…`);
+            const response = await api.response('/api/backends/chat-completions/generate', generationBody(config, preset, messages), { signal: controller.signal });
             let text = '';
             if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
                 for await (const event of readEvents(response)) { if (event.error) throw new Error(typeof event.error === 'string' ? event.error : event.error.message || '填表失败'); text += event.choices?.[0]?.delta?.content || event.choices?.[0]?.text || ''; }
@@ -2054,19 +2083,19 @@ async function updateDatabase(from, to, automatic = false) {
             }
             progress.update('正在解析并应用数据库更新…');result = parseUpdate(text, result, updateCounts); start = end + 1; batches++;
         }
-        if (state.controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
-        if (`${state.character?.avatar}/${state.file}` !== identity || originalHash !== sourceHash(state.chat) || panelDirty) throw new Error('聊天或编辑草稿发生变化，填表结果未写入，请保存编辑后重试。');
+        if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
+        write.check();
         storeDatabase(state.chat, state.header, result, to, { from, to, batches });
         if(settings.autoHideMessages){for(let index=rangeStart===1?0:rangeStart;index<=rangeEnd;index++)state.chat[index].is_system=true;list.setMessages(state.chat,{reset:true});}
         progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify(databaseUpdateNotice(updateCounts));
     } catch (error) {
         if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return; }
         notify(`数据库更新失败：${error.message}`,true);throw error;
-    } finally { progress.close();state.busy = false; state.controller = null; synchronize(); status(state.dirty ? '未保存 · 可重试' : '已保存'); }
+    } finally { progress.close(); state.databaseController = null; }
 }
 async function autoUpdateDatabase() {
  try {
-  if(!state.own.database?.auto || panelDirty || state.busy || state.dirty || state.chat.length<2 || state.chat.at(-1)?.is_user || state.chat.at(-1)?.TavernDB_ACU_Data)return;
+  if(!state.own.database?.auto || state.databaseController || state.busy || state.dirty || state.chat.length<2 || state.chat.at(-1)?.is_user || state.chat.at(-1)?.TavernDB_ACU_Data)return;
   const settings=currentDatabase().settings;let recorded=0;for(let index=state.chat.length-1;index>0;index--)if(state.chat[index].TavernDB_ACU_Data){recorded=index;break;}
   const batch=Number(settings.updateBatchSize)||1,skip=Number(settings.autoUpdateFrequency)||0;
   if(state.chat.length-1-recorded<skip+batch)return;
@@ -2269,10 +2298,10 @@ function searchPanel() {
 }
 function databasePreviewPanel() {
  assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}`,'database-panel');if(!body)return;
- const identity=`${state.character.avatar}/${state.file}`;
+ const revision=panelRevision,write=databaseWriteGuard(current.index);
  let previousData=null;for(let index=current.index-1;index>=0;index--){if(state.chat[index].TavernDB_ACU_Data){previousData=state.chat[index].TavernDB_ACU_Data;break;}}
- renderDatabasePreview(body,{el,field,action,dirty:value=>{panelDirty=value;},data:current.data,index:current.index,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
- saveData:async value=>{assertSaved();if(`${state.character?.avatar}/${state.file}`!==identity)throw Error('聊天已切换');storeDatabase(state.chat,state.header,value,current.index);await saveChat();},
+ renderDatabasePreview(body,{el,field,action,dirty:value=>{if(revision===panelRevision)panelDirty=value;},data:current.data,index:current.index,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
+ saveData:async value=>{write.check();storeDatabase(state.chat,state.header,value,current.index);write.saved();await saveChat();},
  send:text=>{if(closePanel()){$('message-input').value=text;resizeInput();$('message-input').focus();}}
  });
 }
