@@ -1,0 +1,58 @@
+# 剧情资料库：模型、归属与兼容
+
+核对日期：2026-10-26，依据当前工作区；数据模型、快照生命周期或适配改变时更新。默认开发范围是提取结果的接收、解析、保存、更新和展示；未经明确要求不优化提示词或重设提取流程。
+
+## 源码与模型
+
+源码均位于 `public/app/`：`database.js` 管契约和配置适配，`database-reference.js` 管参考解析/操作/旧消息抽取，`database-defaults.js` 保存参考默认配置，`database-ui.js` 管管理界面，`database-preview.js` 管卡片、差异、分页与单元格编辑。实际请求和持久化由 `main.js` 的 `currentDatabase/databasePanel/updateDatabase/autoUpdateDatabase` 协调。
+
+资料库是当前聊天上的 `chatSheets` 表格快照，不是固定人物/事件实体服务。`defaultDatabase()` 的回退表为当前状态、人物、事件；不代表真实聊天类型或模板固定。
+
+| 结构 | 契约 |
+|---|---|
+| `mate.type` | `chatSheets`；验证器可补缺省 mate，拒绝不兼容类型 |
+| `sheet_*` | 表键；`sheets()` 用正则筛选，表含 `name/content`，保留其他元数据 |
+| `content[0]` | 表头；首列为占位结构，有效字段从第二列开始 |
+| 后续行 | 同表头长度，单元格允许 null、文字、数字、布尔值 |
+| 行与列 | 操作的行号从数据行 0 开始、列号从有效列 0 开始，不能与二维数组物理索引混用 |
+| 数据关系 | 当前主要由单元格表达；没有稳定实体 ID、外键或跨表关系约束 |
+
+`validateDatabase` 克隆并校验，不主动删除未知字段。不要从旧 README 推导存在统一的 3MB/100表/5000行/64列强制限制；当前验证器未实施该整套限制。
+
+## 快照生命周期
+
+| 数据 | 位置 |
+|---|---|
+| AI 回复快照 | `message.TavernDB_ACU_Data` |
+| 来源和更新时间 | `message.extra.independentDatabase`，含 `sourceHash/updatedAt` 及调用方元数据 |
+| 无消息快照时的种子 | `header.chat_metadata.independentDatabase.seed` |
+| 覆盖前历史 | `header.chat_metadata.independentDatabase.history` |
+
+`databaseForChat` 从后向前查非用户消息，优先结构化数据，再用参考函数抽取旧标签/围栏等显式载体；没有时取 seed，再取模板。旧快照无前端元信息时标为 legacy，不自动批量迁移。
+
+`storeDatabase` 校验后附着到指定 AI 回复，或在 index=-1 时写 seed；覆盖不同旧值时存历史，并标记后续快照 stale。历史最多 8 项，且按 `JSON.stringify(history).length` 约 200 万字符收缩，不是字节精确的备份配额。
+
+`invalidateDatabases` 标记来源变化；**读取当前仍可能选中 stale 快照**，不能擅自改成过滤规则。已有测试明确覆盖该行为。`sourceHash` 主要覆盖消息角色、名称、正文与位置，不是整个会话的并发版本或安全哈希。
+
+会话用头像文件名和聊天文件名定位。消息编辑、删除、重新生成、候选切换还会涉及分支、变量和快照联动，须同时查 `main.js` 的消息操作，不只改数据库模块。
+
+## 配置、更新和展示
+
+- 配置属于前端 own 设置中的 `database`；`databaseSettings/migrateLegacySettings` 适配 `charCardPrompts`、`overviewTemplate`、API 和预设字段。保留未知字段并维护原字段导出映射，不按命名猜测两个设置必然同义。
+- 每份填表预设有自己的模板；切换或编辑模板不应直接覆盖已有聊天快照。应用到当前聊天是独立动作。
+- 更新范围选取后复制聊天和当前数据，读取参考资料，经原生生成接口得到结果，调用 `parseUpdate → referenceUpdate`。不要误用同文件另一个 `applyOperations` 替换参考容错路径。
+- 提交前检查聊天身份、来源 hash、取消和面板草稿；解析阶段失败或停止不会提交部分批次。`storeDatabase` 之后落盘失败时内存已经改变，需重试/回读验收，不能笼统声称所有失败都恢复原内存。
+- 快照通过完整聊天保存。自动隐藏使用原生 `is_system`，既影响展示，也影响引擎历史过滤。
+- 预览按表显示、差异筛选、分页和原位编辑；修改先由宿主保存回调持久化，失败恢复预览局部数据。管理历史恢复、撤销不等于磁盘完整备份。
+- `generationDatabaseResources` 将表格文本和 `tabledata/sheet_*` 宏临时用于请求，纳入精确预算，不创建虚假聊天楼层。
+
+批准的产品差异与参考提交见 [迁移基准](../../public/app/DATABASE-PARITY.md)。数据库不向世界书同步写入；作为填表参考读取世界书是另一项能力。
+
+## 已知待办与验证
+
+以下为 2026-10-26 静态核对，文档任务未运行复现、未修复：
+
+- `autoUpdateDatabase` 用 0 混合表示无进度与已处理 0 楼，扫描还排除 0 楼；范围可能重复或不含 AI 消息。`autoStart` 的实际调度语义也需核验。
+- `defaultFillPrompt` 允许空 operations，但 `parseUpdate` 对 `changed=false` 抛错；现有测试也断言抛错。修复应先明确成功无变化和进度语义，不擅自修改提示词规避问题。
+
+数据相关改动优先检查 `tests/database.test.mjs`、`database-reference.test.mjs`、`generation-preload.test.mjs`；若涉及消息/变量/分支，扩大至相应测试与隔离后端回读。验收应覆盖旧格式、未知字段、模板独立、快照覆盖历史、停止、落盘失败和会话隔离。测试命令见 [开发流程](../development.md)。

@@ -1,6 +1,12 @@
 # SillyTavern 新前端
 
-独立前端，沿用 SillyTavern 后端。此仓库只包含前端源码，不包含聊天、角色卡、API 密钥、用户配置或完整后端。
+独立前端，沿用 SillyTavern 官方后端。本仓库包含 `public/app` 前端、自有 `server/st-new-updater` 插件、测试及安装/发布脚本，不包含聊天、角色卡、API 密钥、用户配置或完整官方后端。
+
+## 开发上下文
+
+新任务先遵循 [AGENTS.md](AGENTS.md)，按任务读取领域文档；整体入口为 [架构地图](docs/architecture.md)。接口与数据位置见 [集成契约](docs/sillytavern-integration.md)，验收环境、Git、验证、发布和交接见 [开发流程](docs/development.md)。
+
+UI 复用 [现有规范](docs/ui-design-guidelines.md)；剧情资料库见 [模型与快照](docs/domains/lore-database.md)；助手见 [兼容范围](docs/scripts-compatibility.md)；加载见 [性能约束](docs/domains/performance.md)。文档区分当前代码、历史验收和待核实事项，不依赖长对话恢复背景。
 
 ## 安装
 
@@ -27,11 +33,11 @@ bash start.sh
 
 ## 发布代码更新
 
-修改 `public/app` 后运行 `python scripts/refresh-version.py`，将源码、`version.json`、`public/app/version.js` 一起提交到 main。运行文件内容摘要用于判断版本是否一致。
+仅在发布准备时运行 `python scripts/refresh-version.py`，统一生成 `version.json` 和 `public/app/version.js`，核验后由用户决定提交/发布。`public/app` 下的 Markdown 也属于清单输入；普通开发和纯文档任务不自动重算版本、提交或推送。内容摘要用于判断版本是否一致。
 
 ## 验证
 
-使用 Node.js 运行 `node --test public/app/tests/*.test.mjs`。两个后端集成测试在没有 SillyTavern 后端源码时明确跳过；其余测试可独立运行。测试目录不会在页面加载时执行。
+按影响选择 Node 测试；全量命令为 `node --test public/app/tests/*.test.mjs server/st-new-updater/updater.test.mjs`。两个后端集成项在缺少相对路径下的官方源码时明确跳过。更新测试会写临时目录，浏览器验收和持久化回读另行执行；详见开发流程。测试目录不会在页面加载时执行。
 
 ## 许可
 
