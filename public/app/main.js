@@ -529,7 +529,19 @@ function closePanel() {
     return true;
 }
 function timingPanel() {
-    const body = showPanel('加载日志', '最近 200 条 · 耗时记录', 'timing-panel'); if (!body) return;
+    // Diagnostics have their own dialog and never enter the editable panel or
+    // chat lifecycle (dirty flags, save queues, generation controller/history).
+    const existing = document.getElementById('timing-dialog');
+    if (existing) { existing.querySelector('button')?.focus(); return; }
+    const dialog = el('dialog', 'timing-panel'); dialog.id = 'timing-dialog'; dialog.setAttribute('aria-labelledby', 'timing-title');
+    const heading = el('div'), title = el('h1', '', '加载日志'); title.id = 'timing-title';
+    heading.append(el('small', '', '最近 200 条 · 耗时记录'), title);
+    const header = el('header', 'panel-header'), close = action('关闭日志', () => dialog.close(), 'close', 'timing-close');
+    header.append(heading, close);
+    const body = el('div', 'timing-body'); dialog.append(header, body);
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    if (matchMedia('(max-width:700px)').matches) dialog.show(); else dialog.showModal();
     const toolbar = el('div', 'timing-toolbar'), container = el('div', 'timing-table-wrap');
     const draw = () => {
         container.replaceChildren();
@@ -549,9 +561,9 @@ function timingPanel() {
     toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => {
         const blob = new Blob([JSON.stringify({ schema: 2, exportedAt: new Date().toISOString(), entries: loadTimings.snapshot() }, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob), link = el('a'); link.href = url; link.download = 'loading-timings.json';
-        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        dialog.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, 'export'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
-    body.append(toolbar); note(body, '记录全局初始化、页面加载和接口响应耗时。本标签页刷新后保留最近记录，可导出用于排查。');
+    body.append(toolbar); note(body, '刷新记录只更新此列表；导出和清空均不停止生成、不刷新页面、不修改聊天。清空会保留正在进行的记录。');
     note(body, '兼容回退、页面切换导致的取消和刷新中断属于正常记录。真正失败的请求会显示状态码或网络原因。');
     body.append(container); draw();
 }
@@ -2120,7 +2132,11 @@ function preloadNextGeneration() {
             await nextPaint();
             if (!current()) { finish('cancelled'); return; }
             if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
-            await loadTimings.measure('后台预热历史正则', 'generation', () => warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current));
+            const finishWarm = loadTimings.start('后台预热历史正则', 'generation');
+            let warmed;
+            try { warmed = await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current); finishWarm(warmed?.status || 'success', { metrics: warmed?.metrics }); }
+            catch (error) { finishWarm(error.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
+            if (warmed?.status === 'cancelled') { finish('cancelled'); return; }
             finish('success');
         } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
     });
@@ -2129,7 +2145,7 @@ async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = loadTimings.measureSync('准备资料库文本与表格宏', 'generation', () => generationPreload.get(chat, state.header, state.own.database));
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task) => loadTimings.measureSync(label, 'generation', task) };
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details) };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);

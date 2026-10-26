@@ -53,7 +53,7 @@ test('background warmup reads books and both histories, but stops when the chat 
     const state = { chat: [{ mes: 'old' }, { mes: 'latest' }], header: {}, character: {}, own: {} };
     const context = vm.createContext({ state, panelDirty: false, generationPreload: { schedule: task => { scheduled = task; }, get: chat => histories.push(chat.length) }, activeRegexes: () => [], warmHistoryRegex: async () => {}, loadBooks: async () => { bookReads++; }, nextPaint: async () => {}, loadTimings: { start: () => status => finishes.push(status), measure: (_label, _kind, task) => task() } });
     vm.runInContext(fn, context); vm.runInContext('preloadNextGeneration()', context);
-    await scheduled(); assert.equal(bookReads, 1); assert.deepEqual(histories, [2, 1]); assert.deepEqual(finishes, ['success']);
+    await scheduled(); assert.equal(bookReads, 1); assert.deepEqual(histories, [2, 1]); assert.deepEqual(finishes, ['success', 'success']);
     histories = []; vm.runInContext('preloadNextGeneration()', context); state.chat = [];
     await scheduled(); assert.equal(bookReads, 1); assert.deepEqual(histories, []);
     vm.runInContext('preloadNextGeneration()', context);

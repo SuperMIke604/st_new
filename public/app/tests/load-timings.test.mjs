@@ -16,6 +16,27 @@ test('synchronous diagnostics preserve return values and exceptions without expo
     assert.ok(!JSON.stringify(logs.snapshot()).includes('private'));
 });
 
+test('clearing diagnostics preserves in-flight durations and throwing loggers cannot break work', () => {
+    let time = 0;
+    const logs = new LoadTimings({ now: () => time, logger: { info() { throw Error('logger failed'); } } });
+    logs.start('旧记录')();
+    const finish = logs.start('生成中', 'generation');
+    time = 100; logs.clear();
+    assert.deepEqual(logs.snapshot().map(entry => entry.label), ['生成中']);
+    assert.equal(logs.snapshot()[0].durationMs, 100);
+    time = 200; assert.doesNotThrow(() => finish());
+    assert.equal(logs.snapshot()[0].durationMs, 200);
+    assert.equal(logs.snapshot()[0].status, 'success');
+});
+
+test('diagnostic metrics allow only finite nonnegative known numbers', () => {
+    const logs = new LoadTimings();
+    logs.measureSync('历史处理', 'generation', () => 1, () => ({ metrics: { hits: 2, macroMs: 1.234, misses: -1, messages: Infinity, privateText: 'secret' } }));
+    assert.deepEqual(logs.snapshot()[0].metrics, { hits: 2, macroMs: 1.2 });
+    assert.match(timingDetailText(logs.snapshot()[0]), /缓存命中：2/);
+    assert.ok(!JSON.stringify(logs.snapshot()).includes('secret'));
+});
+
 test('character count is retained in logs without storing character names', () => {
     const logs = new LoadTimings(); logs.start('读取角色列表', 'data')('success', { itemCount: 12 });
     assert.equal(logs.snapshot()[0].itemCount, 12);

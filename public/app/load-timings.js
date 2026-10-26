@@ -1,4 +1,5 @@
 const storageKey = 'independent-load-timings';
+const metricNames = { hits: '缓存命中', misses: '缓存未命中', dynamicSkips: '动态规则跳过缓存', noRules: '无适用规则', oversize: '超限未缓存', evictions: '缓存淘汰', invalidations: '配置变化清缓存', messages: '处理消息数', regexMs: '正则处理 ms', macroMs: '宏展开 ms' };
 export class LoadTimings {
     constructor({ limit = 200, storage, now = () => performance.now(), date = () => new Date().toISOString(), logger = null } = {}) {
         this.limit = limit; this.storage = storage; this.now = now; this.date = date; this.logger = logger; this.sequence = 0;
@@ -27,11 +28,12 @@ export class LoadTimings {
             entry.durationMs = Math.max(0, Math.round((this.now() - started) * 10) / 10); entry.status = status;
             if (Number.isInteger(details.httpStatus) && details.httpStatus >= 100 && details.httpStatus <= 599) entry.httpStatus = details.httpStatus;
             if (Number.isInteger(details.itemCount) && details.itemCount >= 0) entry.itemCount = details.itemCount;
+            if (details.metrics) entry.metrics = Object.fromEntries(Object.keys(metricNames).filter(key => Number.isFinite(details.metrics[key]) && details.metrics[key] >= 0).map(key => [key, Math.round(details.metrics[key] * 10) / 10]));
             if (['http-error', 'network', 'timeout', 'aborted', 'navigation', 'compatibility', 'missing-configuration', 'empty-character-list'].includes(details.reason)) entry.reason = details.reason;
             // Keep a long page/startup total even if many nested requests have
             // already displaced its initial pending record from the ring.
             this.pending.delete(entry); this.retain(entry); this.persist();
-            this.logger?.info(`[加载耗时] ${label} · ${entry.durationMs} ms · ${status}`);
+            try { this.logger?.info(`[加载耗时] ${label} · ${entry.durationMs} ms · ${status}`); } catch { /* Diagnostics cannot break generation. */ }
         };
     }
     async measure(label, kind, task) {
@@ -39,15 +41,15 @@ export class LoadTimings {
         try { const result = await task(); finish(); return result; }
         catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
     }
-    measureSync(label, kind, task) {
+    measureSync(label, kind, task, details = () => ({})) {
         const finish = this.start(label, kind);
-        try { const result = task(); finish(); return result; }
-        catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
+        try { const result = task(); finish('success', details()); return result; }
+        catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error', details()); throw error; }
     }
     snapshot() {
         return this.entries.map(entry => ({ ...entry, ...(this.pending.has(entry) ? { durationMs: Math.max(0, Math.round((this.now() - this.pending.get(entry)) * 10) / 10) } : {}) }));
     }
-    clear() { this.entries = []; this.pending.clear(); this.persist(); }
+    clear() { this.entries = this.entries.filter(entry => this.pending.has(entry)); this.persist(); }
 }
 let storage;
 try { storage = globalThis.sessionStorage; } catch { /* Restricted storage. */ }
@@ -66,6 +68,7 @@ export function timingStatusText(entry) {
     return ({ loading: '加载中', success: '完成', fallback: '兼容回退', partial: '部分失败', error: '失败', cancelled: '已取消', interrupted: '刷新中断' })[entry.status] || entry.status;
 }
 export function timingDetailText(entry) {
+    if (entry.metrics) return Object.entries(metricNames).filter(([key]) => Number.isFinite(entry.metrics[key]) && (entry.metrics[key] > 0 || ['hits', 'misses', 'messages', 'regexMs', 'macroMs'].includes(key))).map(([key, label]) => `${label}：${entry.metrics[key]}`).join(' · ');
     if (Number.isInteger(entry.itemCount)) return `读取到 ${entry.itemCount} 项`;
     const http = entry.httpStatus ? `HTTP ${entry.httpStatus}` : '';
     const reasons = {

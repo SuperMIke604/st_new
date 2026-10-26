@@ -1,8 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HistoryRegexCache } from '../history-regex-cache.js';
+import { HistoryRegexCache, warmHistoryRegex } from '../history-regex-cache.js';
+import { buildPrompt } from '../engine.js';
+import { LoadTimings } from '../load-timings.js';
 import { applyRegex } from '../regex.js';
 const rule = { findRegex: String.raw`/<hidden>[\s\S]*?<\/hidden>/g`, replaceString: '', placement: [1, 2], promptOnly: true, minDepth: null, maxDepth: 2 };
+
+test('history diagnostics separate regex and macros and identify cache hits and dynamic bypass', async () => {
+    const logs = new LoadTimings();
+    const input = { character: { name: 'test' }, chat: [{ mes: '{{user}}<hidden>private</hidden>', is_user: false }], settings: { username: 'Example', extension_settings: { regex: [rule] } } };
+    const expected = buildPrompt(input);
+    const result = buildPrompt({ ...input, measureBuild: (label, task, details) => logs.measureSync(label, 'generation', task, details) });
+    assert.deepEqual(result, expected);
+    const metrics = logs.snapshot().find(entry => entry.label === '历史消息正则与宏展开').metrics;
+    assert.equal(metrics.messages, 1); assert.equal(metrics.hits, 1);
+    assert.ok(metrics.regexMs >= 0); assert.ok(metrics.macroMs >= 0);
+    assert.ok(!JSON.stringify(logs.snapshot()).includes('private'));
+    const warmed = await warmHistoryRegex(input.chat, [{ ...rule, replaceString: '{{user}}' }]);
+    assert.equal(warmed.status, 'success'); assert.equal(warmed.metrics.dynamicSkips, 1);
+    const cancelled = await warmHistoryRegex(input.chat, [rule], () => false);
+    assert.equal(cancelled.status, 'cancelled'); assert.equal(cancelled.metrics.messages, 0);
+});
 test('cached history respects placement, depth boundaries and changed regex configuration', () => {
     const cache = new HistoryRegexCache(), transform = cache.prepare([rule]);
     const text = 'Visible<hidden>private</hidden>';

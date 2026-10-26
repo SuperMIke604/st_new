@@ -132,6 +132,8 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         Object.defineProperty(variables, key.toLowerCase(), { enumerable: true, get() { databaseMacroUsed = true; return token; } });
     }
     const regexes = activeRegexes({ settings, preset, character });
+    const cacheBefore = historyRegexCache.stats();
+    const historyMetrics = { messages: 0, regexMs: 0, macroMs: 0 };
     const historyRegex = historyRegexCache.prepare(regexes);
     const worlds = worldEntries || measureBuild('激活世界书与展开条目', () => activateWorlds(books, chat, settings, variables, Math.random, regexes));
     if (worldEntries) { const locals = new Map(); for (const entry of worldEntries) for (const [name, value] of Object.entries(entry.variableState || {})) locals.set(name, value); localVariables.set(variables, locals); }
@@ -142,11 +144,17 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         const narrator = m.extra?.type === 'narrator';
         const name = m.name || (m.is_user ? variables.user : variables.char);
         const mode = Number(preset.names_behavior ?? 0);
-        let content = expand(historyRegex(m.mes, m.is_user ? 1 : 2, depth, variables), variables);
+        historyMetrics.messages++;
+        let transformed, content, started = performance.now();
+        try { transformed = historyRegex(m.mes, m.is_user ? 1 : 2, depth, variables); }
+        finally { historyMetrics.regexMs += performance.now() - started; }
+        started = performance.now();
+        try { content = expand(transformed, variables); }
+        finally { historyMetrics.macroMs += performance.now() - started; }
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
-    }));
+    }), () => ({ metrics: { ...historyMetrics, ...Object.fromEntries(Object.entries(historyRegexCache.stats()).map(([key, value]) => [key, value - cacheBefore[key]])) } }));
     if (preset.new_chat_prompt) history.unshift({ role: 'system', content: expand(preset.new_chat_prompt, variables) });
     const markers = {
         worldInfoBefore: before, worldInfoAfter: after,
