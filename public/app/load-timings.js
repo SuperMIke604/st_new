@@ -39,6 +39,11 @@ export class LoadTimings {
         try { const result = await task(); finish(); return result; }
         catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
     }
+    measureSync(label, kind, task) {
+        const finish = this.start(label, kind);
+        try { const result = task(); finish(); return result; }
+        catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
+    }
     snapshot() {
         return this.entries.map(entry => ({ ...entry, ...(this.pending.has(entry) ? { durationMs: Math.max(0, Math.round((this.now() - this.pending.get(entry)) * 10) / 10) } : {}) }));
     }

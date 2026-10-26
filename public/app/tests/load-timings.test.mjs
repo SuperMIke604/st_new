@@ -4,6 +4,18 @@ import { LoadTimings, loadTimings, timedFetch, requestFailure, timingStatusText,
 import { TavernAPI } from '../api.js';
 import { RecentCharacters } from '../home-data.js';
 
+test('synchronous diagnostics preserve return values and exceptions without exporting private data', () => {
+    let time = 0;
+    const logs = new LoadTimings({ now: () => time });
+    const value = { text: 'private text' };
+    assert.equal(logs.measureSync('同步构建', 'generation', () => { time = 75; return value; }), value);
+    const error = new Error('private failure');
+    assert.throws(() => logs.measureSync('同步失败', 'generation', () => { throw error; }), caught => caught === error);
+    assert.equal(logs.snapshot()[0].durationMs, 75);
+    assert.deepEqual(logs.snapshot().map(entry => entry.status), ['success', 'error']);
+    assert.ok(!JSON.stringify(logs.snapshot()).includes('private'));
+});
+
 test('character count is retained in logs without storing character names', () => {
     const logs = new LoadTimings(); logs.start('读取角色列表', 'data')('success', { itemCount: 12 });
     assert.equal(logs.snapshot()[0].itemCount, 12);

@@ -2120,7 +2120,7 @@ function preloadNextGeneration() {
             await nextPaint();
             if (!current()) { finish('cancelled'); return; }
             if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
-            await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current);
+            await loadTimings.measure('后台预热历史正则', 'generation', () => warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current));
             finish('success');
         } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
     });
@@ -2128,8 +2128,8 @@ function preloadNextGeneration() {
 async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
-    const resources = generationPreload.get(chat, state.header, state.own.database);
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation') };
+    const resources = loadTimings.measureSync('准备资料库文本与表格宏', 'generation', () => generationPreload.get(chat, state.header, state.own.database));
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task) => loadTimings.measureSync(label, 'generation', task) };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);
@@ -2165,20 +2165,21 @@ async function generate(mode = false) {
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
+    let finishFirstText, finishModelResponse;
     try {
         if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
-            if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await openScriptWorkspace(false);
-            await scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity());
+            if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await loadTimings.measure('初始化助手脚本环境', 'generation', () => openScriptWorkspace(false));
+            await loadTimings.measure('助手事件 generation_started', 'generation', () => scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity()));
         }
-        await prepareRoleMvu(true);
+        await loadTimings.measure('准备角色变量', 'generation', () => prepareRoleMvu(true));
         if (!regenerate && !retry && scriptRuntime.helperReady) {
-            state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat();
-            await scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity());
+            state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await loadTimings.measure('发送前保存聊天', 'generation', () => saveChat());
+            await loadTimings.measure('助手事件 message_sent', 'generation', () => scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity()));
         }
         const prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
-        const body = generationBody(connection(), state.preset, prepared.messages);
+        const body = loadTimings.measureSync('组装模型请求', 'generation', () => generationBody(connection(), state.preset, prepared.messages));
         if (state.controller.signal.aborted) return;
-        if (!regenerate && !retry && !pendingUser) { state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat(); }
+        if (!regenerate && !retry && !pendingUser) { state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await loadTimings.measure('发送前保存聊天', 'generation', () => saveChat()); }
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
@@ -2190,17 +2191,21 @@ async function generate(mode = false) {
         } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
-        list.setMessages(state.chat, { latest: true }); status(regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
+        loadTimings.measureSync('发送前刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: true })); status(regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
         preview = prepared;
-        const response = await api.response('/api/backends/chat-completions/generate', body, { signal: state.controller.signal });
+        finishFirstText = loadTimings.start('模型请求至首段文本（含思考）', 'generation');
+        finishModelResponse = loadTimings.start('模型请求至回复接收完成', 'generation');
+        const response = await loadTimings.measure('模型请求至响应头', 'generation', () => api.response('/api/backends/chat-completions/generate', body, { signal: state.controller.signal }));
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
             const result = await response.json();
             if (result.error) throw new Error(typeof result.error === 'string' ? result.error : result.error.message || '模型请求失败');
             reply.mes = result.choices?.[0]?.message?.content || result.choices?.[0]?.text || '';
+            if (reply.mes) finishFirstText();
         } else {
             for await (const event of readEvents(response)) {
                 if (event.error) throw new Error(typeof event.error === 'string' ? event.error : event.error.message || '模型请求失败');
                 const delta = event.choices?.[0]?.delta;
+                if (delta?.content || delta?.reasoning_content || delta?.reasoning || event.choices?.[0]?.text) finishFirstText();
                 if (!reply.mes && !reply.extra.reasoning && (delta?.content || delta?.reasoning_content || delta?.reasoning || event.choices?.[0]?.text)) status(regenerate ? '正在重新生成…' : '正在回复…');
                 reply.mes += delta?.content || event.choices?.[0]?.text || '';
                 if (delta?.reasoning_content || delta?.reasoning) reply.extra.reasoning = (reply.extra.reasoning || '') + (delta.reasoning_content || delta.reasoning);
@@ -2211,16 +2216,19 @@ async function generate(mode = false) {
         completed = true;
         status('回复完成');
     } catch (error) {
+        finishFirstText?.(error.name === 'AbortError' ? 'cancelled' : 'error');
+        finishModelResponse?.(error.name === 'AbortError' ? 'cancelled' : 'error');
         if (error.name === 'AbortError') notify('生成已停止，已收到的内容会保存', 'info');
         else { state.error = error.message; notify(error.message, true); }
     } finally {
+        finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
         if (completed && reply && scriptRuntime.helperReady) {
             try {
                 if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
-                await saveChat();
-                await scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity());
+                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat());
+                await loadTimings.measure('助手事件 message_received', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity()));
             } catch (error) { notify(`回复已保留，角色脚本处理失败：${error.message}`, true); }
         }
         const rawReplyText = reply?.mes;
@@ -2235,15 +2243,15 @@ async function generate(mode = false) {
             }
         }
         if (completed && reply) {
-            try { await prepareRoleMvu(true, { message: reply, text: rawReplyText }); } catch (error) { notify(`回复已保留，角色变量更新失败：${error.message}`, true); }
+            try { await loadTimings.measure('回复后更新角色变量', 'generation', () => prepareRoleMvu(true, { message: reply, text: rawReplyText })); } catch (error) { notify(`回复已保留，角色变量更新失败：${error.message}`, true); }
         }
         if (reply || pendingUser) {
-            try { await saveChat(); await rememberChat(); } catch (error) { notify(error.message, true); }
+            try { await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat()); await rememberChat(); } catch (error) { notify(error.message, true); }
             list.setMessages(state.chat, { latest: list.follow });
         }
         state.busy = false; state.controller = null; synchronize();
         if (completed && scriptRuntime.helperReady) {
-            try { await scriptRuntime.dispatch('generation_ended', [replyIndex], scriptSnapshot(state), scriptIdentity()); }
+            try { await loadTimings.measure('助手事件 generation_ended', 'generation', () => scriptRuntime.dispatch('generation_ended', [replyIndex], scriptSnapshot(state), scriptIdentity())); }
             catch (error) { notify(`角色脚本结束事件失败：${error.message}`, true); }
         }
         if (!state.dirty) status(state.error ? '请求未完成' : '已保存');

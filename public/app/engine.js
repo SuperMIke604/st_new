@@ -114,7 +114,7 @@ export function parseExamples(text, variables, namesBehavior = 0) {
     return messages;
 }
 
-export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, mvuSeed = null }) {
+export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, mvuSeed = null, measureBuild = (_label, task) => task() }) {
     const card = character.data || character;
     const variables = {
         [MESSAGE_VARIABLES]: messageVariableContext(chat, mvuSeed),
@@ -133,11 +133,11 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
     }
     const regexes = activeRegexes({ settings, preset, character });
     const historyRegex = historyRegexCache.prepare(regexes);
-    const worlds = worldEntries || activateWorlds(books, chat, settings, variables, Math.random, regexes);
+    const worlds = worldEntries || measureBuild('激活世界书与展开条目', () => activateWorlds(books, chat, settings, variables, Math.random, regexes));
     if (worldEntries) { const locals = new Map(); for (const entry of worldEntries) for (const [name, value] of Object.entries(entry.variableState || {})) locals.set(name, value); localVariables.set(variables, locals); }
     const before = worlds.filter(e => e.position === 0).map(e => e.content).join('\n');
     const after = worlds.filter(e => e.position === 1).map(e => e.content).join('\n');
-    const history = chat.slice(start).map((m, index) => ({ m, depth: chat.length - start - index - 1 })).filter(({m}) => !m.is_system).map(({m, depth}) => {
+    const history = measureBuild('历史消息正则与宏展开', () => chat.slice(start).map((m, index) => ({ m, depth: chat.length - start - index - 1 })).filter(({m}) => !m.is_system).map(({m, depth}) => {
         if (m.extra?.media?.length || m.extra?.attachments?.length || m.extra?.file) throw new CompatibilityError('当前聊天包含媒体或附件，首版尚未支持把这些内容发给模型。');
         const narrator = m.extra?.type === 'narrator';
         const name = m.name || (m.is_user ? variables.user : variables.char);
@@ -146,7 +146,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
-    });
+    }));
     if (preset.new_chat_prompt) history.unshift({ role: 'system', content: expand(preset.new_chat_prompt, variables) });
     const markers = {
         worldInfoBefore: before, worldInfoAfter: after,

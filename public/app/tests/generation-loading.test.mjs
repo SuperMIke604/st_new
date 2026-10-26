@@ -23,19 +23,21 @@ function fixture({ native = false } = {}) {
         }
         return native;
     } };
-    const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+    const timings = new LoadTimings();
+    const context = vm.createContext({ state, loadTimings: timings, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {}, preparePrompt: () => prepared.promise,
         list: { follow: true, update() {}, setMessages() { renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message }))); } },
         api: { response() { requests++; return response.promise; } },
+        readEvents: response => response.events,
         generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
         nativeScriptPlan: () => native ? [{ enabled: true }] : [], scriptSupport: () => ({ adapter: 'remote-module', supported: true }), scriptSnapshot: () => ({}), scriptIdentity: () => 'test', scriptRuntime,
         prepareRoleMvu: async (...args) => { mvuCalls.push(args); assert.equal(state.busy, true); return { changed: false }; },
         saveChat: async () => { saved.push(structuredClone(state.chat)); }, rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, timings, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -75,6 +77,28 @@ test('stopping regeneration clears loading and restores the previous reply', asy
     assert.match(f.notices.at(-1), /生成已停止/);
     assert.deepEqual(f.postGeneration, []);
     assert.equal(f.mvuCalls.length, 1, 'initialize existing state before the request, but never apply an aborted reply');
+    const modelRecords = f.timings.snapshot().filter(entry => entry.label.startsWith('模型请求至'));
+    assert.equal(modelRecords.length, 3);
+    assert.ok(modelRecords.every(entry => entry.status === 'cancelled'));
+});
+
+test('stream diagnostics distinguish response headers, first reasoning text and stream completion', async () => {
+    const f = fixture(), tail = deferred(), running = f.run(false);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.response.resolve({ headers: new Headers({ 'content-type': 'text/event-stream' }), events: (async function* () {
+        yield { choices: [{ delta: { reasoning_content: 'private reasoning' } }] };
+        await tail.promise;
+        yield { choices: [{ delta: { content: 'private reply' } }] };
+    })() });
+    await tick();
+    const record = label => f.timings.snapshot().find(entry => entry.label === label);
+    assert.equal(record('模型请求至响应头').status, 'success');
+    assert.equal(record('模型请求至首段文本（含思考）').status, 'success');
+    assert.equal(record('模型请求至回复接收完成').status, 'loading');
+    tail.resolve(); await running;
+    assert.equal(record('模型请求至回复接收完成').status, 'success');
+    assert.ok(f.timings.snapshot().every(entry => entry.status !== 'loading'));
+    assert.ok(!JSON.stringify(f.timings.snapshot()).includes('private'));
 });
 
 test('prompt failure clears loading without sending a request or losing the input', async () => {
