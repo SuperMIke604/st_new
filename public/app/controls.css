@@ -109,6 +109,18 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     .connection-profile-bar .connection-profile-tools { max-width: 100%; flex-wrap: wrap; }
 }
 
+/* Native touch feedback, selection and focus follow the application palette.
+   Inheritance covers custom controls without reaching isolated card documents. */
+:root {
+    -webkit-tap-highlight-color: transparent;
+    accent-color: var(--green);
+}
+::selection { background: var(--soft); color: var(--ink); }
+:where([role=button],[role=tab],[role=option],summary,[tabindex]):focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+}
+
 /* Text fields share the base select border, without a second focus ring. */
 :root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea:not(#message-input)) {
     border: 1px solid var(--line);
@@ -135,7 +147,6 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     flex-wrap: nowrap;
 }
 :is(.preset-panel,.regex-panel) .prompt-summary, .world-global-settings > summary {
-    -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;

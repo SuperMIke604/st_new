@@ -1,6 +1,6 @@
 @font-face{font-family:StorySans;src:local("Segoe UI");font-display:swap}
 :root{--paper:var(--ui-tone-f7f8f4,#f7f8f4);--surface:#fff;--ink:var(--ui-tone-2b3b33,#2b3b33);--muted:var(--ui-tone-899187,#899187);--line:var(--ui-tone-e4e9df,#e4e9df);--green:var(--ui-tone-496c53,#496c53);--soft:var(--ui-tone-edf2e8,#edf2e8);--viewport-height:100dvh;--viewport-top:0px;font-family:StorySans,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--paper);font-synthesis:none;color-scheme:light}
-*{box-sizing:border-box}body{margin:0;overflow:hidden}button{-webkit-tap-highlight-color:transparent}a{-webkit-tap-highlight-color:transparent}input{-webkit-tap-highlight-color:transparent}select{-webkit-tap-highlight-color:transparent}textarea{-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{opacity:.38;cursor:default}button{color:inherit}button:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}a:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}input:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}select:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}textarea:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}button:disabled:focus-visible{outline:none}[hidden]{display:none!important}svg{width:19px;height:19px;min-width:19px;vertical-align:middle;pointer-events:none}button{border:0;background:transparent}input{color:var(--ink)}textarea{color:var(--ink)}select{color:var(--ink)}
+*{box-sizing:border-box}body{margin:0;overflow:hidden}textarebutton{cursor:pointer}button:disabled{opacity:.38;cursor:default}button{color:inherit}button:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}a:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}input:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}select:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}textarea:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:3px}button:disabled:focus-visible{outline:none}[hidden]{display:none!important}svg{width:19px;height:19px;min-width:19px;vertical-align:middle;pointer-events:none}button{border:0;background:transparent}input{color:var(--ink)}textarea{color:var(--ink)}select{color:var(--ink)}
 .appbar{height:50px;position:fixed;top:var(--viewport-top);left:0;right:0;display:flex;align-items:center;gap:7px;padding:5px max(16px,env(safe-area-inset-right)) 5px max(16px,env(safe-area-inset-left));z-index:5;background:var(--paper)}
 .icon-button{display:inline-grid;place-items:center;color:var(--ui-tone-748272,#748272);flex-shrink:0}.icon-button:hover{background:var(--ui-tone-e9eee4,#e9eee4);color:var(--green)}#current-name{margin-left:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:36vw;letter-spacing:.3px}#save-status{margin-left:auto;color:var(--ui-tone-8b9584,#8b9584);white-space:nowrap}.error{color:#b55e48!important}
 #conversation{position:fixed;top:calc(var(--viewport-top) + 50px);height:calc(var(--viewport-height) - 50px);left:0;right:0;display:flex;flex-direction:column;max-width:1220px;margin:auto;padding:0 24px max(10px,env(safe-area-inset-bottom));min-height:0}
@@ -302,13 +302,21 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 #panel-body:has(> .reference-preview-layout){display:flex;flex-direction:column;flex:1;overflow:hidden;padding-block:var(--control-gap) max(var(--control-gap),env(safe-area-inset-bottom))}
 .reference-preview-layout{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;gap:var(--control-gap)}
 .reference-preview-fixed{display:flex;flex-direction:column;flex-shrink:0;gap:var(--control-gap);min-width:0}
+.reference-table-navigation{display:grid;grid-template-columns:minmax(0,1fr) var(--control-size);align-items:start;gap:var(--control-gap);min-width:0}
+.reference-table-navigation>.db-table-tabs{grid-column:1;grid-row:1}
+.reference-table-navigation>.icon-button{grid-column:2;grid-row:1}
+.reference-table-navigation:has(>.icon-button[aria-expanded=true]){display:flow-root;max-height:40vh;overflow-y:auto}
+.reference-table-navigation:has(>.icon-button[aria-expanded=true])>.icon-button{float:right;margin-left:var(--control-gap)}
+.reference-table-navigation>.icon-button[aria-expanded=true]>svg{transform:rotate(180deg)}
 .reference-preview-fixed .db-table-tabs{margin:0;padding:0;gap:var(--control-gap);flex-wrap:nowrap;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;flex-shrink:0}
+.reference-preview-fixed .db-table-tabs[data-expanded=true]{display:block;overflow:visible}
+.reference-preview-fixed .db-table-tabs[data-expanded=true]>.button{margin:0 var(--control-gap) var(--control-gap) 0}
 .reference-preview-fixed .note{margin:0}
 .reference-preview-toolbar .check-field{font-size:var(--type-control-size);line-height:var(--type-control-line);font-weight:var(--type-regular)}
-.reference-preview-toolbar>.icon-button>span{display:none}
+.reference-preview-toolbar>.icon-button>span,.reference-table-navigation>.icon-button>span{display:none}
 :root:not([data-palette=paper]) .reference-preview-toolbar>.icon-button{color:inherit}
-.reference-preview-layout>.reference-preview-grid{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:var(--control-gap)}
-.reference-preview-layout .reference-preview-card{max-height:none;overflow:visible}
+.reference-preview-layout>.reference-preview-grid{flex:1;min-height:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding-bottom:var(--control-gap)}
+.reference-preview-layout .reference-preview-card{max-height:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain}
 .reference-preview-layout>.db-pager{flex-shrink:0;margin:0;gap:var(--control-gap);flex-wrap:wrap}
 .reference-preview-layout>.db-pager>.button{opacity:.38}
 .reference-preview-layout>.db-pager>.button[aria-current=page]{color:var(--green);opacity:1}

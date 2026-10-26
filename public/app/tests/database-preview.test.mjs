@@ -73,3 +73,22 @@ test('table totals update after deletion and undo restores them', async () => {
         assert.equal(view.writes[1].sheet_0.content.length, 46);
     } finally { globalThis.confirm = previousConfirm; }
 });
+
+test('expanding table navigation preserves drafts and survives switching tables', () => {
+    const view = fixture();
+    view.body.querySelector('.reference-preview-cell').events.click({ target: { closest: () => null } });
+    const draft = view.body.querySelector('textarea'); draft.value = '未保存的草稿';
+    const expand = view.button('展开全部表格');
+    assert.equal(expand.getAttribute('aria-expanded'), 'false');
+    expand.callback();
+    assert.equal(expand.getAttribute('aria-expanded'), 'true');
+    assert.equal(view.body.querySelector('.db-table-tabs').dataset.expanded, 'true');
+    assert.equal(view.body.querySelector('textarea'), draft);
+    assert.equal(draft.value, '未保存的草稿');
+    expand.callback();
+    assert.equal(expand.getAttribute('aria-expanded'), 'false');
+    expand.callback();
+    view.button('事件（1）').callback();
+    assert.equal(view.body.querySelector('.db-table-tabs').dataset.expanded, 'true');
+    assert.equal(view.button('展开全部表格').getAttribute('aria-expanded'), 'true');
+});

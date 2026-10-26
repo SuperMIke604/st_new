@@ -1,7 +1,7 @@
 import { referencePreviewRows, referencePagination } from './database-reference.js';
 export function renderDatabasePreview(body, context) {
  const {el,action,field}=context;
- let data=structuredClone(context.data), active=0,page=1,search='',diffMode=!!context.settings?.previewOnlyShowChanges,fontSize=Number(context.settings?.dpFontSize)||null;
+ let data=structuredClone(context.data), active=0,page=1,tablesExpanded=false,search='',diffMode=!!context.settings?.previewOnlyShowChanges,fontSize=Number(context.settings?.dpFontSize)||null;
  const awaitPreference = patch => { if(context.savePreferences)void context.savePreferences(patch).catch(error=>context.notify?.(error.message,true)); };
  const undo=[];
  const tables=()=>Object.entries(data).filter(([key,value])=>key.startsWith('sheet_')&&Array.isArray(value.content)).map(([key,value])=>({key,name:value.name,headers:value.content[0],rows:value.content.slice(1)}));
@@ -11,7 +11,7 @@ export function renderDatabasePreview(body, context) {
  const render=()=>{
   const scrollTop=body.scrollTop, oldGrid=body.querySelector('.reference-preview-grid'), gridLeft=oldGrid?.scrollLeft||0, oldTabs=body.querySelector('.db-table-tabs'), tabsLeft=oldTabs?.scrollLeft||0;
   body.replaceChildren();const layout=el('section','reference-preview-layout'),fixed=el('section','reference-preview-fixed');layout.append(fixed);body.append(layout);const all=tables();active=Math.min(active,Math.max(0,all.length-1));const table=all[active];
-  const tabs=el('nav','db-table-tabs');all.forEach((item,index)=>{const control=button(tabs,`${item.name}（${item.rows.length}）`,()=>{active=index;page=1;render();});control.setAttribute('aria-pressed',String(index===active));});fixed.append(tabs);
+  const navigation=el('div','reference-table-navigation');const tabs=el('nav','db-table-tabs');tabs.id='reference-preview-tables';tabs.dataset.expanded=String(tablesExpanded);all.forEach((item,index)=>{const control=button(tabs,`${item.name}（${item.rows.length}）`,()=>{active=index;page=1;render();});control.setAttribute('aria-pressed',String(index===active));});navigation.append(tabs);const expandTables=iconButton(navigation,'展开全部表格',()=>{tablesExpanded=!tablesExpanded;tabs.dataset.expanded=String(tablesExpanded);expandTables.setAttribute('aria-expanded',String(tablesExpanded));const label=tablesExpanded?'收起表格':'展开全部表格';expandTables.title=label;expandTables.setAttribute('aria-label',label);if(!tablesExpanded)tabs.children[active]?.scrollIntoView?.({block:'nearest',inline:'nearest'});},'chevron');expandTables.setAttribute('aria-expanded',String(tablesExpanded));expandTables.setAttribute('aria-controls',tabs.id);if(tablesExpanded){expandTables.title='收起表格';expandTables.setAttribute('aria-label','收起表格');}expandTables.disabled=all.length<2;navigation.replaceChildren(expandTables,tabs);fixed.append(navigation);
   if(!table){fixed.append(el('p','note','没有聊天数据库数据'));return;}
   const controls=el('div','reference-preview-toolbar');
   const toggle=el('label','check-field button'),check=el('input');check.type='checkbox';check.checked=diffMode;check.addEventListener('change',()=>{diffMode=check.checked;awaitPreference({previewOnlyShowChanges:diffMode});page=1;render();});toggle.append(check,el('span','','仅显示变化'));controls.append(toggle);
