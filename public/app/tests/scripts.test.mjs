@@ -16,7 +16,8 @@ test('global and character scripts remain separate and disabled folders suppress
     assert.deepEqual(cardScript.data, { keep: 42 });
 });
 test('external MVU modules, schema imports and IndexedDB are explicitly unsupported', () => {
-    for (const content of ["import 'https://example.com/mvu.js'", "import { x } from 'https://example.com/schema.js'", 'window.indexedDB.open("avatars")', 'getWorldbook("book")', 'createChatMessages([])']) assert.equal(scriptSupport({ content }).supported, false);
+    for (const content of ["import 'https://example.com/mvu.js'", "import { x } from 'https://example.com/schema.js'", 'window.indexedDB.open("avatars")']) assert.equal(scriptSupport({ content }).supported, false);
+    for (const content of ['getWorldbook("book")', 'createChatMessages([])']) assert.equal(scriptSupport({ content }).supported, true);
     assert.equal(scriptSupport({ content: 'const data=Mvu.getMvuData({message_id:"latest"}); $("body").append("Status");' }).supported, true);
 });
 test('MVU snapshots retain swipe-specific data and omit unrelated private configuration', () => {
@@ -64,14 +65,23 @@ test('snapshot keeps floor indexes while bounding old message text and preservin
     const snapshot = scriptSnapshot({ chat }); assert.equal(snapshot.chat.length, 100);
     assert.equal(snapshot.chat[0].mes, ''); assert.equal(snapshot.chat[99].message_id, 99); assert.equal(snapshot.chat[99].mes, 'message 99'); assert.equal(latestMvuData(snapshot).stat_data.value, 2);
 });
-test('role plan excludes global scripts and known MVU import uses the built-in adapter without executing its URL', () => {
+
+test('helper snapshot bounds candidate text so large swipe histories cannot multiply the frame payload', () => {
+    const text = 'x'.repeat(90000), chat = Array.from({ length: 40 }, () => ({ mes: text, swipes: Array(5).fill(text) }));
+    const snapshot = scriptSnapshot({ chat });
+    const total = snapshot.chat.reduce((size, message) => size + message.mes.length + (message.swipes || []).reduce((sum, swipe) => sum + swipe.length, 0), 0);
+    assert.ok(total <= 2000000); assert.equal(snapshot.chat.at(-1).textAvailable, true);
+    assert.ok(snapshot.chat.some(message => !message.textAvailable || !message.swipesAvailable));
+});
+test('role plan loads the original MVU module while enabled global scripts use the same native host', () => {
     const content = "import 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artifact/bundle.js'";
     const card = { avatar: 'a.png', data: { extensions: { tavern_helper: { scripts: [{ id: 'mvu', enabled: true, content }] } } } };
     const settings = { extension_settings: { tavern_helper: { script: { scripts: [{ id: 'global', content: 'window.globalRan=true' }] } } } };
-    assert.deepEqual(characterScriptPlan(settings, card).map(script => script.id), ['mvu']); assert.equal(usesMvuCompat(settings, card), true);
+    assert.deepEqual(characterScriptPlan(settings, card).map(script => script.id), ['mvu']); assert.equal(usesMvuCompat(settings, card), false);
     const document = scriptDocument([{ id: 'global', scope: 'global', content: 'window.globalRan=true' }, ...characterScriptPlan(settings, card)], { chat: [] }, '/* jQuery */');
-    assert.ok(!document.includes('window.globalRan=true')); assert.ok(!document.includes('https://testingcf.jsdelivr.net')); assert.ok(document.includes('script-empty'));
-    assert.equal(scriptSupport({ content }).adapter, 'mvu');
+    assert.ok(document.includes('window.globalRan=true')); assert.ok(document.includes('https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artifact/bundle.js')); assert.ok(document.includes('script-empty'));
+    assert.equal(scriptSupport({ content }).adapter, 'remote-module');
+    assert.ok(document.includes('"externalMvu":true'));
 });
 test('role status bar fallback probes of parent DOM do not block its working local MVU adapter', () => {
     const content = '/* fate-phone-container getMvuDataSafe initFatePhone */ try { const p=window.parent; p.document; } catch {}';

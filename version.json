@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "afe2f70766b1d9f59d7704b7419bc95081c2f1516abd8ed51972890da7047bcf",
-  "publishedAt": "2026-10-26T08:22:52.068904+00:00",
+  "revision": "9f91a6c6a813ad4616e01c27bb664d830aafbdfba05651a4c9e1237c0d1a5439",
+  "publishedAt": "2026-10-26T09:20:01.866596+00:00",
   "files": {
     "public/app/api.js": "90d2f94a60370ccd31be11a324c3efebafab191f638d4278fdd00ea677d1e383",
     "public/app/character-catalog.js": "9aadb0802e3c281ee971cf8c95844ea4db2d9e3fcf4e02d0869d81640b6e2044",
@@ -17,6 +17,7 @@
     "public/app/database.js": "da80053d74b9367518974d1ceb6db0631d17a5782370d0fb83fb7c95507dd3e5",
     "public/app/engine.js": "e6d0cc0f4518a59fa4459ca37b595270de4889faf6d44816bb9651b105d99e0b",
     "public/app/generation-preload.js": "09f5d6c60e07f213a720685379e5325056744c0c5447b179e45e5a4cb990d6e3",
+    "public/app/helper-state.js": "d127d98d4f5e3f1d87713c75f765d4690aafe9a3cd1396e53ab389c76a95b031",
     "public/app/history-regex-cache.js": "d3ec4b05b4b55873668daf28e8b79674f2d0d4ba3660d0aba982b85e9302d171",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
     "public/app/html-card-context.js": "b4e44aef9d972040d9b49d00f90b4107c39e65089a2009754a2f5e0c1d43ca27",
@@ -24,7 +25,7 @@
     "public/app/index.html": "cb23085c19191da49c72beca296d63c78c1b8bce0c7739efe0c2856d2f94a5a3",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "beec5201e2559e4ecb9ab40046527d1df0b0e5a391e6a9416a5ae44ba78bd90a",
-    "public/app/main.js": "7f770256c6ec4da674e86e305563f6cf82f34d3b43a992cdaf259f7f6e980073",
+    "public/app/main.js": "8d0d1285588c0fee1a6cf9122ddda24e8d7a8a52e8d891f6436ac9dcd9864fd0",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -38,11 +39,13 @@
     "public/app/regex.js": "275bf3d11b6eb6182885db9cabcce756bf93e0c825bf62334fbeee9e154038d7",
     "public/app/role-avatar-store.js": "56b22ae55b0fd42ab26298d723b92e10175112f9d48bcfd67096cb025deab261",
     "public/app/role-script-adapters.js": "ff80e5f1886f0aa0a9d1ad4aca8b807db88a42c53577102536de02533afadef5",
-    "public/app/role-worldbook.js": "7e5ff5905ada27cd4a67e0acfca696f27bfaf48f5ac25212f0417cb063a1308b",
-    "public/app/script-bridge.js": "3d4303f42716eb135ffdc3b3a046e041ef580f2ad867afbffc2d846970eba4b0",
-    "public/app/script-runtime.js": "566172b5c1bf9dae59dd7f69283fc6c8ee0cf9c0f1b3857d028bc56e0a7e637e",
+    "public/app/role-worldbook.js": "66feaaf5db3a6126bcb32bd4821b8d35f0a5908f97f5d70e9b013fcf3ae731ac",
+    "public/app/script-bridge.js": "4323f32000c0461ccbac0dd411bafc61cd68f777503db5d86e733b9110d4e8eb",
+    "public/app/script-helper.js": "47df7fe1ff9671d31c848b99bd111c56761ee845b0c2ee24bef342c2cf1293b2",
+    "public/app/script-modules.js": "29751a110d0c19bc20328adc76a267502ffbf38e336417ea7d425fbad71679f0",
+    "public/app/script-runtime.js": "42ddc715048777ec02a917672a566e3b8c7135237fc7de1e5d42ee4f54a963f7",
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
-    "public/app/scripts.js": "52505eb6c6882b6995b84f49ddfc68ff1adb9965b8a3fbb4691de03eb5283d85",
+    "public/app/scripts.js": "87560524d0879dfcd2ee454bd6dc4b96de71fd17912e7e30ae58be408bb511a5",
     "public/app/select.js": "e1f0a56b4b87a2c9db6e13e1b41fd61ee5abf8c315ee767cc7d226bfe592715e",
     "public/app/style.css": "52fbbce7f7377a304e2718730dd87641c1391d74d1e5c2a1ac8da8946e9a40a0",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
@@ -62,7 +65,7 @@
     "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "012f2a1042ee6966daa95a6760f8c1efc4caef975628fdd8059d3a956918bc46"
+    "public/app/version.js": "034aa78a9e22b9678af4f9d0b6405308b316fcf56900970a6cf9a65b3011b09d"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

@@ -1,11 +1,14 @@
 // This function is serialized into an opaque-origin iframe, never executed in
 // the app window. All mutation requests are checked again by the host.
-export function scriptBridge(initial) {
+export function scriptBridge(initial, { externalMvu = false, scriptId = '', scriptButtons = [] } = {}, installHelper) {
+    const applicationParent = window.parent;
+    let helper;
+    const helpers = new Map();
     let snapshot = initial, sequence = 0;
     const events = new Map(), pending = new Map(), memory = new Map();
     const clone = value => structuredClone(value);
-    const post = data => parent.postMessage({ channel: 'st-new-scripts', ...data }, '*');
-    const emit = (event, ...args) => { for (const fn of events.get(event) || []) { try { fn(...args); } catch (error) { post({ type: 'notice', text: error.message, error: true }); } } };
+    const post = data => applicationParent.postMessage({ channel: 'st-new-scripts', ...data }, '*');
+    const emit = async (event, ...args) => { for (const fn of [...events.get(event) || []]) await fn(...args); };
     const rpc = (action, payload, timeout = 20000) => new Promise((resolve, reject) => {
         const id = ++sequence;
         const timer = setTimeout(() => { pending.delete(id); reject(Error('脚本操作超时')); }, timeout);
@@ -33,11 +36,11 @@ export function scriptBridge(initial) {
     const localStorage = { getItem: key => memory.get(String(key)) ?? null, setItem: (key, value) => memory.set(String(key), String(value)), removeItem: key => memory.delete(String(key)), clear: () => memory.clear() };
     try { Object.defineProperty(window, 'localStorage', { value: localStorage }); } catch {}
     const context = { chat: snapshot.chat, chatMetadata: snapshot.chatVariables, name1: snapshot.userName, name2: snapshot.characterName };
-    const updateSnapshot = value => { snapshot = value; context.chat = value.chat; context.chatMetadata = value.chatVariables; window.SillyTavern.chat = value.chat; window.SillyTavern.chatMetadata = value.chatVariables; };
+    const updateSnapshot = value => { snapshot = value; context.chat = value.chat; context.chatMetadata = value.chatVariables; window.SillyTavern.chat = value.chat; window.SillyTavern.chatMetadata = value.chatVariables; for (const item of helpers.values()) item.refresh(value); };
     Object.assign(window, {
         _: { get, uniq: values => [...new Set(values)], cloneDeep: clone },
         SillyTavern: { ...context, getContext: () => context },
-        Mvu: { getMvuData: options => clone(mvu(options)), replaceMvuData: replaceVariables, updateVariablesWith, events: { VARIABLE_UPDATE_ENDED: 'mvu_update' } },
+        ...(externalMvu ? {} : { Mvu: { getMvuData: options => clone(mvu(options)), replaceMvuData: replaceVariables, updateVariablesWith, events: { VARIABLE_UPDATE_ENDED: 'mvu_update' } } }),
         getVariables, replaceVariables, updateVariablesWith,
         getWorldbookNames: async () => snapshot.worldbookName ? [snapshot.worldbookName] : [],
         getWorldbook: name => rpc('read-worldbook', { name }),
@@ -52,18 +55,50 @@ export function scriptBridge(initial) {
         toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(kind => [kind, text => post({ type: 'notice', text: String(text), error: kind === 'error' })])),
         alert: text => post({ type: 'notice', text: String(text) }),
         __scriptButtons: (id, buttons) => post({ type: 'buttons', id, buttons }),
+        __scriptReport: post,
     });
     // Native compatibility checks expect these functions to exist on window.
     window.appendInexistentScriptButtons = buttons => window.__scriptButtons('shared', buttons);
     window.getButtonEvent = name => 'shared:' + name;
-    addEventListener('message', event => {
-        if (event.source !== parent || event.data?.channel !== 'st-new-scripts') return;
+    if (installHelper) {
+        const on = window.eventOn;
+        helper = installHelper(initial, { request: rpc, emit, on, update: updateSnapshot, scriptId, buttons: scriptButtons });
+        helpers.set(scriptId, helper);
+        window.__scriptScope = (id, buttons = []) => {
+            if (!helpers.has(id)) helpers.set(id, installHelper(snapshot, { request: rpc, emit, on, update: updateSnapshot, scriptId: id, buttons, expose: false }));
+            const role = (action, payload) => window.__roleCall(id, action, payload);
+            return { ...helpers.get(id).api,
+                getWorldbook: name => helpers.get(id).api.SillyTavern.loadWorldInfo(name).then(book => Object.values(book.entries)),
+                replaceWorldbook: (name, entries) => role('replace-worldbook', { name, entries }),
+                createChatMessages: (messages, options) => role('create-messages', { messages, options }),
+                triggerSlash: command => role('slash', { command }),
+                __avatarStore: (operation, args = {}) => role('avatars', { operation, ...args }),
+            };
+        };
+        Object.assign(window, window.__scriptScope(scriptId, scriptButtons));
+        if (!externalMvu) {
+            window.Mvu.replaceMvuData = (value, options = {}) => window.replaceVariables(value, { type: 'message', ...options });
+            window.Mvu.updateVariablesWith = (fn, options = {}) => window.updateVariablesWith(fn, { type: 'message', ...options });
+        }
+    }
+    addEventListener('message', async event => {
+        if (event.source !== applicationParent || event.data?.channel !== 'st-new-scripts') return;
         const data = event.data;
         if (data.type === 'snapshot') {
             updateSnapshot(data.snapshot);
-            emit('message_received'); emit('mvu_update');
+            if (!helper && !externalMvu) { try { await emit('message_received'); await emit('mvu_update'); } catch (error) { post({ type: 'notice', text: error.message, error: true }); } }
         } else if (data.type === 'button' && typeof data.event === 'string') {
-            emit(data.event);
+            try { await emit(data.event); } catch (error) { post({ type: 'notice', text: error.message, error: true }); }
+        } else if (data.type === 'helper-event') {
+            try {
+                await Promise.all([...helpers.values()].map(item => item.idle())); if (data.snapshot) updateSnapshot(data.snapshot);
+                await emit(data.event, ...(data.args || []));
+                if (!externalMvu && data.event === 'message_received') await emit('mvu_update');
+                await Promise.all([...helpers.values()].map(item => item.idle()));
+                post({ type: 'helper-event-result', id: data.id });
+            } catch (error) { post({ type: 'helper-event-result', id: data.id, error: error.message }); }
+        } else if (data.type === 'helper-settings') {
+            helper?.openSettings();
         } else if (data.type === 'response' && pending.has(data.id)) {
             const task = pending.get(data.id); pending.delete(data.id); clearTimeout(task.timer);
             if (data.error) task.reject(Error(data.error)); else task.resolve(data.value);

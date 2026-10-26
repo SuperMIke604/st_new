@@ -1,7 +1,8 @@
 import { RecentCharacters } from './home-data.js';
 import { installMessageEdit } from './message-edit.js';
-import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
+import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
+import { patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
 import { ScriptSchema } from './script-schema.js';
 import { RoleAvatarStore } from './role-avatar-store.js';
@@ -51,7 +52,7 @@ async function loadCharacterCatalog(force = false) {
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 const scriptSchema = new ScriptSchema(), roleAvatars = new RoleAvatarStore();
-const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, roleAction: roleScriptAction, onRetry: openScriptWorkspace });
+const scriptRuntime = new ScriptRuntime({ notify, applyVariables: applyScriptVariables, worldbook: scriptWorldbook, roleAction: roleScriptAction, helperAction: helperHostAction, onRetry: openScriptWorkspace });
 let scriptAutoIdentity = '';
 state.startupLoading = true;
 let startupPromise = null;
@@ -179,7 +180,7 @@ function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
 }
-function assertIdle() { if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertIdle() { if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
@@ -231,7 +232,7 @@ function synchronize() {
     if (!state.character) scriptAutoIdentity = '';
     if (state.ready && state.character && !state.loading && !state.busy && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
         scriptAutoIdentity = scriptIdentity();
-        if (characterScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+        if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
             void openScriptWorkspace(false).catch(error => notify(`角色脚本启动失败：${error.message}`, true));
         }
     }
@@ -1070,6 +1071,80 @@ async function renderRegexPanel(body, revision, scope, target) {
 }
 
 function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}`; }
+async function helperHostAction(operation, payload, identity) {
+    const owner = scriptRuntime.frame, epoch = scriptRuntime.epoch;
+    const check = () => {
+        if (scriptRuntime.frame !== owner || scriptRuntime.epoch !== epoch) throw Error('脚本环境已关闭或重新启动，结果未写入。');
+        if (!state.character || identity !== scriptIdentity() || state.loading) throw Error('聊天已切换，脚本结果未写入。');
+        if (state.busy && !scriptRuntime.processing || state.dirty || inlineEdit || panelDirty) throw Error('当前正在生成、编辑或尚未保存，请稍后重试。');
+    };
+    check();
+    if (operation === 'read-worldbook') {
+        const permitted = new Set([state.character.data?.extensions?.world, state.character.extensions?.world, ...(state.settings.world_info_settings?.world_info?.globalSelect || [])]);
+        if (typeof payload?.name !== 'string' || !permitted.has(payload.name)) throw Error('只允许读取当前角色关联或已启用的世界书。');
+        const book = await api.post('/api/worldinfo/get', { name: payload.name }, { signal: AbortSignal.timeout(15000) });
+        check(); return { value: roleWorldEntries(book) };
+    }
+    if (variablesSaving) throw Error('正在保存变量，请稍候。');
+    variablesSaving = true;
+    try {
+        if (['save-variables', 'set-messages', 'save-chat'].includes(operation)) {
+            const avatar = state.character.avatar, file = state.file;
+            const records = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
+            const next = operation === 'save-variables' ? patchHelperVariables(records, payload?.changes) : operation === 'save-chat' ? patchHelperMessages(patchHelperVariables(records, payload?.changes), payload?.messages) : patchHelperMessages(records, payload?.messages);
+            await api.saveChat(avatar, file, next[0], next.slice(1));
+            const verified = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
+            if (JSON.stringify(verified) !== JSON.stringify(next)) throw Error('脚本聊天保存核验失败，请重新打开聊天。');
+            // Preserve message object identities held by generation and MVU.
+            state.header = copy(verified[0]);
+            const messages = verified.slice(1);
+            if (messages.length !== state.chat.length) throw Error('聊天楼层数量已变化，请重新打开聊天。');
+            for (let i = 0; i < messages.length; i++) {
+                for (const key of Object.keys(state.chat[i])) if (!Object.hasOwn(messages[i], key)) delete state.chat[i][key];
+                Object.assign(state.chat[i], copy(messages[i]));
+            }
+            list.setMessages(state.chat, { latest: list.follow });
+        } else if (['save-settings', 'save-globals', 'save-lore-settings', 'save-buttons'].includes(operation)) {
+            const value = operation === 'save-buttons' ? validateVariables({ buttons: payload?.value }) : validateVariables(operation === 'save-lore-settings' ? payload?.settings : payload?.value);
+            const plan = nativeScriptPlan(state.settings, state.character);
+            const caller = plan.find((script, index) => `${script.scope}-${script.id || index}` === payload?.scriptId && script.enabled !== false);
+            if (payload?.scriptId && !caller || operation === 'save-buttons' && !caller) throw Error('脚本目标无效或已停用。');
+            const legacySettings = !payload?.scriptId || scriptSupport(caller).adapter === 'remote-module';
+            await api.patchSettings(settings => {
+                check();
+                const helper = ((settings.extension_settings ||= {}).independentHelper ||= {});
+                if (operation === 'save-buttons') {
+                    if (!Array.isArray(value.buttons) || value.buttons.length > 100 || value.buttons.some(item => typeof item?.name !== 'string' || item.name.length > 100 || typeof item.visible !== 'boolean')) throw Error('脚本按钮格式无效。');
+                    (helper.scriptButtons ||= {})[payload.scriptId] = copy(value.buttons);
+                } else if (operation === 'save-lore-settings') {
+                    const numeric = { scan_depth: ['world_info_depth', 1000], context_percentage: ['world_info_budget', 100], budget_cap: ['world_info_budget_cap', 2000000], max_recursion_steps: ['world_info_max_recursion_steps', 1000] };
+                    const wi = settings.world_info_settings ||= {};
+                    for (const [key, [target, max]] of Object.entries(numeric)) if (value[key] !== undefined) {
+                        if (!Number.isInteger(value[key]) || value[key] < 0 || value[key] > max) throw Error('世界书设置数值无效。');
+                        wi[target] = value[key];
+                    }
+                    for (const key of ['recursive', 'case_sensitive', 'match_whole_words']) if (value[key] !== undefined) {
+                        if (typeof value[key] !== 'boolean') throw Error('世界书开关设置无效。');
+                        wi['world_info_' + key] = value[key];
+                    }
+                    if (value.selected_global_lorebooks !== undefined) throw Error('脚本暂不支持改写全局世界书选择。');
+                    helper.loreSettings = { ...(helper.loreSettings || {}), ...copy(value) };
+                } else {
+                    const current = operation === 'save-settings' ? (legacySettings ? helper.mvu : helper.scriptSettings?.[payload.scriptId]) || {} : settings.extension_settings.variables?.global || {};
+                    if (JSON.stringify(current) !== JSON.stringify(payload.base) && JSON.stringify(current) !== JSON.stringify(value)) throw Error('脚本设置或变量已变化，请重新读取。');
+                    if (operation === 'save-settings') { if (legacySettings) helper.mvu = copy(value); else (helper.scriptSettings ||= {})[payload.scriptId] = copy(value); }
+                    else (settings.extension_settings.variables ||= {}).global = copy(value);
+                }
+            });
+            api.readCache.clear(); const verified = await api.settings(); check();
+            const saved = operation === 'save-buttons' ? { buttons: verified.settings.extension_settings?.independentHelper?.scriptButtons?.[payload.scriptId] } : operation === 'save-settings' ? (legacySettings ? verified.settings.extension_settings?.independentHelper?.mvu : verified.settings.extension_settings?.independentHelper?.scriptSettings?.[payload.scriptId]) : operation === 'save-globals' ? verified.settings.extension_settings?.variables?.global : verified.settings.extension_settings?.independentHelper?.loreSettings;
+            if (Object.entries(value).some(([key, item]) => JSON.stringify(saved?.[key]) !== JSON.stringify(item))) throw Error('脚本设置保存核验失败。');
+            state.settings = verified.settings; state.own = settingsOwn(state.settings);
+        } else throw Error('此酒馆助手接口尚未接入。');
+        generationPreload.invalidate();
+        return { value: true, snapshot: scriptSnapshot(state) };
+    } finally { variablesSaving = false; }
+}
 function variableManagerPanel() {
     assertSaved();
     if (!state.character || !state.header || !state.chat.length) throw Error('请先打开有消息的聊天。');
@@ -1132,15 +1207,15 @@ async function applyScriptVariables(payload, identity) {
 }
 async function openScriptWorkspace(diagnostics = true) {
     assertViewable(); if (panelDirty) throw Error('请先保存或取消当前修改。');
-    if (!state.character) throw Error('请先进入角色卡聊天。全局脚本不在本前端运行。');
+    if (!state.character) throw Error('请先进入角色卡聊天。');
     const identity = scriptIdentity(); let preparation = '';
     if (usesMvuCompat(state.settings, state.character) && !state.busy && !state.dirty) {
         try { const result = await prepareRoleMvu(); if (result.changed) await saveChat(); preparation = result.message; }
         catch (error) { preparation = `变量准备未完成：${error.message}`; }
     }
     if (identity !== scriptIdentity()) return;
-    const scripts = characterScriptPlan(state.settings, state.character), snapshot = scriptSnapshot(state);
-    if (!preparation) preparation = !scripts.length ? '这张角色卡没有自带脚本。' : !scripts.some(script => script.enabled) ? '此角色脚本已停用，请到“正则与脚本 → 角色卡脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。只运行角色卡脚本，全局脚本不参与适配。' : '当前聊天还没有 MVU 变量，请查看下方脚本状态。';
+    const scripts = nativeScriptPlan(state.settings, state.character), snapshot = scriptSnapshot(state);
+    if (!preparation) preparation = !scripts.length ? '当前没有全局或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用原生助手接口。' : '原生助手接口已提供；当前聊天还没有 MVU 变量。';
     if (diagnostics && $('panel').open && !closePanel()) return;
     await scriptRuntime.show({ scripts, snapshot, identity, preparation, diagnostics, actions: $('quick-replies') });
 }
@@ -1164,12 +1239,11 @@ async function scriptWorldbook(action, payload, identity) {
     if (Object.entries(updated.entries).some(([key, entry]) => verified.entries?.[key]?.disable !== entry.disable)) throw Error('世界书开关保存核验失败，请重新读取。');
     return true;
 }
-async function roleScriptAction(action, payload, identity, adapter) {
+async function roleScriptAction(action, payload, identity) {
     const check = () => { assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，请重新打开脚本。'); };
     check();
     if (action === 'avatars') return { value: await roleAvatars.run(state.character.avatar, payload) };
     if (action === 'replace-worldbook') {
-        if (adapter === 'world-switch') return { value: await scriptWorldbook('toggle-worldbook', payload, identity) };
         const book = await roleWorldbook(payload?.name, identity); check();
         const updated = archiveRoleWorldEntries(book, payload.entries);
         await api.post('/api/worldinfo/edit', { name: payload.name, data: updated });
@@ -2047,11 +2121,19 @@ async function generate(mode = false) {
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
     try {
+        if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+            if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await openScriptWorkspace(false);
+            await scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity());
+        }
         await prepareRoleMvu(true);
+        if (!regenerate && !retry && scriptRuntime.helperReady) {
+            state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat();
+            await scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity());
+        }
         const prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
         const body = generationBody(connection(), state.preset, prepared.messages);
         if (state.controller.signal.aborted) return;
-        if (!regenerate && !retry) { state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat(); }
+        if (!regenerate && !retry && !pendingUser) { state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput(); await saveChat(); }
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
@@ -2059,7 +2141,7 @@ async function generate(mode = false) {
             if (reply.TavernDB_ACU_Data) (reply.extra.independentDatabase ||= {}).stale = true;
             reply.swipes = old.swipes?.length ? [...old.swipes] : [old.mes];
             reply.swipe_info = old.swipe_info ? copy(old.swipe_info) : [{ extra: copy(old.extra || {}) }];
-            reply.swipe_id = reply.swipes.length; state.chat[state.chat.length - 1] = reply;
+            reply.swipe_id = reply.swipes.length; reply.swipes.push(''); state.chat[state.chat.length - 1] = reply;
         } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
@@ -2089,6 +2171,13 @@ async function generate(mode = false) {
     } finally {
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
+        if (completed && reply && scriptRuntime.helperReady) {
+            try {
+                if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
+                await saveChat();
+                await scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity());
+            } catch (error) { notify(`回复已保留，角色脚本处理失败：${error.message}`, true); }
+        }
         const rawReplyText = reply?.mes;
         if (reply) {
             reply.mes = regexText(reply.mes, 2, { depth: 0 });
@@ -2097,7 +2186,7 @@ async function generate(mode = false) {
                 if (regenerate) state.chat[state.chat.length - 1] = previousReply; else state.chat.pop();
             } else {
                 reply.gen_finished = new Date().toISOString(); reply.extra.model = connection().model;
-                if (regenerate) { reply.swipes.push(reply.mes); reply.swipe_info.push({ extra: copy(reply.extra), gen_started: reply.gen_started, gen_finished: reply.gen_finished }); }
+                if (regenerate) { reply.swipes[reply.swipe_id] = reply.mes; reply.swipe_info[reply.swipe_id] = { extra: copy(reply.extra), gen_started: reply.gen_started, gen_finished: reply.gen_finished }; }
             }
         }
         if (completed && reply) {
@@ -2108,6 +2197,10 @@ async function generate(mode = false) {
             list.setMessages(state.chat, { latest: list.follow });
         }
         state.busy = false; state.controller = null; synchronize();
+        if (completed && scriptRuntime.helperReady) {
+            try { await scriptRuntime.dispatch('generation_ended', [replyIndex], scriptSnapshot(state), scriptIdentity()); }
+            catch (error) { notify(`角色脚本结束事件失败：${error.message}`, true); }
+        }
         if (!state.dirty) status(state.error ? '请求未完成' : '已保存');
         finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
         state.error = '';

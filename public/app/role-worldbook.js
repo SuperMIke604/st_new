@@ -18,6 +18,12 @@ export function archiveRoleWorldEntries(book, requested) {
         if (id !== null && (!original || seen.has(id))) throw Error('归档条目 ID 已变化或重复。');
         if (id !== null) seen.add(id);
         if (original && JSON.stringify(archiveFields(entry)) === JSON.stringify(archiveFields(original))) continue;
+        if (original && JSON.stringify(archiveFields({ ...entry, enabled: original.enabled })) === JSON.stringify(archiveFields(original))) {
+            if (typeof entry.enabled !== 'boolean') throw Error('世界书开关无效。');
+            const key = Object.keys(book.entries).find(key => String(book.entries[key].uid ?? key) === id);
+            result.entries[key].disable = !entry.enabled;
+            continue;
+        }
         if (!/^(Char_|Script_|Summary_).+/.test(entry.name || '') || original && !/^(Char_|Script_|Summary_).+/.test(original.name)) throw Error('只允许新增或修改当前卡的人设、剧本和总结归档条目。');
         if (typeof entry.content !== 'string' || entry.content.length > 500000 || typeof entry.enabled !== 'boolean') throw Error('归档内容或开关无效。');
         const keys = entry.strategy?.keys || []; if (!Array.isArray(keys) || keys.length > 100 || keys.some(key => typeof key !== 'string' || key.length > 300)) throw Error('归档触发词无效。');

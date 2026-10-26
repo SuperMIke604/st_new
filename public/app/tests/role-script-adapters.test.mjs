@@ -42,6 +42,8 @@ test('archive writes add native entries, retain all existing fields and reject u
     assert.deepEqual(result.entries[0], book.entries[0]); assert.equal(result.entries[1].comment, 'Char_Test'); assert.deepEqual(result.entries[1].key, ['Test']); assert.equal(result.entries[1].excludeRecursion, true); assert.equal(result.keep, true);
     const read = roleWorldEntries(result); read[1].content = 'updated'; const overwritten = archiveRoleWorldEntries(result, read); assert.equal(overwritten.entries[1].content, 'updated');
     assert.throws(() => archiveRoleWorldEntries(book, [])); assert.throws(() => archiveRoleWorldEntries(book, [{ ...entries[0], content: 'bad' }]));
+    const toggled = archiveRoleWorldEntries(book, entries.map(entry => ({ ...entry, enabled: false })));
+    assert.equal(toggled.entries[0].disable, true); assert.equal(toggled.entries[0].content, 'preserve'); assert.deepEqual(toggled.entries[0].extra, { keep: 2 });
     const noUid = { entries: { 4: { comment: 'Init', content: '' } } }; assert.equal(archiveRoleWorldEntries(noUid, [...roleWorldEntries(noUid), added]).entries[5].uid, 5);
     const mismatched = { entries: { 5: { uid: 4, comment: 'Init', content: 'keep' } } }; const safe = archiveRoleWorldEntries(mismatched, [...roleWorldEntries(mismatched), added]); assert.deepEqual(safe.entries[5], mismatched.entries[5]); assert.equal(safe.entries[6].comment, 'Char_Test');
 });
@@ -64,12 +66,14 @@ test('role archive messages use saved user instructions, cannot execute arbitrar
     current = 'other'; await assert.rejects(invoke('slash', { command: '/hide 0' }));
 });
 
-test('role RPC capabilities reject unknown script IDs and calls outside the assigned adapter', async () => {
+test('native RPC exposes every supported operation to ordinary active scripts and rejects unknown or stopped callers', async () => {
     const replies = []; let calls = 0;
     const runtime = new ScriptRuntime({ roleAction: async () => { calls++; return { value: true }; } });
     const frame = { postMessage: value => replies.push(value) }; runtime.frame = { contentWindow: frame }; runtime.identity = 'chat';
-    runtime.statusRows.set('avatars', { dataset: { adapter: 'role-avatar' } });
+    runtime.statusRows.set('avatars', { dataset: { adapter: '', active: 'true' } });
     const request = (scriptId, action) => runtime.receive({ source: frame, data: { channel: 'st-new-scripts', type: 'request', id: 1, action: 'role-action', payload: { scriptId, action, payload: {} } } });
-    await request('unknown', 'avatars'); await request('avatars', 'replace-worldbook'); assert.equal(calls, 0); assert.ok(replies.every(reply => reply.error));
-    await request('avatars', 'avatars'); assert.equal(calls, 1); assert.equal(replies.at(-1).value.value, true);
+    await request('unknown', 'avatars'); await request('avatars', 'unsupported'); assert.equal(calls, 0); assert.ok(replies.every(reply => reply.error));
+    for (const action of ['avatars', 'replace-worldbook', 'create-messages', 'slash']) await request('avatars', action);
+    assert.equal(calls, 4); assert.equal(replies.at(-1).value.value, true);
+    runtime.statusRows.get('avatars').dataset.active = 'false'; await request('avatars', 'avatars'); assert.equal(calls, 4);
 });
