@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
-import { LoadTimings } from '../load-timings.js';
+import { LoadTimings, requestFailure } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('async function generate('), source.indexOf('\nfunction beginMessageEdit('));
@@ -24,7 +24,7 @@ function fixture({ native = false } = {}) {
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, loadTimings: timings, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+    const context = vm.createContext({ state, loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {}, preparePrompt: () => prepared.promise,

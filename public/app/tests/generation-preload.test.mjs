@@ -46,6 +46,27 @@ test('scheduled preload yields to user actions and cancelled work never runs', a
     await new Promise(resolve => setTimeout(resolve, 180)); assert.equal(calls, 1);
 });
 
+test('same-chat triggers merge and replacement waits for cancelled work to exit', async () => {
+    const preload = new GenerationPreload(() => ({}));
+    let release, firstSignal, active = 0, peak = 0, starts = 0;
+    const blocked = new Promise(resolve => { release = resolve; });
+    const first = async signal => { firstSignal = signal; starts++; active++; peak = Math.max(peak, active); await blocked; active--; return true; };
+    preload.schedule(first, ['chat-a']);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    for (let i = 0; i < 20; i++) preload.schedule(first, ['chat-a']);
+    assert.equal(starts, 1); assert.equal(preload.stats().mergedTriggers, 20);
+    preload.schedule(async () => { starts++; active++; peak = Math.max(peak, active); active--; return true; }, ['chat-b']);
+    assert.equal(firstSignal.aborted, true);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert.equal(starts, 1, 'new work waits even if old work has not yet acknowledged cancellation');
+    release(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(starts, 2); assert.equal(peak, 1);
+    preload.schedule(() => { throw Error('completed work must be reused'); }, ['chat-b']);
+    assert.equal(preload.stats().startedTasks, 2);
+    assert.equal(preload.stats().mergedTriggers, 21);
+    preload.cancelScheduled(); assert.equal(preload.stats().activeTasks, 0);
+});
+
 test('background warmup reads books and both histories, but stops when the chat changes', async () => {
     const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
     const fn = source.slice(source.indexOf('function preloadNextGeneration('), source.indexOf('async function preparePrompt('));
@@ -53,10 +74,10 @@ test('background warmup reads books and both histories, but stops when the chat 
     const state = { chat: [{ mes: 'old' }, { mes: 'latest' }], header: {}, character: {}, own: {} };
     const context = vm.createContext({ state, panelDirty: false, generationPreload: { schedule: task => { scheduled = task; }, get: chat => histories.push(chat.length) }, activeRegexes: () => [], warmHistoryRegex: async () => {}, loadBooks: async () => { bookReads++; }, nextPaint: async () => {}, loadTimings: { start: () => status => finishes.push(status), measure: (_label, _kind, task) => task() } });
     vm.runInContext(fn, context); vm.runInContext('preloadNextGeneration()', context);
-    await scheduled(); assert.equal(bookReads, 1); assert.deepEqual(histories, [2, 1]); assert.deepEqual(finishes, ['success', 'success']);
+    await scheduled(new AbortController().signal, () => ({})); assert.equal(bookReads, 1); assert.deepEqual(histories, [2, 1]); assert.deepEqual(finishes, ['success', 'success']);
     histories = []; vm.runInContext('preloadNextGeneration()', context); state.chat = [];
-    await scheduled(); assert.equal(bookReads, 1); assert.deepEqual(histories, []);
+    await scheduled(new AbortController().signal, () => ({})); assert.equal(bookReads, 1); assert.deepEqual(histories, []);
     vm.runInContext('preloadNextGeneration()', context);
     context.loadBooks = async () => { state.chat = []; };
-    await scheduled(); assert.deepEqual(histories, []); assert.equal(finishes.at(-1), 'cancelled');
+    await scheduled(new AbortController().signal, () => ({})); assert.deepEqual(histories, []); assert.equal(finishes.at(-1), 'cancelled');
 });

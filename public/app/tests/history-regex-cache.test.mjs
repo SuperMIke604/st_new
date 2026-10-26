@@ -43,3 +43,28 @@ test('history cache is bounded and source macros remain for live expansion', () 
     for (let index = 0; index < 20; index++) transform('message-' + index + '<hidden>x</hidden>', 2, 0);
     assert.ok(cache.chars <= 70);
 });
+
+test('517-message history and its next turn fit without sequential cache churn', () => {
+    const cache = new HistoryRegexCache(); cache.reserve(517);
+    const transform = cache.prepare([{ ...rule, maxDepth: null }]);
+    const messages = Array.from({ length: 517 }, (_, i) => `message-${i}<hidden>removed</hidden>`);
+    for (let i = 0; i < messages.length; i++) assert.equal(transform(messages[i], 2, messages.length - i - 1), `message-${i}`);
+    const before = cache.stats();
+    for (let i = 0; i < messages.length; i++) transform(messages[i], 2, messages.length - i);
+    transform('new user message', 1, 0);
+    assert.equal(cache.hits - before.hits, 517); assert.equal(cache.misses - before.misses, 1);
+    assert.equal(cache.evictions, 0); assert.ok(cache.entries.size <= cache.maxEntries); assert.ok(cache.chars <= cache.maxChars);
+    cache.reserve(100000); assert.equal(cache.maxEntries, 4096);
+});
+
+test('cold scans preserve hot results and capacity diagnostics distinguish count and character pressure', () => {
+    const cache = new HistoryRegexCache(8000000, 10), transform = cache.prepare([{ ...rule, maxDepth: null }]);
+    for (let i = 0; i < 5; i++) { transform(`hot-${i}`, 2, 0); transform(`hot-${i}`, 2, 0); }
+    for (let i = 0; i < 100; i++) transform(`cold-${i}`, 2, 0);
+    const before = cache.hits;
+    for (let i = 0; i < 5; i++) transform(`hot-${i}`, 2, 0);
+    assert.equal(cache.hits - before, 5); assert.ok(cache.entryLimitEvictions > 0); assert.equal(cache.charLimitEvictions, 0);
+    const small = new HistoryRegexCache(80), smallTransform = small.prepare([{ ...rule, maxDepth: null }]);
+    for (let i = 0; i < 30; i++) smallTransform(`message-${i}`, 2, 0);
+    assert.ok(small.charLimitEvictions > 0); assert.equal(small.entryLimitEvictions, 0); assert.ok(small.chars <= 80);
+});

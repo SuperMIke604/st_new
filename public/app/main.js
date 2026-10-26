@@ -10,9 +10,11 @@ import { RoleAvatarStore } from './role-avatar-store.js';
 import { renderVariableManager, validateVariables, defaultVariableMessage, chatVariableValue, patchChatVariables } from './variable-manager.js';
 import { roleWorldEntries, toggleRoleWorldEntries, archiveRoleWorldEntries } from './role-worldbook.js';
 import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
-import { warmHistoryRegex } from './history-regex-cache.js';
+import { warmHistoryRegex, historyRegexCache } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
-import { loadTimings, timingStatusText, timingDetailText } from './load-timings.js';
+import { loadTimings, timingStatusText, timingDetailText, requestFailure } from './load-timings.js';
+import { exportDiagnostics } from './diagnostic-export.js';
+import { BUILD } from './version.js';
 import { PresetSelection } from './preset-selection.js';
 import { PresetTokenPreview } from './preset-tokens.js';
 import { GenerationPreload, generationDatabaseResources } from './generation-preload.js';
@@ -558,12 +560,17 @@ function timingPanel() {
         }
         table.append(content); container.append(table);
     };
-    toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => {
-        const blob = new Blob([JSON.stringify({ schema: 2, exportedAt: new Date().toISOString(), entries: loadTimings.snapshot() }, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob), link = el('a'); link.href = url; link.download = 'loading-timings.json';
-        dialog.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'export'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
-    body.append(toolbar); note(body, '刷新记录只更新此列表；导出和清空均不停止生成、不刷新页面、不修改聊天。清空会保留正在进行的记录。');
+    const snapshotText = label => {
+        const generationActive = Number(!!state.busy), signalAborted = Number(!!state.controller?.signal.aborted);
+        loadTimings.start(label, 'diagnostic')('success', { metrics: { generationActive, signalAborted } });
+        return JSON.stringify({ schema: 3, exportedAt: new Date().toISOString(), buildRevision: BUILD.revision, context: { generationActive, signalAborted, visibility: document.visibilityState, generationId: loadTimings.generationId }, preload: generationPreload.stats(), cache: historyRegexCache.capacity(), entries: loadTimings.snapshot() }, null, 2);
+    };
+    toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => exportDiagnostics(snapshotText('导出日志快照'), body, () => !!state.busy), 'export'), action('复制日志', async () => {
+        const text = snapshotText('复制日志快照');
+        try { if (!navigator.clipboard?.writeText) throw new Error(); await navigator.clipboard.writeText(text); note(body, '日志已复制。'); }
+        catch { const preview = el('textarea', 'timing-copy'); preview.readOnly = true; preview.rows = 10; preview.value = text; preview.setAttribute('aria-label', '日志 JSON，可全选复制'); body.append(preview); preview.focus(); preview.select(); }
+    }, 'copy'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
+    body.append(toolbar); note(body, '刷新记录只更新列表；清空保留进行中记录。生成中导出会保留快照，可立即复制，结束后再下载文件，避免浏览器下载影响连接。');
     note(body, '兼容回退、页面切换导致的取消和刷新中断属于正常记录。真正失败的请求会显示状态码或网络原因。');
     body.append(container); draw();
 }
@@ -2119,27 +2126,30 @@ let tokenCacheBytes = 0;
 const generationPreload = new GenerationPreload(generationDatabaseResources);
 function preloadNextGeneration() {
     const chat = state.chat, header = state.header, character = state.character;
-    const current = () => state.chat === chat && state.header === header && state.character === character && !state.busy && !state.loading && !state.dirty && !panelDirty;
-    generationPreload.schedule(async () => {
+    const currentChat = () => state.chat === chat && state.header === header && state.character === character && !state.busy && !state.loading && !state.dirty && !panelDirty;
+    const key = [chat, header, character, state.settings, state.preset, JSON.stringify(state.own.database || {}), JSON.stringify(activeRegexes({ settings: state.settings, preset: state.preset, character })), ...chat.flatMap(message => [message, message.mes, message.is_user, message.is_system])];
+    generationPreload.schedule(async (signal, taskMetrics) => {
+        const current = () => !signal.aborted && currentChat();
         if (!character || !current()) return;
         const finish = loadTimings.start('预加载下次生成资料', 'generation');
         try {
             // Warm the normal API cache; sending can share an in-flight read.
             await loadBooks();
             await nextPaint();
-            if (!current()) { finish('cancelled'); return; }
+            if (!current()) { finish('cancelled', { reason: 'preload-cancelled', metrics: taskMetrics() }); return; }
             generationPreload.get(chat, header, state.own.database);
             await nextPaint();
-            if (!current()) { finish('cancelled'); return; }
+            if (!current()) { finish('cancelled', { reason: 'preload-cancelled', metrics: taskMetrics() }); return; }
             if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
             const finishWarm = loadTimings.start('后台预热历史正则', 'generation');
             let warmed;
-            try { warmed = await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current); finishWarm(warmed?.status || 'success', { metrics: warmed?.metrics }); }
+            try { warmed = await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current); finishWarm(warmed?.status || 'success', { metrics: { ...warmed?.metrics, ...taskMetrics() }, ...(warmed?.status === 'cancelled' ? { reason: 'preload-cancelled' } : {}) }); }
             catch (error) { finishWarm(error.name === 'AbortError' ? 'cancelled' : 'error'); throw error; }
-            if (warmed?.status === 'cancelled') { finish('cancelled'); return; }
-            finish('success');
+            if (warmed?.status === 'cancelled') { finish('cancelled', { reason: 'preload-cancelled', metrics: taskMetrics() }); return; }
+            finish('success', { metrics: taskMetrics() });
+            return true;
         } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
-    });
+    }, key);
 }
 async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
@@ -2232,8 +2242,9 @@ async function generate(mode = false) {
         completed = true;
         status('回复完成');
     } catch (error) {
-        finishFirstText?.(error.name === 'AbortError' ? 'cancelled' : 'error');
-        finishModelResponse?.(error.name === 'AbortError' ? 'cancelled' : 'error');
+        const failure = requestFailure(error, state.controller?.signal);
+        finishFirstText?.(failure.status, failure);
+        finishModelResponse?.(failure.status, failure);
         if (error.name === 'AbortError') notify('生成已停止，已收到的内容会保存', 'info');
         else { state.error = error.message; notify(error.message, true); }
     } finally {
@@ -2434,7 +2445,7 @@ $('message-input').addEventListener('input', preloadNextGeneration);
 $('message-input').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && state.own.enterSend !== false && matchMedia('(hover:hover) and (pointer:fine)').matches) { event.preventDefault(); void run(() => generate(false)); }
 });
-$('stop-button').addEventListener('click', () => state.controller?.abort());
+$('stop-button').addEventListener('click', () => state.controller?.abort(new DOMException('user-stop', 'AbortError')));
 
 window.addEventListener('beforeunload', event => { if (state.busy || state.dirty || inlineEdit || panelDirty || $('message-input').value.trim()) { event.preventDefault(); event.returnValue = ''; } });
 function resizeViewport() {

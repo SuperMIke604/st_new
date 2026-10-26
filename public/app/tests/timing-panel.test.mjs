@@ -30,13 +30,16 @@ test('log refresh, export and clear remain independent of pending generation and
         document: { body: root, getElementById: () => null }, matchMedia: () => ({ matches: true }),
         el: (...args) => new Node(...args), note: (parent, text) => parent.append(new Node('p', '', text)),
         action: (label, callback) => { const node = new Node('button', '', label); buttons.set(label, callback); return node; },
-        Blob, URL: { createObjectURL: blob => { exported = blob; return 'blob:test'; }, revokeObjectURL() {} }, setTimeout: callback => callback(),
+        BUILD: { revision: 'test-build' }, generationPreload: { stats: () => ({ activeTasks: 1 }) }, historyRegexCache: { capacity: () => ({ cacheEntries: 1 }) },
+        exportDiagnostics: text => { exported = text; },
         showPanel() { throw Error('must not enter shared editor lifecycle'); },
     });
     vm.runInContext(panel, context); vm.runInContext('timingPanel()', context);
     assert.equal(root.children[0].open, true);
     buttons.get('刷新记录')(); buttons.get('导出日志')();
-    assert.equal(JSON.parse(await exported.text()).entries.at(-1).status, 'loading');
+    const snapshot = JSON.parse(exported);
+    assert.equal(snapshot.entries.find(entry => entry.label === '模型等待').status, 'loading');
+    assert.equal(snapshot.schema, 3); assert.equal(snapshot.context.generationActive, 1); assert.equal(snapshot.context.signalAborted, 0);
     buttons.get('清空日志')();
     assert.deepEqual(logs.snapshot().map(entry => entry.label), ['模型等待']);
     assert.equal(controller.signal.aborted, false); assert.equal(state.busy, true); assert.equal(state.dirty, true);

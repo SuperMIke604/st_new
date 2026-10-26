@@ -14,12 +14,34 @@ export function generationDatabaseResources(chat, header, config) {
 // Only deterministic source data is cached. World activation, macros and exact
 // context fitting still run with the current input when the user sends.
 export class GenerationPreload {
-    constructor(build) { this.build = build; this.entries = []; this.timer = null; }
-    cancelScheduled() { clearTimeout(this.timer); this.timer = null; }
+    constructor(build) { this.build = build; this.entries = []; this.timer = null; this.latest = null; this.active = null; this.startedTasks = 0; this.mergedTriggers = 0; this.cancelledTasks = 0; }
+    stats() { return { startedTasks: this.startedTasks, mergedTriggers: this.mergedTriggers, cancelledTasks: this.cancelledTasks, activeTasks: this.active ? 1 : 0 }; }
+    cancelScheduled(reason = 'preload-cancelled') {
+        clearTimeout(this.timer); this.timer = null;
+        if (this.latest && !this.latest.done && !this.latest.controller.signal.aborted) { this.latest.controller.abort(reason); this.cancelledTasks++; }
+        this.latest = null;
+    }
     invalidate() { this.cancelScheduled(); this.entries = []; }
-    schedule(task) {
+    schedule(task, key = [task]) {
+        if (this.latest && !this.latest.controller.signal.aborted && key.length === this.latest.key.length && key.every((value, index) => value === this.latest.key[index])) { this.mergedTriggers++; this.latest.merged++; return; }
         this.cancelScheduled();
-        this.timer = setTimeout(() => { this.timer = null; void task().catch(() => {}); }, 150);
+        const token = { key, controller: new AbortController(), merged: 0, done: false };
+        this.latest = token;
+        this.timer = setTimeout(() => {
+            this.timer = null;
+            const previous = this.active;
+            const running = (async () => {
+                // A superseded task must leave its next yield before replacement
+                // starts; otherwise several scans contend for one cache/thread.
+                await previous;
+                if (token.controller.signal.aborted) return;
+                this.startedTasks++;
+                try { const reusable = await task(token.controller.signal, () => ({ mergedTriggers: token.merged })); if (reusable !== true && this.latest === token) this.latest = null; }
+                finally { token.done = true; }
+            })().catch(() => { if (this.latest === token) this.latest = null; });
+            this.active = running;
+            void running.finally(() => { if (this.active === running) this.active = null; });
+        }, 150);
     }
     get(chat, header, config) {
         const configKey = JSON.stringify(config || {});

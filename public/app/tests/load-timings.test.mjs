@@ -43,6 +43,19 @@ test('character count is retained in logs without storing character names', () =
     assert.equal(timingDetailText(logs.snapshot()[0]), '读取到 12 项');
 });
 
+test('generation records correlate by id and batched persistence can flush on navigation', () => {
+    let writes = 0;
+    const logs = new LoadTimings({ flushDelay: 1000, storage: { setItem() { writes++; } } });
+    const finish = logs.start('发送消息', 'generation');
+    logs.start('阶段', 'generation')(); logs.start('/api/test', 'request')();
+    assert.equal(writes, 0);
+    assert.ok(logs.snapshot().every(entry => entry.generationId === finish.id));
+    logs.flush(); assert.equal(writes, 1);
+    finish(); assert.equal(logs.generationId, null); logs.flush();
+    const controller = new AbortController(); controller.abort(new DOMException('user-stop', 'AbortError'));
+    assert.equal(requestFailure(controller.signal.reason, controller.signal).reason, 'user-stop');
+});
+
 test('timings include pending duration, finish only once and retain a bounded history', () => {
     let time = 0, saved;
     const logs = new LoadTimings({ now: () => time, limit: 2, storage: { setItem(key, value) { saved = value; } } });

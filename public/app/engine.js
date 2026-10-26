@@ -132,6 +132,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         Object.defineProperty(variables, key.toLowerCase(), { enumerable: true, get() { databaseMacroUsed = true; return token; } });
     }
     const regexes = activeRegexes({ settings, preset, character });
+    historyRegexCache.reserve(chat.length);
     const cacheBefore = historyRegexCache.stats();
     const historyMetrics = { messages: 0, regexMs: 0, macroMs: 0 };
     const historyRegex = historyRegexCache.prepare(regexes);
@@ -154,7 +155,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
-    }), () => ({ metrics: { ...historyMetrics, ...Object.fromEntries(Object.entries(historyRegexCache.stats()).map(([key, value]) => [key, value - cacheBefore[key]])) } }));
+    }), () => ({ metrics: { ...historyMetrics, ...Object.fromEntries(Object.entries(historyRegexCache.stats()).map(([key, value]) => [key, value - cacheBefore[key]])), ...historyRegexCache.capacity() } }));
     if (preset.new_chat_prompt) history.unshift({ role: 'system', content: expand(preset.new_chat_prompt, variables) });
     const markers = {
         worldInfoBefore: before, worldInfoAfter: after,
