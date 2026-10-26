@@ -1,68 +1,60 @@
 const types = {
-    success: { duration: 2000, priority: 0, label: '成功', symbol: '✓' },
-    info: { duration: 3000, priority: 0, label: '提示', symbol: 'i' },
-    warning: { duration: 4000, priority: 1, label: '注意', symbol: '!' },
-    error: { duration: 5000, priority: 2, label: '失败', symbol: '×' },
-    loading: { duration: 0, priority: 0, label: '处理中', symbol: '◌' },
+    success: { duration: 3000, label: '成功' },
+    info: { duration: 3000, label: '提示' },
+    warning: { duration: 4000, label: '注意' },
+    error: { duration: 5000, label: '失败' },
+    loading: { duration: 0, label: '处理中' },
 };
 
 // Boolean types preserve existing notify(message, error) callers.
 export function createToast(element, { raise, now = () => performance.now(), schedule = setTimeout, cancel = clearTimeout } = {}) {
-    let timer, current, remaining = 0, started = 0;
-    const paused = new Set();
-    const stopTimer = () => { cancel(timer); timer = undefined; };
-    const startTimer = () => {
-        stopTimer();
-        if (!current || !remaining || paused.size) return;
-        started = now(); timer = schedule(dismiss, remaining);
-    };
-    function dismiss() {
-        stopTimer(); current = null; remaining = 0;
+    const entries = new Set();
+    function hideIfEmpty() {
+        if (entries.size) return;
         if (element.matches(':popover-open')) element.hidePopover();
         element.hidden = true;
     }
-    function pause(reason) {
-        if (!paused.size && timer !== undefined) remaining = Math.max(1, remaining - (now() - started));
-        paused.add(reason); stopTimer();
+    function remove(entry) {
+        cancel(entry.timer); entries.delete(entry); entry.node.remove(); hideIfEmpty();
     }
-    function resume(reason) { paused.delete(reason); startTimer(); }
+    function start(entry) {
+        cancel(entry.timer); entry.timer = undefined;
+        if (!entries.has(entry) || !entry.remaining || entry.paused.size) return;
+        entry.started = now(); entry.timer = schedule(() => remove(entry), entry.remaining);
+    }
+    function pause(entry, reason) {
+        if (!entry.paused.size && entry.timer !== undefined) entry.remaining = Math.max(1, entry.remaining - (now() - entry.started));
+        entry.paused.add(reason); cancel(entry.timer); entry.timer = undefined;
+    }
+    function resume(entry, reason) { entry.paused.delete(reason); start(entry); }
     function show(message, type = 'success') {
         type = type === true ? 'error' : type === false ? 'success' : Object.hasOwn(types, type) ? type : 'info';
-        const spec = types[type], text = String(message ?? '').trim();
-        if (!text || current && types[current.type].priority > spec.priority) return;
-        const repeated = current?.text === text && current?.type === type;
-        current = { text, type }; remaining = spec.duration;
-        element.dataset.type = type;
-        element.classList.toggle('error', type === 'error');
-        element.setAttribute('role', type === 'error' ? 'alert' : 'status');
-        element.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
-        element.setAttribute('aria-atomic', 'true');
-        element.setAttribute('aria-label', `${spec.label}：${text}，点击关闭提示`);
-        if (!repeated) {
-            const symbol = element.ownerDocument.createElement('span');
-            symbol.className = 'toast-symbol'; symbol.textContent = spec.symbol; symbol.setAttribute('aria-hidden', 'true');
-            const content = element.ownerDocument.createElement('span');
-            content.className = 'toast-text'; content.textContent = text;
-            element.replaceChildren(symbol, content);
-        }
-        element.hidden = false; raise?.();
-        if (!repeated && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-            element.getAnimations?.().forEach(animation => animation.cancel());
-            element.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
-        }
-        // Do not inherit a hover/focus pause from a previously dismissed toast.
-        if (!element.matches(':hover')) paused.delete('hover');
-        if (element.ownerDocument.activeElement !== element) paused.delete('focus');
-        startTimer();
+        const spec = types[type], text = String(message ?? '');
+        if (!text.trim()) return;
+        const repeated = [...entries].find(entry => entry.text === text && entry.type === type);
+        if (repeated) { repeated.remaining = spec.duration; start(repeated); return repeated.handle; }
+        const node = element.ownerDocument.createElement('div');
+        node.className = 'toast-item'; node.classList.toggle('error', type === 'error');
+        node.dataset.type = type; node.textContent = text;
+        node.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        node.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+        node.setAttribute('aria-atomic', 'true');
+        node.setAttribute('aria-label', `${spec.label}：${text}，点击关闭提示`);
+        node.title = '点击关闭提示'; node.tabIndex = 0;
+        const entry = { node, text, type, remaining: spec.duration, paused: new Set() };
+        entry.handle = { element: node, dismiss: () => remove(entry) };
+        node.addEventListener('click', () => remove(entry));
+        node.addEventListener('keydown', event => {
+            if (['Enter', ' ', 'Escape'].includes(event.key)) { event.preventDefault(); remove(entry); }
+        });
+        node.addEventListener('pointerenter', () => pause(entry, 'hover'));
+        node.addEventListener('pointerleave', () => resume(entry, 'hover'));
+        node.addEventListener('focus', () => pause(entry, 'focus'));
+        node.addEventListener('blur', () => resume(entry, 'focus'));
+        entries.add(entry); element.append(node); element.hidden = false; raise?.();
+        if (!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) node.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
+        start(entry);
+        return entry.handle;
     }
-    element.title = '点击关闭提示'; element.tabIndex = 0;
-    element.addEventListener('click', dismiss);
-    element.addEventListener('keydown', event => {
-        if (['Enter', ' ', 'Escape'].includes(event.key)) { event.preventDefault(); dismiss(); }
-    });
-    element.addEventListener('pointerenter', () => pause('hover'));
-    element.addEventListener('pointerleave', () => resume('hover'));
-    element.addEventListener('focus', () => pause('focus'));
-    element.addEventListener('blur', () => resume('focus'));
-    return { show, dismiss };
+    return { show, dismiss: () => { for (const entry of [...entries]) remove(entry); } };
 }

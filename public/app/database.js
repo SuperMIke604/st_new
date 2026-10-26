@@ -98,10 +98,20 @@ export function databaseText(database, includeEmpty = false) {
         return `[${key}] ${table.name || key}\n${lines.join('\n')}`;
     }).join('\n\n');
 }
-export function parseUpdate(text, current) {
+export function parseUpdate(text, current, counts) {
     const result = referenceUpdate(text, current);
     if (!result.changed) throw new Error(result.feedback.filter(item=>item.type==='error').map(item=>item.reason||item.message).join('；') || 'AI 响应未产生有效的 dataUpdate 更新');
+    if (counts) for (const item of result.feedback) {
+        counts.operations = (counts.operations || 0) + (item.operations || 0);
+        counts.tables = (counts.tables || 0) + (item.tables || 0);
+    }
     return result.data;
+}
+export function databaseUpdateNotice({ operations = 0, tables = 0 }) {
+    const details = [];
+    if (operations) details.push(`应用 ${operations} 条更新`);
+    if (tables) details.push(`更新 ${tables} 张表格`);
+    return `数据更新成功${details.length ? `，共${details.join('，')}` : ''}`;
 }
 export function applyOperations(current, operations) {
     if (!Array.isArray(operations) || operations.length > 500) throw new Error('填表操作必须是最多 500 项的数组。');

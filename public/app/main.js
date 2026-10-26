@@ -30,7 +30,7 @@ import { messageMarkdown } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
-import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, sourceHash, validateDatabase } from './database.js';
+import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase } from './database.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
@@ -40,7 +40,8 @@ import { applyRegex, presetRegexes, compileRegex, activeRegexes, scopedRegexes }
 installSelects();
 
 const $ = id => document.getElementById(id);
-const toast = createToast($('notification'), { raise: raiseNotification });
+const notificationRoot = $('notification');
+const toast = createToast(notificationRoot, { raise: raiseNotification });
 const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
@@ -160,7 +161,7 @@ function inlineEntryActions(summary, buttons, label) {
     });
 }
 function raiseNotification() {
-    const notification=$('notification');if(notification.hidden)return;
+    const notification=notificationRoot;if(notification.hidden)return;
     const panel = [...document.querySelectorAll('dialog[open]')].at(-1) || $('panel');
     const bounds = panel.open ? panel.getBoundingClientRect() : null;
     const owner = panel.open ? panel : document.body;
@@ -175,6 +176,7 @@ function raiseNotification() {
     const header = panel.open ? panel.querySelector('header') : document.querySelector('.appbar');
     notification.style.left = `${(start + end) / 2}px`;
     notification.style.top = `${Math.max(viewport?.offsetTop || 0, header?.getBoundingClientRect().bottom || 44) + 16}px`;
+    notification.style.maxHeight = `${Math.max(0, (viewport?.height || innerHeight) - (parseFloat(notification.style.top) - (viewport?.offsetTop || 0)) - 16)}px`;
     const horizontalInset = width <= 700 ? 24 : 16;
     notification.style.maxWidth = `${Math.max(0, Math.min(480, end - start - horizontalInset * 2))}px`;
     if(typeof notification.showPopover==='function'){
@@ -185,7 +187,7 @@ function raiseNotification() {
         if(!notification.matches(':popover-open'))notification.showPopover();
     }
 }
-function notify(message, type = 'success') { toast.show(message, type); }
+function notify(message, type = 'success') { return toast.show(message, type); }
 async function run(callback) {
     try { return await callback(); } catch (error) { if (error.name !== 'AbortError') { console.error('[app]', error); notify(error.message || '操作失败', true); } }
 }
@@ -2031,6 +2033,7 @@ async function updateDatabase(from, to, automatic = false) {
         }
         const worldConfig=settings.worldbookConfig||{source:'character'};const books=await databaseWorlds(worldConfig);reference=books.filter(book=>worldConfig.source!=='manual'||(worldConfig.manualSelection||[]).includes(book.name)).flatMap(book=>Object.entries(book.entries||{}).filter(([id,entry])=>{const enabled=worldConfig.enabledEntries?.[book.name];return Array.isArray(enabled)?enabled.map(String).includes(String(entry.uid??id)):!entry.disable;}).map(([,entry])=>entry.content||'')).join('\n\n');
         let start = from, batches = 0;
+        const updateCounts = { operations: 0, tables: 0 };
         while (start <= to) {
             if (state.controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
             let end = to;
@@ -2049,13 +2052,13 @@ async function updateDatabase(from, to, automatic = false) {
                 const value = await response.json(); if (value.error) throw new Error(typeof value.error === 'string' ? value.error : value.error.message || '填表失败');
                 text = value.choices?.[0]?.message?.content || value.choices?.[0]?.text || '';
             }
-            progress.update('正在解析并应用数据库更新…');result = parseUpdate(text, result); start = end + 1; batches++;
+            progress.update('正在解析并应用数据库更新…');result = parseUpdate(text, result, updateCounts); start = end + 1; batches++;
         }
         if (state.controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
         if (`${state.character?.avatar}/${state.file}` !== identity || originalHash !== sourceHash(state.chat) || panelDirty) throw new Error('聊天或编辑草稿发生变化，填表结果未写入，请保存编辑后重试。');
         storeDatabase(state.chat, state.header, result, to, { from, to, batches });
         if(settings.autoHideMessages){for(let index=rangeStart===1?0:rangeStart;index<=rangeEnd;index++)state.chat[index].is_system=true;list.setMessages(state.chat,{reset:true});}
-        progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify('所有批次更新完成');
+        progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify(databaseUpdateNotice(updateCounts));
     } catch (error) {
         if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return; }
         notify(`数据库更新失败：${error.message}`,true);throw error;
@@ -2371,7 +2374,7 @@ composerTools.append(action('脚本面板', () => { composerTools.hidden = true;
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('scroll', raiseNotification);
-$('panel').addEventListener('close', raiseNotification);
+document.addEventListener('close', raiseNotification, true);
 $('message-input').addEventListener('input', resizeInput);
 $('message-input').addEventListener('focus', preloadNextGeneration);
 $('message-input').addEventListener('input', preloadNextGeneration);

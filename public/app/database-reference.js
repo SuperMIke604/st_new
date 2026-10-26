@@ -2,7 +2,7 @@
 // Host adapters below supply state and collect feedback; function bodies remain upstream.
 let currentJsonTableData, currentSettings, _dpState;
 let feedback = [];
-const showToast = (message, type) => feedback.push({message,type});
+const showToast = (message, type, counts = {}) => feedback.push({message,type,...counts});
 const appendTableEditErrorLog = detail => feedback.push({type:'error',...detail});
 function repairAIJson(raw) {
     if (!raw || typeof raw !== 'string') return null;
@@ -378,7 +378,7 @@ function parseDataUpdate(aiResponse) {
         sheetKeys.forEach(key => {
             currentJsonTableData[key] = JSON.parse(JSON.stringify(data[key]));
         });
-        showToast(`已从 <dataUpdate> 更新 ${sheetKeys.length} 张表格`, 'info');
+        showToast(`已从 <dataUpdate> 更新 ${sheetKeys.length} 张表格`, 'info', { tables: sheetKeys.length });
         return true;
     }
 
@@ -503,7 +503,7 @@ function applyOperations(operations) {
     });
 
     if (appliedCount > 0) {
-        showToast(`从 AI 响应中成功应用了 ${appliedCount} 个数据库更新`, 'info');
+        showToast(`从 AI 响应中成功应用了 ${appliedCount} 个数据库更新`, 'info', { operations: appliedCount });
     }
     return appliedCount > 0;
 }

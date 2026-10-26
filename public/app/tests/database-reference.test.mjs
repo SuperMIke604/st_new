@@ -15,6 +15,21 @@ test('upstream readable format, diff search and pagination',()=>{
 });
 
 import { databaseSettings, fillMessages, migrateLegacySettings } from '../database.js';
+import { parseUpdate, databaseUpdateNotice } from '../database.js';
+
+test('update notices count successful upstream operations across batches, separately from replaced tables', () => {
+ const counts = { operations: 0, tables: 0 };
+ let value = parseUpdate('<dataUpdate>{"operations":[{"action":"insert","sheet":"missing"},{"action":"update","sheet":0,"row":0,"data":{"1":"更新"}},{"action":"insert","sheet":0,"data":{"0":"乙"}}]}</dataUpdate>', database(), counts);
+ assert.deepEqual(counts, { operations: 2, tables: 0 });
+ value = parseUpdate('<dataUpdate>{"operations":[{"action":"delete","sheet":0,"row":1}]}</dataUpdate>', value, counts);
+ assert.equal(databaseUpdateNotice(counts), '数据更新成功，共应用 3 条更新');
+ parseUpdate(`<dataUpdate>${JSON.stringify({ sheet_0: value.sheet_0 })}</dataUpdate>`, value, counts);
+ assert.deepEqual(counts, { operations: 3, tables: 1 });
+ assert.equal(databaseUpdateNotice(counts), '数据更新成功，共应用 3 条更新，更新 1 张表格');
+ assert.equal(databaseUpdateNotice({ tables: 2 }), '数据更新成功，共更新 2 张表格');
+ assert.throws(() => parseUpdate('<dataUpdate>{"operations":[]}</dataUpdate>', value, counts));
+ assert.deepEqual(counts, { operations: 3, tables: 1 });
+});
 test('reference defaults, settings import/export fields and prompt tag processing survive adapters',()=>{
  const defaults=databaseSettings();assert.equal(defaults.autoUpdateFrequency,0);assert.equal(defaults.updateBatchSize,1);assert.equal(defaults.summaryTableMaxEntries,10);assert.equal(defaults.autoHideMessages,true);assert.equal(defaults.maxTokens,120000);assert.equal(defaults.temperature,.9);assert.equal(defaults.inject,false);
  const source={autoUpdateEnabled:true,autoUpdateFrequency:5,updateBatchSize:8,removeTags:'think',userMessageTags:'user|context',apiMode:'custom',apiConfig:{useMainApi:false,url:'http://localhost',model:'test',max_tokens:50000,temperature:.7},charCardPrompts:[{name:'原预设',prompt:[{role:'USER',content:'$0\n$1\n$4'}],overviewTemplate:JSON.stringify(database())}],currentPromptIndex:0};
