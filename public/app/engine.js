@@ -132,30 +132,34 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         Object.defineProperty(variables, key.toLowerCase(), { enumerable: true, get() { databaseMacroUsed = true; return token; } });
     }
     const regexes = activeRegexes({ settings, preset, character });
-    historyRegexCache.reserve(chat.length);
     const cacheBefore = historyRegexCache.stats();
-    const historyMetrics = { messages: 0, regexMs: 0, macroMs: 0 };
+    const historyMetrics = { messages: 0, effectiveMessages: 0, filteredMessages: 0, regexMs: 0, macroMs: 0 };
     const historyRegex = historyRegexCache.prepare(regexes);
     const worlds = worldEntries || measureBuild('激活世界书与展开条目', () => activateWorlds(books, chat, settings, variables, Math.random, regexes));
     if (worldEntries) { const locals = new Map(); for (const entry of worldEntries) for (const [name, value] of Object.entries(entry.variableState || {})) locals.set(name, value); localVariables.set(variables, locals); }
     const before = worlds.filter(e => e.position === 0).map(e => e.content).join('\n');
     const after = worlds.filter(e => e.position === 1).map(e => e.content).join('\n');
-    const history = measureBuild('历史消息正则与宏展开', () => chat.slice(start).map((m, index) => ({ m, depth: chat.length - start - index - 1 })).filter(({m}) => !m.is_system).map(({m, depth}) => {
+    const history = measureBuild('历史消息正则与宏展开', () => {
+        const result = chat.slice(start).map((m, index) => ({ m, depth: chat.length - start - index - 1 })).filter(({m}) => !m.is_system).map(({m, depth}) => {
         if (m.extra?.media?.length || m.extra?.attachments?.length || m.extra?.file) throw new CompatibilityError('当前聊天包含媒体或附件，首版尚未支持把这些内容发给模型。');
         const narrator = m.extra?.type === 'narrator';
         const name = m.name || (m.is_user ? variables.user : variables.char);
         const mode = Number(preset.names_behavior ?? 0);
         historyMetrics.messages++;
         let transformed, content, started = performance.now();
-        try { transformed = historyRegex(m.mes, m.is_user ? 1 : 2, depth, variables); }
+        try { transformed = historyRegex(m.mes, m.is_user ? 1 : 2, depth, variables, false, m); }
         finally { historyMetrics.regexMs += performance.now() - started; }
+        if (transformed === '') historyMetrics.filteredMessages++;
         started = performance.now();
         try { content = expand(transformed, variables); }
         finally { historyMetrics.macroMs += performance.now() - started; }
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
+        if (content.trim()) historyMetrics.effectiveMessages++;
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
-    }), () => ({ metrics: { ...historyMetrics, ...Object.fromEntries(Object.entries(historyRegexCache.stats()).map(([key, value]) => [key, value - cacheBefore[key]])), ...historyRegexCache.capacity() } }));
+        });
+        historyRegex.finish(); return result;
+    }, () => ({ metrics: { ...historyMetrics, ...Object.fromEntries(Object.entries(historyRegexCache.stats()).map(([key, value]) => [key, value - cacheBefore[key]])), ...historyRegexCache.capacity() } }));
     if (preset.new_chat_prompt) history.unshift({ role: 'system', content: expand(preset.new_chat_prompt, variables) });
     const markers = {
         worldInfoBefore: before, worldInfoAfter: after,
