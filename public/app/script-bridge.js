@@ -52,7 +52,7 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
         eventOn: (event, callback) => { if (!events.has(event)) events.set(event, new Set()); events.get(event).add(callback); return () => events.get(event)?.delete(callback); },
         eventRemoveListener: (event, callback) => events.get(event)?.delete(callback), eventEmit: emit,
         tavern_events: { MESSAGE_RECEIVED: 'message_received', CHAT_ID_CHANGED: 'chat_changed' },
-        toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(kind => [kind, text => post({ type: 'notice', text: String(text), error: kind === 'error' })])),
+        toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(kind => [kind, text => post({ type: 'notice', text: String(text), kind, error: kind === 'error' })])),
         alert: text => post({ type: 'notice', text: String(text) }),
         __scriptButtons: (id, buttons) => post({ type: 'buttons', id, buttons }),
         __scriptReport: post,

@@ -10,6 +10,10 @@ test('iframe bridge reads snapshots, isolates variable copies and authenticates 
     const snapshot = { userName: 'User', characterName: 'Card', chatVariables: {}, characterVariables: {}, chat: [{ mes: 'reply', variables: { 0: { stat_data: { value: 1 } } } }] };
     const context = vm.createContext({ parent, structuredClone, setTimeout, clearTimeout, document: { getElementById: () => ({ children: [], append() {} }) }, addEventListener: (type, fn) => listeners.set(type, fn) });
     context.window = context; vm.runInContext(`(${scriptBridge.toString()})(${JSON.stringify(snapshot)})`, context);
+    for (const kind of ['info', 'success', 'warning', 'error']) {
+        context.toastr[kind]('提示');
+        assert.equal(sent.at(-1).kind, kind); assert.equal(sent.at(-1).error, kind === 'error');
+    }
     const value = context.Mvu.getMvuData({ message_id: 'latest' }); value.stat_data.value = 3;
     assert.equal(context.Mvu.getMvuData().stat_data.value, 1);
     const saving = context.replaceVariables(value, { type: 'message', message_id: 0 });
@@ -43,4 +47,16 @@ test('runtime ignores requests from other frames and returns write errors to its
     const data = { channel: 'st-new-scripts', type: 'request', id: 1, action: 'variables', payload: {} };
     await runtime.receive({ source: {}, data }); assert.equal(writes, 0);
     await runtime.receive({ source: frameWindow, data }); assert.equal(writes, 1); assert.equal(responses[0].error, 'busy');
+});
+
+test('host preserves authenticated script toast types and ignores forged notices', async () => {
+    const received = [], frameWindow = {};
+    const runtime = new ScriptRuntime({ notify: (...args) => received.push(args) });
+    runtime.frame = { contentWindow: frameWindow };
+    for (const kind of ['info', 'success', 'warning', 'error']) {
+        const data = { channel: 'st-new-scripts', type: 'notice', text: '提示', kind, error: kind === 'error' };
+        await runtime.receive({ source: {}, data });
+        await runtime.receive({ source: frameWindow, data });
+    }
+    assert.deepEqual(received, [['提示', 'info'], ['提示', 'success'], ['提示', 'warning'], ['提示', true]]);
 });

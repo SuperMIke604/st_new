@@ -130,7 +130,7 @@ export class ScriptRuntime {
             const row = this.statusRows.get(data.id); if (row) { row.textContent = text; if (data.error && row.dataset) row.dataset.state = 'failed'; }
             if (data.type === 'failed' && row?.dataset) { row.dataset.active = 'false'; if (row.dataset.adapter === 'remote-module') { this.helperReady = false; this.helperError = text; for (const waiter of this.helperWaiters) waiter.reject(Error(text)); this.helperWaiters.clear(); } }
             if (data.error && this.note) this.note.textContent = text;
-            this.notify(text, !!data.error); return;
+            this.notify(text, data.error ? true : ['info', 'success', 'warning'].includes(data.kind) ? data.kind : 'info'); return;
         }
         if (data.type !== 'request' || !['variables', 'read-worldbook', 'toggle-worldbook', 'role-action', 'helper'].includes(data.action) || !Number.isSafeInteger(data.id)) return;
         const frame = this.frame, identity = this.identity;

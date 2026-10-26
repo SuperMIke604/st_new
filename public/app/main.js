@@ -1,4 +1,5 @@
 import { RecentCharacters } from './home-data.js';
+import { createToast } from './toast.js';
 import { installMessageEdit } from './message-edit.js';
 import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
@@ -39,6 +40,7 @@ import { applyRegex, presetRegexes, compileRegex, activeRegexes, scopedRegexes }
 installSelects();
 
 const $ = id => document.getElementById(id);
+const toast = createToast($('notification'), { raise: raiseNotification });
 const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
@@ -159,20 +161,31 @@ function inlineEntryActions(summary, buttons, label) {
 }
 function raiseNotification() {
     const notification=$('notification');if(notification.hidden)return;
-    if(typeof notification.showPopover==='function'){notification.setAttribute('popover','manual');if(notification.matches(':popover-open'))notification.hidePopover();notification.showPopover();}
-    else if($('panel').open)$('panel').append(notification);else document.body.append(notification);
+    const panel = [...document.querySelectorAll('dialog[open]')].at(-1) || $('panel');
+    const bounds = panel.open ? panel.getBoundingClientRect() : null;
+    const owner = panel.open ? panel : document.body;
+    // A top-layer popover outside a modal is still inert; keep it inside its dialog.
+    if (notification.parentElement !== owner) {
+        if (notification.matches(':popover-open')) notification.hidePopover();
+        owner.append(notification);
+    }
+    const viewport = window.visualViewport;
+    const width = viewport?.width || innerWidth, left = viewport?.offsetLeft || 0;
+    const start = Math.max(left, bounds?.left ?? left), end = Math.min(left + width, bounds?.right ?? left + width);
+    const header = panel.open ? panel.querySelector('header') : document.querySelector('.appbar');
+    notification.style.left = `${(start + end) / 2}px`;
+    notification.style.top = `${Math.max(viewport?.offsetTop || 0, header?.getBoundingClientRect().bottom || 44) + 16}px`;
+    const horizontalInset = width <= 700 ? 24 : 16;
+    notification.style.maxWidth = `${Math.max(0, Math.min(480, end - start - horizontalInset * 2))}px`;
+    if(typeof notification.showPopover==='function'){
+        notification.setAttribute('popover','manual');
+        const layer = String(panel.open);
+        if(notification.matches(':popover-open') && notification.dataset.panelLayer !== layer) notification.hidePopover();
+        notification.dataset.panelLayer = layer;
+        if(!notification.matches(':popover-open'))notification.showPopover();
+    }
 }
-function notify(message, error = false) {
-    $('notification').textContent = message; $('notification').hidden = false;
-    $('notification').classList.toggle('error', error);raiseNotification();
-    clearTimeout(notify.timer); notify.timer = setTimeout(dismissNotification, error ? 10000 : 4000);
-}
-function dismissNotification() {
-    clearTimeout(notify.timer);
-    const notification = $('notification');
-    if (notification.matches(':popover-open')) notification.hidePopover();
-    notification.hidden = true;
-}
+function notify(message, type = 'success') { toast.show(message, type); }
 async function run(callback) {
     try { return await callback(); } catch (error) { if (error.name !== 'AbortError') { console.error('[app]', error); notify(error.message || '操作失败', true); } }
 }
@@ -493,7 +506,7 @@ function disposePanelWork() {
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
-    if (variablesSaving) { notify('正在保存变量，请稍候。'); return null; }
+    if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     disposePanelWork();
     panelDirty = false; panelRevision++;
@@ -504,7 +517,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     return $('panel-body');
 }
 function closePanel() {
-    if (variablesSaving) { notify('正在保存变量，请稍候。'); return false; }
+    if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return false; }
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
     disposePanelWork();
     panelDirty = false; panelRevision++;
@@ -1877,7 +1890,7 @@ async function renderWorldPanel(body, revision, target, initial, character) {
     button('修改世界书名称', 'edit', () => {
         const value = prompt('世界书名称', name.value);
         if (value === null) return;
-        if (!value.trim()) { notify('请输入世界书名称', true); return; }
+        if (!value.trim()) { notify('请输入世界书名称', 'warning'); return; }
         name.value = value.trim(); dirty();
         select.options[select.selectedIndex].textContent = `${name.value}（未保存）`;
     });
@@ -1996,7 +2009,7 @@ async function updateDatabase(from, to, automatic = false) {
     assertSaved(); if (!state.character) throw new Error('请先打开聊天。');
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= state.chat.length) throw new Error('请填写有效的起始和结束楼层。');
     const aiIndices=state.chat.map((message,index)=>!message.is_user&&index>=from&&index<=to?index:-1).filter(index=>index>=0);
-    if(!aiIndices.length){notify('没有消息需要更新');return;}
+    if(!aiIndices.length){notify('没有消息需要更新', 'info');return;}
     const rangeStart=from,rangeEnd=to;from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;to=aiIndices.at(-1);
     const current = currentDatabase(), settings = current.settings;
     let config = databaseConnection(settings);
@@ -2044,7 +2057,7 @@ async function updateDatabase(from, to, automatic = false) {
         if(settings.autoHideMessages){for(let index=rangeStart===1?0:rangeStart;index<=rangeEnd;index++)state.chat[index].is_system=true;list.setMessages(state.chat,{reset:true});}
         progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify('所有批次更新完成');
     } catch (error) {
-        if (error.name === 'AbortError') { notify('填表操作已由用户终止。'); return; }
+        if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return; }
         notify(`数据库更新失败：${error.message}`,true);throw error;
     } finally { progress.close();state.busy = false; state.controller = null; synchronize(); status(state.dirty ? '未保存 · 可重试' : '已保存'); }
 }
@@ -2166,7 +2179,7 @@ async function generate(mode = false) {
         completed = true;
         status('回复完成');
     } catch (error) {
-        if (error.name === 'AbortError') notify('生成已停止，已收到的内容会保存。');
+        if (error.name === 'AbortError') notify('生成已停止，已收到的内容会保存', 'info');
         else { state.error = error.message; notify(error.message, true); }
     } finally {
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
@@ -2352,12 +2365,13 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候。'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 composerTools.append(action('脚本面板', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
-$('notification').addEventListener('click', dismissNotification);
-$('notification').title = '点击关闭提示'; $('notification').tabIndex = 0;
-$('notification').addEventListener('keydown', event => { if (['Enter', ' ', 'Escape'].includes(event.key)) { event.preventDefault(); dismissNotification(); } });
+window.addEventListener('resize', raiseNotification);
+window.visualViewport?.addEventListener('resize', raiseNotification);
+window.visualViewport?.addEventListener('scroll', raiseNotification);
+$('panel').addEventListener('close', raiseNotification);
 $('message-input').addEventListener('input', resizeInput);
 $('message-input').addEventListener('focus', preloadNextGeneration);
 $('message-input').addEventListener('input', preloadNextGeneration);
