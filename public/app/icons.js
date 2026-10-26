@@ -27,6 +27,8 @@ const paths = {
     book: '<path d="M12 5c-3-2-6-2-10-1v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1Zm0 0v15"/>',
     plug: '<path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0Zm6 9v4"/>',
     plus: '<path d="M12 4v16M4 12h16"/>',
+    textSize: '<path d="M3 5h12M9 5v14M5 19h8M16 10h6M19 10v9"/>',
+    undo: '<path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 6 6v3"/>',
     history: '<path d="M3 4v5h5M3 9a9 9 0 1 1 0 7m9-10v6l4 2"/>',
     edit: '<path d="m15 4 5 5M4 20l5-1L20 8a3 3 0 0 0-4-4L5 15l-1 5Z"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
