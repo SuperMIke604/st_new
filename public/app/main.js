@@ -601,6 +601,8 @@ async function navigation() {
 
 async function openCharacter(avatar, { latest = false } = {}) {
     assertSaved();
+    generationPreload.cancelScheduled();
+    let loaded = false;
     state.loading = true; synchronize();
     try {
     status('读取角色…');
@@ -614,11 +616,14 @@ async function openCharacter(avatar, { latest = false } = {}) {
     const stored = state.own.lastChats?.[avatar];
     const file = (!latest && stored && recent.find(chat => chat.file_name === stored + '.jsonl') ? stored : recent[0]?.file_name?.replace(/\.jsonl$/, '')) || null;
     await loadChat(file, true, character);
+    loaded = true;
     synchronize();
-    } finally { state.loading = false; synchronize(); }
+    } finally { state.loading = false; synchronize(); if (loaded) preloadNextGeneration(); }
 }
 async function loadChat(file, internal = false, character = state.character) {
     if (!internal) assertSaved();
+    if (!internal) generationPreload.cancelScheduled();
+    let loaded = false;
     if (!internal) { state.loading = true; synchronize(); }
     try {
     status('读取聊天记录…');
@@ -640,7 +645,8 @@ async function loadChat(file, internal = false, character = state.character) {
     if (file) await rememberChat(internal ? { lastCharacter: character.avatar } : {});
     else if (internal && state.own.lastCharacter !== character.avatar) await saveOwn({ lastCharacter: character.avatar });
     status('已读取');
-    } finally { if (!internal) { state.loading = false; synchronize(); } }
+    loaded = true;
+    } finally { if (!internal) { state.loading = false; synchronize(); if (loaded) preloadNextGeneration(); } }
 }
 async function rememberChat(patch = {}) {
     try {

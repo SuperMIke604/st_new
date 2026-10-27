@@ -24,7 +24,7 @@
 | `/api/backends/chat-completions/status/generate` | 模型目录、聊天和填表请求 | `main.js`、`engine.js` |
 | `/api/tokenizers/openai/count?model=...` | 精确预算与预览计数 | `main.js`、`preset-tokens.js` |
 | `/api/files/upload`、`/user/files/independent-frontend-*.json` | 独立连接和预设选择 | `api.js`、`preset-selection.js` |
-| `/api/plugins/st-new-updater/*` | `recent/bootstrap/status/install` | `api.js`、`home-data.js`、`update.js` |
+| `/api/plugins/st-new-updater/*` | `recent/bootstrap/characters/worlds/status/install` | `api.js`、`home-data.js`、`update.js` |
 
 传输集中在 `TavernAPI`，业务路径和响应假设仍分布在调用方。图片、vendor 和远程模块另有读取路径，不应声称所有网络请求都经过统一适配器。
 
@@ -61,7 +61,9 @@
 
 `server/st-new-updater/index.mjs` 是本项目代码，不是官方后端修改。`recent` 扫描文件名和 mtime；`bootstrap` 读取当前用户设置和 OpenAI 预设；`status/install` 管理共享前端与插件更新。
 
-`bootstrap` 和 `recent` 的 404 可回退原生接口；配置文件首次不存在也有特定处理。认证失败、超时或损坏响应不得静默当作默认配置覆盖。
+`bootstrap`、`recent`、轻量角色目录 `characters` 和世界书列表 `worlds` 的 404 可回退原生接口；目录接口缺失在本 API 实例内记忆，更新插件并重启后刷新前端即可重新探测。配置文件首次不存在也有特定处理。认证失败、超时或损坏响应不得静默当作默认配置覆盖。
+
+角色目录只返回 avatar、name 和创建日期，读取 PNG 的 IHDR/tEXt/IEND 并跳过像素数据，校验元数据 CRC，按原生 ccv3 优先于 chara 的规则解码；不返回正文、脚本、世界书或重复 json_data。完整单卡编辑、关联世界书、正则和脚本仍使用原生 characters/get，写入接口及未知字段保留规则不变。worlds 返回原生形状的 file_id/name/extensions，不读取聊天。插件按用户目录和完整文件路径隔离投影缓存，每次列表请求重新扫描目录并核对 mtime/ctime/size，文件改变重读；上限 2048 项、800 万字符，单项超过 256Ki 字符不缓存，首次至多四个并发文件读取。前端原有 30 秒角色目录、60 秒世界书读取缓存和写入失效规则保留；外部客户端修改仍受这些短缓存窗口约束。新增插件接口需宿主重启后生效。
 
 宿主升级至少核验：认证/CSRF，设置响应和整文件保存，角色标识与合并行为，聊天完整性及分支回读，世界书/预设字段保留，secret ID、自定义地址、JSON/SSE、tokenizer，以及可选插件缺失回退。
 

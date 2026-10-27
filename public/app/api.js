@@ -28,8 +28,16 @@ export class TavernAPI {
         return response;
     }
     async post(path, data = {}, options) {
+        const catalogRoute = { '/api/characters/all': '/api/plugins/st-new-updater/characters', '/api/worldinfo/list': '/api/plugins/st-new-updater/worlds' }[path];
+        if (catalogRoute && !this.missingCatalogRoutes?.has(catalogRoute)) {
+            try { return await this.post(catalogRoute, data, { ...options, fallbackStatuses: [404] }); }
+            catch (error) {
+                if (error.status !== 404) throw error;
+                (this.missingCatalogRoutes ||= new Set()).add(catalogRoute);
+            }
+        }
         const timing = options?.timing, label = String(path).split('?')[0];
-        const reads = ['/api/settings/get', '/api/avatars/get', '/api/characters/all', '/api/characters/get', '/api/worldinfo/list', '/api/worldinfo/get'];
+        const reads = ['/api/settings/get', '/api/avatars/get', '/api/characters/all', '/api/characters/get', '/api/worldinfo/list', '/api/worldinfo/get', '/api/plugins/st-new-updater/characters', '/api/plugins/st-new-updater/worlds'];
         const cacheable = reads.includes(path) && !options?.signal;
         const key = cacheable ? path + JSON.stringify(data) : null;
         const hit = this.readCache.get(key);
@@ -47,7 +55,7 @@ export class TavernAPI {
             return timing ? timing.measureSync(`${label} · 解析响应`, 'data', parse) : parse();
         };
         const promise = load();
-        if (cacheable) { const entry = { promise, resolved: false, expires: Date.now() + (path.startsWith('/api/worldinfo/') ? 60000 : 5000) }; this.readCache.set(key, entry); promise.then(() => { entry.resolved = true; }, () => { if (this.readCache.get(key) === entry) this.readCache.delete(key); }); }
+        if (cacheable) { const entry = { promise, resolved: false, expires: Date.now() + (path.startsWith('/api/worldinfo/') || path.endsWith('/worlds') ? 60000 : 5000) }; this.readCache.set(key, entry); promise.then(() => { entry.resolved = true; }, () => { if (this.readCache.get(key) === entry) this.readCache.delete(key); }); }
         const value = await promise;
         return timing ? timing.measureSync(`${label} · 复制响应数据`, 'data', () => structuredClone(value)) : structuredClone(value);
     }

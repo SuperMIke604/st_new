@@ -4,9 +4,86 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { init, validateManifest, listRecentCharacters, installUpdate } from './index.mjs';
+import { init, validateManifest, listRecentCharacters, installUpdate, createCatalogReader, readCardMetadata } from './index.mjs';
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
+
+test('catalog projections cache per file, detect external edits/additions/removals and isolate directories', async () => {
+    const records = new Map(), reads = [];
+    const add = (dir, name, value, stamp = 1) => records.set(path.join(dir, name), { value: JSON.stringify(value), stamp });
+    add('/one', 'a.png', { data: { name: 'A', description: 'private'.repeat(10000), extensions: { script: 'private' } } });
+    add('/one', 'b.png', { name: 'B', create_date: '2020-01-01' });
+    add('/two', 'a.png', { name: 'Other' });
+    add('/books', 'a.json', { name: 'Display name', extensions: { unknown: { keep: true } }, entries: { 1: { content: 'private' } } });
+    const io = {
+        readdir: async dir => [...records.keys()].filter(file => path.dirname(file) === path.normalize(dir)).map(file => ({ name: path.basename(file), isFile: () => true })),
+        stat: async file => { const r = records.get(file); return { mtimeMs: r.stamp, ctimeMs: r.stamp, size: r.value.length }; },
+        readFile: async file => { reads.push(file); return records.get(file).value; },
+    };
+    const list = createCatalogReader({ io, readCard: file => io.readFile(file) });
+    const first = await list('/one', 'characters');
+    assert.deepEqual(first.map(card => card.name), ['A', 'B']);
+    assert.ok(!JSON.stringify(first).includes('private')); assert.ok(!Object.hasOwn(first[0], 'data'));
+    await list('/one', 'characters'); assert.equal(reads.length, 2);
+    add('/one', 'a.png', { name: 'Updated' }, 2);
+    assert.equal((await list('/one', 'characters'))[0].name, 'Updated'); assert.equal(reads.length, 3);
+    records.delete(path.join('/one', 'b.png')); add('/one', 'c.png', { name: 'C' });
+    assert.deepEqual((await list('/one', 'characters')).map(card => card.name), ['Updated', 'C']);
+    assert.equal((await list('/two', 'characters'))[0].name, 'Other');
+    const worlds = await list('/books', 'worlds');
+    assert.deepEqual(worlds, [{ file_id: 'a', name: 'Display name', extensions: { unknown: { keep: true } } }]);
+    const before = reads.length; await list('/books', 'worlds'); assert.equal(reads.length, before);
+    add('/books', 'a.json', { name: 'Renamed', extensions: { keep: 2 } }, 3);
+    assert.equal((await list('/books', 'worlds'))[0].name, 'Renamed');
+    const bounded = createCatalogReader({ io, readCard: file => io.readFile(file), maxEntries: 1 });
+    await bounded('/one', 'characters'); const readCount = reads.length;
+    await bounded('/one', 'characters'); assert.ok(reads.length > readCount, 'bounded cache evicts old projections');
+});
+
+test('catalog malformed files match native lists while directory and parser failures stay errors', async () => {
+    const io = { readdir: async () => [{ name: 'a.png', isFile: () => true }], stat: async () => ({ mtimeMs: 1, ctimeMs: 1, size: 1 }), readFile: async () => 'broken' };
+    const list = createCatalogReader({ io, readCard: file => io.readFile(file) });
+    assert.deepEqual(await list('/cards', 'characters'), []);
+    io.readdir = async () => [{ name: 'a.json', isFile: () => true }];
+    assert.deepEqual(await list('/books', 'worlds'), [{ file_id: 'a', name: 'a', extensions: {} }]);
+    io.readdir = async () => [{ name: 'a.png', isFile: () => true }];
+    const unavailable = createCatalogReader({ io, readCard: () => { throw Error('parser unavailable'); } });
+    await assert.rejects(unavailable('/cards', 'characters'), /parser unavailable/);
+    io.readdir = async () => { throw Error('directory offline'); };
+    await assert.rejects(list('/cards', 'characters'), /directory offline/);
+});
+
+test('PNG metadata reader preserves V3 precedence and Unicode, skips image bytes and rejects damaged metadata', async () => {
+    const chunk = (type, value) => {
+        const data = Buffer.concat([Buffer.from(type), value]), result = Buffer.alloc(value.length + 12);
+        result.writeUInt32BE(value.length); data.copy(result, 4);
+        let crc = 0xffffffff;
+        for (const byte of data) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1; }
+        result.writeUInt32BE((crc ^ 0xffffffff) >>> 0, result.length - 4); return result;
+    };
+    const text = (keyword, value) => chunk('tEXt', Buffer.from(keyword + '\0' + Buffer.from(JSON.stringify(value)).toString('base64')));
+    const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+    const header = Buffer.from('0000000d49484452000000010000000108060000001f15c489', 'hex');
+    const image = chunk('IDAT', Buffer.alloc(10000));
+    const v3 = { data: { name: '中文🙂', extensions: { unknown: true } } };
+    const metadata = text('CCV3', v3);
+    let contents = Buffer.concat([signature, header, image, text('chara', { name: 'old' }), metadata, chunk('IEND', Buffer.alloc(0))]);
+    let closed = 0; const positions = [];
+    const io = { open: async () => ({ stat: async () => ({ size: contents.length }), close: async () => { closed++; }, read: async (target, offset, length, position) => {
+        positions.push([position, length]); const bytesRead = contents.copy(target, offset, position, Math.min(contents.length, position + length)); return { bytesRead };
+    } }) };
+    assert.deepEqual(JSON.parse(await readCardMetadata('test.png', io)), v3);
+    assert.equal(closed, 1);
+    const imageStart = signature.length + header.length + 8;
+    assert.ok(positions.every(([start, length]) => start + length <= imageStart || start >= imageStart + 10000), 'IDAT body is never read');
+    const bad = Buffer.from(metadata); bad[bad.length - 1] ^= 1;
+    contents = Buffer.concat([signature, header, bad, chunk('IEND', Buffer.alloc(0))]);
+    await assert.rejects(readCardMetadata('bad.png', io), /CRC/); assert.equal(closed, 2);
+    contents = Buffer.concat([signature, header, text('chara', { name: 'V2' }), chunk('IEND', Buffer.alloc(0))]);
+    assert.equal(JSON.parse(await readCardMetadata('v2.png', io)).name, 'V2');
+    contents = contents.subarray(0, contents.length - 5);
+    await assert.rejects(readCardMetadata('short.png', io), /end|Truncated/); assert.equal(closed, 4);
+});
 test('manifest rejects traversal, server paths and missing entrypoints', () => {
     assert.equal(validateManifest(manifest).length, 4);
     for (const name of ['public/app/../config.yaml', 'public/app/vendor/../../config.yaml', 'server.js', 'public/app/x/y.js']) assert.throws(() => validateManifest({ ...manifest, files: { ...manifest.files, [name]: 'a'.repeat(64) } }));

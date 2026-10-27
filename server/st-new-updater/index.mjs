@@ -41,6 +41,101 @@ export async function listRecentCharacters(directories, io = fs) {
     }
     return recent.sort((a, b) => b.last_mes - a.last_mes).slice(0, 6);
 }
+// Cache projections only, never full character bodies. Every listing checks
+// directory membership and file stamps; edits from other clients are visible.
+const pngCrcTable = Uint32Array.from({ length: 256 }, (_, value) => {
+    for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    return value >>> 0;
+});
+function pngCrc(bytes) {
+    let value = 0xffffffff;
+    for (const byte of bytes) value = pngCrcTable[(value ^ byte) & 255] ^ (value >>> 8);
+    return (value ^ 0xffffffff) >>> 0;
+}
+export async function readCardMetadata(filename, io = fs) {
+    const file = await io.open(filename, 'r');
+    try {
+        const { size } = await file.stat(), signature = Buffer.alloc(8);
+        if ((await file.read(signature, 0, 8, 0)).bytesRead !== 8 || signature.toString('hex') !== '89504e470d0a1a0a') throw new SyntaxError('Invalid PNG');
+        let offset = 8, ended = false, v2, v3;
+        while (offset + 12 <= size) {
+            const header = Buffer.alloc(8);
+            if ((await file.read(header, 0, 8, offset)).bytesRead !== 8) throw new SyntaxError('Truncated PNG');
+            const length = header.readUInt32BE(0), type = header.toString('ascii', 4, 8);
+            if (offset + length + 12 > size) throw new SyntaxError('Truncated PNG chunk');
+            if (offset === 8 && type !== 'IHDR') throw new SyntaxError('Missing PNG header');
+            if (type === 'IHDR' || type === 'tEXt' || type === 'IEND') {
+                const chunk = Buffer.alloc(length + 12); header.copy(chunk);
+                let read = 0;
+                while (read < length + 4) {
+                    const result = await file.read(chunk, 8 + read, length + 4 - read, offset + 8 + read);
+                    if (!result.bytesRead) throw new SyntaxError('Truncated PNG metadata');
+                    read += result.bytesRead;
+                }
+                if (type !== 'IEND' && pngCrc(chunk.subarray(4, length + 8)) !== chunk.readUInt32BE(length + 8)) throw new SyntaxError('Invalid PNG metadata CRC');
+                if (type === 'tEXt') {
+                    const data = chunk.subarray(8, length + 8), separator = data.indexOf(0);
+                    if (separator < 0 || data.indexOf(0, separator + 1) >= 0) throw new SyntaxError('Invalid PNG text');
+                    const keyword = data.toString('latin1', 0, separator).toLowerCase();
+                    if (keyword === 'chara' && v2 === undefined) v2 = data.subarray(separator + 1).toString('latin1');
+                    if (keyword === 'ccv3' && v3 === undefined) v3 = data.subarray(separator + 1).toString('latin1');
+                }
+            }
+            offset += length + 12;
+            if (type === 'IEND') { ended = true; break; }
+        }
+        if (!ended) throw new SyntaxError('Missing PNG end');
+        // Match native tEXt decoding and V3-over-V2 precedence, using Buffer
+        // conversion rather than concatenating millions of single characters.
+        if (v3 === undefined && v2 === undefined) throw new SyntaxError('Missing character metadata');
+        return Buffer.from(v3 ?? v2, 'base64').toString('utf8');
+    } finally { await file.close(); }
+}
+export function createCatalogReader({ io = fs, readCard, maxEntries = 2048, maxChars = 8000000 } = {}) {
+    const cache = new Map(); let chars = 0;
+    const remove = key => { const old = cache.get(key); if (old) chars -= old.size; cache.delete(key); };
+    return async (directory, kind) => {
+        const files = (await io.readdir(directory, { withFileTypes: true }))
+            .filter(file => file.isFile() && (kind === 'characters' ? file.name.endsWith('.png') : path.extname(file.name).toLowerCase() === '.json'))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        const results = new Array(files.length); let cursor = 0;
+        await Promise.all(Array.from({ length: Math.min(4, files.length) }, async () => {
+            while (cursor < files.length) {
+                const index = cursor++, file = files[index], filename = path.join(directory, file.name);
+                try {
+                    const stat = await io.stat(filename), stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+                    const key = kind + ':' + filename, hit = cache.get(key);
+                    let value;
+                    if (hit?.stamp === stamp) { value = hit.value; cache.delete(key); cache.set(key, hit); }
+                    else {
+                        if (kind === 'characters') {
+                            const card = JSON.parse(await readCard(filename));
+                            if (!card || typeof card !== 'object') continue;
+                            const name = card.data?.name || card.name;
+                            if (typeof name !== 'string' || !name) continue;
+                            value = { avatar: file.name, name, date_added: stat.ctimeMs, create_date: card.create_date || new Date(Math.round(stat.ctimeMs)).toISOString() };
+                        } else {
+                            const text = await io.readFile(filename, 'utf8');
+                            let book; try { book = JSON.parse(text); } catch { book = {}; }
+                            const id = path.parse(file.name).name;
+                            value = { file_id: id, name: book?.name || id, extensions: book?.extensions && typeof book.extensions === 'object' ? book.extensions : {} };
+                        }
+                        remove(key);
+                        const size = JSON.stringify(value).length;
+                        if (size <= Math.min(262144, maxChars)) { cache.set(key, { stamp, value, size }); chars += size; }
+                        while (cache.size > maxEntries || chars > maxChars) remove(cache.keys().next().value);
+                    }
+                    results[index] = value;
+                } catch (error) {
+                    // Match native lists: skip removed or malformed files, but
+                    // do not turn an unavailable parser into an empty library.
+                    if (!['ENOENT', 'EISDIR'].includes(error.code) && !(error instanceof SyntaxError)) throw error;
+                }
+            }
+        }));
+        return results.filter(Boolean);
+    };
+}
 export async function installUpdate({ root, pluginFile, manifest, downloadFile = download, io = fs }) {
     const entries = validateManifest(manifest), id = randomUUID();
     const publicDir = path.join(root, 'public'), target = path.join(publicDir, 'app');
@@ -91,6 +186,11 @@ export async function installUpdate({ root, pluginFile, manifest, downloadFile =
 export async function init(router, { root = process.cwd(), pluginFile = fileURLToPath(import.meta.url), io = fs } = {}) {
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
+    const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
+    for (const [route, kind, directory] of [['/characters', 'characters', 'characters'], ['/worlds', 'worlds', 'worlds']]) router.post(route, async (request, response) => {
+        try { response.json(await catalog(request.user.directories[directory], kind)); }
+        catch { response.status(500).json({ error: '无法读取资源目录，请重试。' }); }
+    });
     router.post('/recent', async (request, response) => {
         try { response.json(await listRecentCharacters(request.user.directories)); }
         catch (error) { response.status(500).json({ error: error.message }); }
