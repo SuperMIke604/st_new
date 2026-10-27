@@ -10,16 +10,15 @@ export const DEFAULT_CHAR_CARD_PROMPT = [
     }
 ];
 export const DEFAULT_SETTINGS = {
-    // 更新配置
+    // 消息总结配置
     autoUpdateFrequency: 0,        // 最新N层不更新
     updateBatchSize: 1,            // 每次更新楼层数
     summaryTableMaxEntries: 10,    // 总结条目显示数量
     removeTags: '',                // 自定义删除标签
     userMessageTags: '',           // 用户消息标签
 
-    // 核心操作
+    // 消息总结
     autoUpdateEnabled: false,      // 启用自动更新
-    autoHideMessages: true,        // 数据整理完成后自动隐藏相关楼层
     enableWorldbookGeneration: false, // 启用世界书生成（注入到提示词）
 
     // AI指令预设（支持多个预设，每个预设包含归属的可视化模板）

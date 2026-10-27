@@ -2,9 +2,54 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultDatabase, validateDatabase, databaseSettings, migrateLegacySettings, applyOperations, parseUpdate, databaseForChat, storeDatabase, invalidateDatabases, databaseText, fillMessages, sourceHash } from '../database.js';
 import { buildPrompt, fitPrompt } from '../engine.js';
+import { databaseSummaryTriggered, messageSummaryRange } from '../database.js';
 
 const messages = () => [{ name: '角色', is_user: false, mes: '开场白', extra: {} }, { name: '用户', is_user: true, mes: '时间是早上。' }, { name: '角色', is_user: false, mes: '我们到了书店。', extra: {} }];
 const filled = () => applyOperations(defaultDatabase(), [{ action: 'insert', sheet: 'sheet_0', data: { 0: '地点', 1: '书店' } }]);
+
+test('summary bindings survive editor selection, round trips, and deleted presets', () => {
+    const value = databaseSettings({ autoHideMessages: true, unknown: { keep: true }, presets: [
+        { id: 'messages', messages: [{ role: 'user', content: '消息 $1' }] },
+        { id: 'compact', messages: [{ role: 'user', content: '数据库 $0 $1' }] },
+    ], activePreset: 'messages', messageSummaryPreset: 'messages', databaseSummaryPreset: 'compact' });
+    value.activePreset = 'compact';
+    const restored = databaseSettings(JSON.parse(JSON.stringify(value)));
+    assert.equal(restored.messageSummaryPreset, 'messages');
+    assert.equal(restored.databaseSummaryPreset, 'compact');
+    assert.deepEqual(restored.unknown, { keep: true });
+    assert.equal('autoHideMessages' in restored, false);
+    assert.ok(fillMessages(restored, filled(), messages(), 0, 2)[0].content.startsWith('消息 '));
+    const compact = fillMessages(restored, filled(), [], 0, 0, '', 'database')[0].content;
+    assert.ok(compact.startsWith('数据库 ')); assert.ok(compact.includes('书店')); assert.ok(!compact.includes('开场白'));
+    restored.presets = restored.presets.filter(preset => preset.id !== 'messages');
+    assert.equal(databaseSettings(restored).messageSummaryPreset, 'compact');
+    const defaults = databaseSettings();
+    assert.notEqual(defaults.messageSummaryPreset, defaults.databaseSummaryPreset);
+});
+
+test('database summary thresholds are inclusive OR conditions with disabled and missing-table handling', () => {
+    const settings = databaseSettings({ databaseSummaryTokens: 100, databaseSummaryTable: 'sheet_0', databaseSummaryRows: 2 });
+    assert.equal(databaseSummaryTriggered(settings, filled(), 99), false);
+    assert.equal(databaseSummaryTriggered(settings, filled(), 100), true);
+    const data = filled(); data.sheet_0.content.push([null, '天气', '晴']);
+    assert.equal(databaseSummaryTriggered(settings, data, 0), true);
+    assert.equal(databaseSummaryTriggered({ ...settings, databaseSummaryTable: 'missing' }, data, 99), false);
+    assert.equal(databaseSummaryTriggered({ ...settings, databaseSummaryTokens: 0, databaseSummaryRows: 0 }, data, 999), false);
+    for (const value of [{ databaseSummaryTokens: -1 }, { databaseSummaryRows: 1.5 }, { updateBatchSize: 0 }, { autoUpdateFrequency: -1 }]) assert.throws(() => databaseSettings(value));
+});
+
+test('automatic message ranges include floor zero, wait for replies and retain compaction progress', () => {
+    const settings = databaseSettings({ updateBatchSize: 1, autoUpdateFrequency: 0 });
+    const chat = messages();
+    assert.deepEqual(messageSummaryRange(chat, settings), { from: 0, to: 0 });
+    storeDatabase(chat, {}, filled(), 0, { kind: 'message', to: 0 });
+    assert.deepEqual(messageSummaryRange(chat, settings), { from: 1, to: 2 });
+    assert.equal(messageSummaryRange(chat, { ...settings, autoUpdateFrequency: 1 }), null);
+    storeDatabase(chat, {}, filled(), 2, { kind: 'database', messageSummaryTo: 0 });
+    assert.deepEqual(messageSummaryRange(chat, settings), { from: 1, to: 2 });
+    chat[2].extra.independentDatabase.messageSummaryTo = 2;
+    assert.equal(messageSummaryRange(chat, settings), null);
+});
 test('table schema imports old chatSheets and preserves metadata without source mutation', () => {
     const old = defaultDatabase(); old.sheet_0.extensions = { future: true }; old.mate.extra = 9;
     const validated = validateDatabase(old); validated.sheet_0.name = 'changed';

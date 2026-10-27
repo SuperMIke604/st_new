@@ -39,10 +39,15 @@ body {
 :where(#panel-body,.script-runtime-dialog) h2,
 .section-heading h2, .preset-panel .section-heading h2, .folder-heading h2,
 .home-recent h2, .database-preview-section h2, .dm-status-card h2,
-.dm-world-title, .db-sheet-heading h2, .db-prompt-heading h2 {
+.db-sheet-heading h2, .db-prompt-heading h2 {
     font-size: var(--type-section-size);
     line-height: var(--type-section-line);
     font-weight: var(--type-semibold);
+}
+.dm-world-title {
+    font-size: var(--type-control-size);
+    line-height: var(--type-control-line);
+    font-weight: var(--type-regular);
 }
 :where(#panel-body,.script-runtime-dialog) h3,
 .card-info h3, .home-character-grid .home-character h3, .persona-info h2,

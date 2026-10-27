@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS } from './database-defaults.js';
 import { referenceUpdate, referenceTableText, referenceSheetText, extractDataFromMessage } from './database-reference.js';
 // Native chat-scoped table model; compatible with the original chatSheets format.
 export const defaultFillPrompt = '维护当前对话的数据库。只根据对话中明确发生的事实更新，不编造。保留表头。仅输出 <dataUpdate>{"operations":[{"action":"insert|update|delete","sheet":"sheet_0","row":0,"data":{"0":"第一列内容"}}]}</dataUpdate>。sheet 可为表键或表名；row 为从 0 开始的数据行索引，不包含表头；data 的列索引也从 0 开始。insert 不指定 row 表示追加。没有变化时输出空 operations。\n\n当前表格：\n$0\n\n待整理对话：\n$1\n\n参考资料：\n$4';
+export const defaultDatabaseSummaryPrompt = '总结整理以下数据库，合并重复和冗余记录，保留重要事实、人物关系、时间顺序与当前状态，不编造信息。保留表键和表头。仅输出 <dataUpdate> 包裹的 JSON 对象，以 sheet_* 为键，每张需要整理的表提供完整的 name 和 content（含原表头）。未输出的表保持原样。\n\n当前数据库：\n$0\n\n参考资料：\n$4';
 export function defaultDatabase() {
     return { mate: { type: 'chatSheets' }, sheet_0: { name: '当前状态', content: [[null, '项目', '内容']] }, sheet_1: { name: '人物', content: [[null, '姓名', '关系', '近况']] }, sheet_2: { name: '事件', content: [[null, '时间', '事件', '结果']] } };
 }
@@ -30,6 +31,18 @@ export function databaseSettings(value = {}) {
     for (const preset of presets) if (!preset.messages.length || preset.messages.some(message => !['system', 'user', 'assistant'].includes(message.role) || typeof message.content !== 'string')) throw new Error('填表预设消息角色或内容无效。');
     const settings = { ...structuredClone(DEFAULT_SETTINGS), version: 1, inject: true, auto: false, frequency: 1, batch: 20, maxTokens: 4096, temperature: .3, profileId: '', includeWorlds: false, template: defaultDatabase(), ...structuredClone(source), presets };
     settings.activePreset = presets.some(preset => preset.id === settings.activePreset) ? settings.activePreset : presets[0].id;
+    settings.messageSummaryPreset = presets.some(preset => preset.id === source.messageSummaryPreset) ? source.messageSummaryPreset : settings.activePreset;
+    // A dedicated initial preset keeps database compaction independent of message extraction.
+    if (!source.databaseSummaryPreset && !presets.some(preset => preset.id === 'database-summary')) presets.push({ id: 'database-summary', name: '数据库总结', messages: [{ role: 'user', content: defaultDatabaseSummaryPrompt }], template: defaultDatabase() });
+    settings.databaseSummaryPreset = presets.some(preset => preset.id === source.databaseSummaryPreset) ? source.databaseSummaryPreset : (presets.find(preset => preset.id === 'database-summary') || presets[0]).id;
+    settings.databaseSummaryAuto = !!source.databaseSummaryAuto;
+    settings.databaseSummaryTable = String(source.databaseSummaryTable || '');
+    for (const [key, fallback, min] of [['databaseSummaryTokens', 0, 0], ['databaseSummaryRows', 0, 0], ['autoUpdateFrequency', 0, 0], ['updateBatchSize', 1, 1]]) {
+        const number = Number(source[key] ?? fallback);
+        if (!Number.isSafeInteger(number) || number < min) throw new Error(`数据库设置 ${key} 超出范围。`);
+        settings[key] = number;
+    }
+    delete settings.autoHideMessages;
     settings.template = validateDatabase(source.template || settings.presets.find(preset => preset.id === settings.activePreset).template || defaultDatabase());
     settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(settings.template);
     for (const [key, min, max] of [['frequency', 1, 100], ['batch', 1, 500], ['maxTokens', 1, 2000000], ['temperature', 0, 2]]) {
@@ -135,8 +148,9 @@ export function applyOperations(current, operations) {
     }
     return validateDatabase(result);
 }
-export function fillMessages(settings, database, chat, from, to, worldText = '') {
-    const preset = settings.presets.find(item => item.id === settings.activePreset);
+export function fillMessages(settings, database, chat, from, to, worldText = '', kind = 'message') {
+    const presetId = kind === 'database' ? settings.databaseSummaryPreset : settings.messageSummaryPreset;
+    const preset = settings.presets.find(item => item.id === (presetId || settings.activePreset));
     const messagesText = '当前最新对话内容:\n' + (chat.slice(from,to+1).map(message=>{
         let content=message.mes||message.message||'';
         if(settings.removeTags)for(const tag of settings.removeTags.split('|').map(tag=>tag.trim()).filter(Boolean))content=content.replace(new RegExp(`<${tag}>[\\s\\S]*?<\\/${tag}>|<${tag}\\/>`,'gi'),'');
@@ -145,6 +159,28 @@ export function fillMessages(settings, database, chat, from, to, worldText = '')
     }).join('\n') || '(无最新对话内容)');
     const replacements = { '$0': referenceDatabaseText(database,settings) || '(当前还没有表格数据)', '$1': messagesText, '$4': worldText };
     return preset.messages.map(message => ({ role: message.role, content: message.content.replace(/\$[014]/g, token => replacements[token]) }));
+}
+
+export function databaseSummaryTriggered(settings, database, tokens = 0) {
+    const tokenLimit = settings.databaseSummaryTokens || 0, rowLimit = settings.databaseSummaryRows || 0;
+    return (tokenLimit > 0 && tokens >= tokenLimit) || (rowLimit > 0 && sheets(database).some(([key, table]) => key === settings.databaseSummaryTable && table.content.length - 1 >= rowLimit));
+}
+
+export function messageSummaryRange(chat, settings) {
+    let recorded = -1;
+    for (let index = chat.length - 1; index >= 0; index--) {
+        if (!chat[index].is_user && chat[index].TavernDB_ACU_Data) {
+            const meta = chat[index].extra?.independentDatabase;
+            // Compaction of a snapshot is not progress through the following messages.
+            recorded = meta?.kind === 'database' ? (meta.messageSummaryTo ?? index) : (meta?.to ?? index);
+            break;
+        }
+    }
+    const from = recorded + 1, end = chat.length - 1 - settings.autoUpdateFrequency;
+    let to = from + settings.updateBatchSize - 1;
+    if (to > end) return null;
+    while (to <= end && chat[to]?.is_user) to++;
+    return to <= end && chat.slice(from, to + 1).some(message => !message.is_user) ? { from, to } : null;
 }
 
 export function sheetText(database, key, summaryLimit = 10) {

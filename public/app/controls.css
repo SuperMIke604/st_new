@@ -107,6 +107,9 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     .connection-profile-bar, .db-toolbar, .library-toolbar { flex-wrap: wrap; }
     .connection-profile-bar > .select-control { flex: 1 1 110px; }
     .connection-profile-bar .connection-profile-tools { max-width: 100%; flex-wrap: wrap; }
+    .connection-profile-bar.preset-profile-bar { flex-wrap: nowrap; }
+    .connection-profile-bar.preset-profile-bar > .select-control { flex: 1 1 0; min-width: 0; }
+    .connection-profile-bar.preset-profile-bar .connection-profile-tools { flex-wrap: nowrap; gap: 0; }
 }
 
 /* Native touch feedback, selection and focus follow the application palette.
@@ -156,13 +159,13 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 :is(.preset-panel,.regex-panel) .prompt-summary:has(.prompt-inline-actions:not([hidden])) { overflow: visible; flex-wrap: nowrap; }
 /* Embedded button state surfaces have a 5px inset; hit targets stay 42px. */
 :root { --control-inset-state: 32px; }
-:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button) {
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.dm-world-tools .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button) {
     background: transparent;
     isolation: isolate;
     outline: none;
 }
-:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):not(.key-toggle) { position: relative; }
-:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button)::before {
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.dm-world-tools .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):not(.key-toggle) { position: relative; }
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.dm-world-tools .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button)::before {
     content: '';
     position: absolute;
     width: var(--control-inset-state);
@@ -172,13 +175,14 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     z-index: -1;
     pointer-events: none;
 }
-:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):is(:hover,:active,[aria-pressed=true],[aria-expanded=true])::before {
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.dm-world-tools .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):is(:hover,:active,[aria-pressed=true],[aria-expanded=true])::before {
     background: var(--soft);
 }
-:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):focus-visible::before {
+:root #panel :is(.key-toggle,.global-world-toggle,.global-world-tag button,.prompt-summary .button,.world-entry-actions .button,.dm-world-tools .button,.persona-actions .button,.card-actions .button,.view-buttons .button,.folder-action-anchor .button,.db-table-scroll th > .button):focus-visible::before {
     outline: 2px solid var(--green);
     outline-offset: -2px;
 }
+:root #panel .dm-world-tools button.button::before { width: calc(100% - 10px); background: var(--soft); }
 .prompt-action-anchor { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px; }
 /* Open over the count/title without changing the row's layout on any screen. */
 :is(.preset-panel,.regex-panel) .prompt-summary .prompt-action-anchor { height: var(--control-size); }

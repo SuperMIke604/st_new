@@ -25,6 +25,7 @@ import { buildPrompt, fitPrompt, generationBody, activateWorlds, expand } from '
 import { VirtualChat } from './virtual-chat.js';
 import { icon } from './icons.js';
 import { installPromptDrag } from './prompt-drag.js';
+import { autosizePrompt } from './prompt-autosize.js';
 import { worldDraft, renderWorldEntries } from './world-editor.js';
 import { renderGlobalWorldSelect } from './world-select.js';
 import { decorateCodeBlocks } from './code-blocks.js';
@@ -32,7 +33,7 @@ import { messageMarkdown } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
-import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase } from './database.js';
+import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
@@ -824,11 +825,13 @@ async function renderPresetPanel(body, revision) {
     const rows = el('div', 'prompt-list');
     const opened = new Set();
     let pageReady = false, tokenPreview;
+    const promptSizes = [];
     body._onReady = () => { pageReady = true; tokenPreview?.start(); };
-    body._dispose = () => { pageReady = false; tokenPreview?.dispose(); rows._disposeDrag?.(); };
+    body._dispose = () => { pageReady = false; tokenPreview?.dispose(); rows._disposeDrag?.(); for(const dispose of promptSizes.splice(0))dispose(); };
     const markDirty = () => { panelDirty = true; };
     const updateCount = () => { const order = promptOrder(draft); count.textContent = `${order.length} 个条目 · ${order.filter(item => item.enabled !== false).length} 个启用`; };
     const renderRows = () => {
+        for(const dispose of promptSizes.splice(0))dispose();
         rows._disposeDrag?.(); tokenPreview?.dispose();
         tokenPreview = new PresetTokenPreview({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
         rows.replaceChildren(); updateCount();
@@ -920,6 +923,7 @@ async function renderPresetPanel(body, revision) {
                 if (prompt.marker) note(content, `自动填充${markerLabels[prompt.identifier] || prompt.name}。可以调整顺序或开关，内容来自对应的角色、用户设定、世界书或聊天记录。`);
                 else {
                     const text = field(content, '提示词内容', prompt.content || '', { multiline: true, rows: 7, hint: '可使用 {{char}}、{{user}} 等已支持的宏。' });
+                    promptSizes.push(autosizePrompt(text));
                     text.addEventListener('input', () => { prompt.content = text.value; tokenVersion++; clearTimeout(tokenTimer); tokenTimer = setTimeout(updateTokens, 500); });
                     const injection = el('div', 'parameter-grid');
                     const position = field(injection, '插入位置', Number(prompt.injection_position) || 0, { options: [[0, '按条目顺序'], [1, '插入聊天深度']] });
@@ -2069,6 +2073,10 @@ async function databasePanel(preview = false) {
         },
         saveData: async value => { write.check(); sameChat(); storeDatabase(state.chat, state.header, value, target); write.saved(); await saveChat(); await rememberChat(); },
         fill: async (from, to) => { sameChat(); await updateDatabase(from, to); },
+        summarize: async () => { sameChat(); await updateDatabase(0, 0, false, 'database'); },
+        countDatabaseTokens: async () => { sameChat(); const latest=currentDatabase(); return databaseTokenCount(latest.data, latest.settings); },
+        latest: () => { sameChat(); return currentDatabase(); },
+        isUpdating: () => !!state.databaseController,
     });
 }
 function databaseProgress(message, controller) {
@@ -2078,23 +2086,36 @@ function databaseProgress(message, controller) {
     if(notice.showPopover)notice.showPopover();else $('panel').open?$('panel').append(notice):document.body.append(notice);
     return {update:value=>{text.textContent=value;},close:()=>{if(notice.matches(':popover-open'))notice.hidePopover();notice.remove();}};
 }
-async function updateDatabase(from, to, automatic = false) {
+async function databaseTokenCount(data, settings) {
+    const model = databaseConnection(settings).model || 'gpt-4';
+    const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, [{ role: 'system', content: referenceDatabaseText(data, settings) }]);
+    if (!Number.isFinite(result?.token_count) || result.token_count < 0) throw new Error('无法统计数据库 Token，请稍后重试。');
+    return result.token_count;
+}
+async function updateDatabase(from, to, automatic = false, kind = 'message') {
     assertDatabaseWritable(); if (!state.character) throw new Error('请先打开聊天。');
     if (state.databaseController) throw new Error('数据库正在更新，请等待完成或终止填表。');
+    const summarizing = kind === 'database';
+    const current = currentDatabase(), settings = current.settings;
+    if (summarizing) {
+        to = current.index >= 0 ? current.index : state.chat.findLastIndex(message => !message.is_user && message !== state.generation?.reply);
+        from = to;
+    }
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= state.chat.length) throw new Error('请填写有效的起始和结束楼层。');
     const aiIndices=state.chat.map((message,index)=>!message.is_user&&index>=from&&index<=to?index:-1).filter(index=>index>=0);
-    if(!aiIndices.length){notify('没有消息需要更新', 'info');return;}
-    const rangeStart=from,rangeEnd=to;from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;to=aiIndices.at(-1);
+    if(!aiIndices.length){notify('没有消息需要更新', 'info');return false;}
+    const rangeStart=from,rangeEnd=to;if(!summarizing){from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;}to=aiIndices.at(-1);
     const write = databaseWriteGuard(to);
     write.check();
-    const current = currentDatabase(), settings = current.settings;
     let config = databaseConnection(settings);
     if (!config) throw new Error('填表连接已删除，请在数据库更新设置中重新选择。');
     config = { ...config, stream: false };
     const preset = { temperature: settings.temperature, top_p: 1, openai_max_tokens: settings.maxTokens, names_behavior: 0 };
     generationBody(config, preset, []);
     const chat = copy(state.chat);
-    let result=settings.template;for(let index=aiIndices[0];index>=0;index--)if(!chat[index].is_user&&chat[index].TavernDB_ACU_Data){result=copy(chat[index].TavernDB_ACU_Data);break;}
+    let result=summarizing?copy(current.data):settings.template;if(!summarizing)for(let index=aiIndices[0];index>=0;index--)if(!chat[index].is_user&&chat[index].TavernDB_ACU_Data){result=copy(chat[index].TavernDB_ACU_Data);break;}
+    const sourceDatabase = summarizing ? JSON.stringify(current.data) : null;
+    const previousMeta = chat[to]?.extra?.independentDatabase;
     let reference = '';
     const controller = new AbortController(); state.databaseController = controller;
     const progress=databaseProgress('正在准备填表数据，请稍候…',controller);
@@ -2115,9 +2136,9 @@ async function updateDatabase(from, to, automatic = false) {
             if (chat[end].is_user) { end = chat.findIndex((message, index) => index >= start && index <= to && !message.is_user); if (end < start) throw new Error('整理范围内没有角色回复。'); }
             const variables = { char: state.character?.name || '', user: persona().name, description: state.character?.data?.description || '', persona: persona().description, tabledata: referenceDatabaseText(result, settings) };
             for (const [key] of Object.entries(result).filter(([key]) => key.startsWith('sheet_'))) variables[key] = sheetText(result, key);
-            const messages = fillMessages({...settings,userName:persona().name}, result, chat, start, end, reference).map(message => ({ ...message, content: expand(message.content, variables) }));
+            const messages = fillMessages({...settings,userName:persona().name}, result, summarizing ? [] : chat, start, end, reference, kind).map(message => ({ ...message, content: expand(message.content, variables) }));
 
-            progress.update(automatic?'正在填表，请稍候…':`正在处理手动更新（${batches+1}/1），楼层 ${rangeStart}–${rangeEnd}…`);
+            progress.update(summarizing?'正在总结最新数据库…':automatic?'正在总结消息，请稍候…':`正在总结消息，楼层 ${rangeStart}–${rangeEnd}…`);
             const response = await api.response('/api/backends/chat-completions/generate', generationBody(config, preset, messages), { signal: controller.signal });
             let text = '';
             if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
@@ -2130,21 +2151,28 @@ async function updateDatabase(from, to, automatic = false) {
         }
         if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
         write.check();
-        storeDatabase(state.chat, state.header, result, to, { from, to, batches });
-        if(settings.autoHideMessages){for(let index=rangeStart===1?0:rangeStart;index<=rangeEnd;index++)state.chat[index].is_system=true;list.setMessages(state.chat,{reset:true});}
+        if (summarizing && (currentDatabase().index !== current.index || JSON.stringify(currentDatabase().data) !== sourceDatabase)) throw new Error('最新数据库已变化，请重新总结。');
+        const metadata = summarizing ? { kind, messageSummaryTo: previousMeta?.messageSummaryTo ?? previousMeta?.to ?? current.index, batches } : { kind, from: rangeStart, to, batches };
+        storeDatabase(state.chat, state.header, result, to, metadata);
         progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify(databaseUpdateNotice(updateCounts));
+        return true;
     } catch (error) {
-        if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return; }
+        if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return false; }
         notify(`数据库更新失败：${error.message}`,true);throw error;
     } finally { progress.close(); state.databaseController = null; }
 }
 async function autoUpdateDatabase() {
  try {
-  if(!state.own.database?.auto || state.databaseController || state.busy || state.dirty || state.chat.length<2 || state.chat.at(-1)?.is_user || state.chat.at(-1)?.TavernDB_ACU_Data)return;
-  const settings=currentDatabase().settings;let recorded=0;for(let index=state.chat.length-1;index>0;index--)if(state.chat[index].TavernDB_ACU_Data){recorded=index;break;}
-  const batch=Number(settings.updateBatchSize)||1,skip=Number(settings.autoUpdateFrequency)||0;
-  if(state.chat.length-1-recorded<skip+batch)return;
-  await updateDatabase(recorded===0?0:recorded+1,Math.min(state.chat.length-1,recorded+batch),true);
+  if(state.databaseController || state.busy || state.dirty || state.loading || !state.character || !state.chat.length || state.chat.at(-1)?.is_user)return;
+  const settings=currentDatabase().settings;
+  if(settings.auto){const range=messageSummaryRange(state.chat,settings);if(range&&await updateDatabase(range.from,range.to,true)===false)return;}
+  if(!settings.databaseSummaryAuto || state.databaseController || state.busy || state.dirty)return;
+  const current=currentDatabase();
+  if(current.index<0 || state.chat[current.index].extra?.independentDatabase?.kind==='database')return;
+  const write=databaseWriteGuard(current.index);write.check();
+  const tokens=!databaseSummaryTriggered(settings,current.data,0)&&settings.databaseSummaryTokens>0?await databaseTokenCount(current.data,settings):0;
+  write.check();
+  if(databaseSummaryTriggered(settings,current.data,tokens))await updateDatabase(0,0,true,'database');
  }catch(error){notify(`回复已保存，自动填表失败：${error.message}`,true);}
 }
 const tokenCounts = new Map();
