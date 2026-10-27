@@ -1,10 +1,11 @@
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
+import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
 
 export function renderDatabasePanel(body, context) {
     const { el, field, action, notify, pickFile } = context;
     let data = validateDatabase(context.data), settings = databaseSettings(context.settings), tab = context.preview ? 'data' : 'settings', dataDirty = false, settingsDirty = false;
-    let activeTable = '', summaryWorking = false, statusRevision = 0;
+    let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
     const promptSizes = [];
     const statusFields = ['inject','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
@@ -35,20 +36,19 @@ export function renderDatabasePanel(body, context) {
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['template', '模板']])) {
+        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板']])) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); tabs.append(control);
         }
         content.replaceChildren();
         content.classList.toggle('preset-panel', tab === 'presets');
-        if (tab === 'data' || tab === 'template') renderTables(tab);
+        if (tab === 'overview') renderDatabaseOverview(content, context);
+        else if (tab === 'data' || tab === 'template') renderTables(tab);
         else if (tab === 'presets') renderPresets(); else if(tab==='api')renderAPI();else if(tab==='world')void renderWorld();else renderSettings();
     };
     const note = text => { const node = el('p', 'note', text); content.append(node); return node; };
     const saveSettings = async () => {
         clearTimeout(saveTimer);const version=++editVersion;
         const includeStatus = tab === 'settings', savedStatusVersion = statusVersion;
-        const source = content.querySelector('.db-template-json');
-        if (source && source.value !== source.dataset.original) settings.template = parseDatabase(source.value);
         const active = settings.presets.find(item => item.id === settings.activePreset);
         if (active) active.template = structuredClone(settings.template);
         let value=settingsValue(includeStatus);
@@ -66,21 +66,19 @@ export function renderDatabasePanel(body, context) {
         const replace = value => { if (template) settings.template = value; else data = value; dirty(kind); render(); };
         const change = callback => { remember(); callback(); dirty(kind); render(); };
         const toolbar = el('div', 'db-toolbar'); content.append(toolbar);
-        toolbar.classList.add('db-table-actions');
+        if (!template) toolbar.classList.add('db-table-actions');
         toolbarButton(toolbar, `导入${label}`, 'import', async () => {
             const file = await pickFile('.json'); if (!file) return; const value = parseDatabase(await file.text());
             if (!confirm(`使用导入内容替换当前${label}草稿？保存后生效。`)) return; remember(); replace(value);
         });
         toolbarButton(toolbar, `导出${label}`, 'export', () => download(book, template ? 'database-template.json' : 'database.json'));
         const undoButton = toolbarButton(toolbar, '撤销编辑', 'history', () => { replace(history.pop()); }); undoButton.disabled = !history.length;
-        const saveBar = el('div', 'db-template-save');
+        const saveBar = el('div', template ? 'editor-footer' : 'db-template-save');
         toolbarButton(saveBar, template ? '保存模板' : '保存数据', 'edit', template ? saveSettings : saveData, 'primary');
-        content.prepend(saveBar);
+        if (!template) content.prepend(saveBar);
         if (template) {
 
             toolbarButton(toolbar,'重置模板','refresh',()=>{if(!confirm('重置当前预设模板？'))return;remember();replace({mate:{type:'chatSheets'}});});
-            const raw=el('details','advanced');raw.append(el('summary','','JSON 模板'));const source=field(raw,'模板内容',JSON.stringify(book,null,2),{multiline:true,rows:12});source.classList.add('db-template-json');source.dataset.original=source.value;source.addEventListener('input',()=>{settingsDirty=true;context.dirty(true);});toolbarButton(raw,'保存 JSON 模板','edit',async()=>{const value=parseDatabase(source.value);settings.template=value;source.dataset.original=source.value;dirty('template');await saveSettings();render();});content.append(raw);
-            note('模板用于初始化没有数据库的新聊天。编辑模板不会改写其他聊天的数据。');
             toolbarButton(toolbar, '应用模板到当前聊天', 'refresh', () => {
                 if (!confirm('用此模板替换当前聊天数据库草稿？原快照会保留，点击保存数据后生效。')) return;
                 undo.data.push(structuredClone(data)); data = validateDatabase(book); dataDirty = true; context.dirty(true); tab = context.preview ? 'data' : 'settings'; render();
@@ -106,6 +104,74 @@ export function renderDatabasePanel(body, context) {
                 }); content.append(restore);
             }
         }
+        if (template) {
+            const presetSelect = field(content, '所属 AI 指令预设', settings.activePreset, { options: settings.presets.map(preset => [preset.id, preset.name]) });
+            presetSelect.addEventListener('change', () => {
+                settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(book);
+                settings.activePreset = presetSelect.value;
+                settings.template = structuredClone(settings.presets.find(preset => preset.id === settings.activePreset).template);
+                history.length = 0; activeTable = ''; dirty(kind); render();
+            });
+            const workspace = el('div', 'db-template-workspace'), sidebar = el('section', 'db-template-tables reference-preview-fixed'), editor = el('section', 'db-sheet db-template-editor');
+            const listHeading = el('div', 'db-template-heading'); listHeading.append(el('h2', '', '模板表格'));
+            toolbarButton(listHeading, '新增表格', 'plus', () => change(() => {
+                let index = 0; while (Object.hasOwn(book, `sheet_${index}`)) index++;
+                activeTable = `sheet_${index}`; book[activeTable] = { name: '新表格', content: [[null, '名称', '内容']] };
+            }), 'icon-button'); sidebar.append(listHeading);
+            const tables = sheets(book);
+            if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
+            const navigation = el('div', 'reference-table-navigation db-template-navigation');
+            const list = el('nav', 'db-table-tabs db-template-list'); list.setAttribute('aria-label', '模板表格');
+            list.id = 'database-template-tables'; list.dataset.expanded = String(templateTablesExpanded);
+            for (const [key, table] of tables) {
+                const button = action('', () => { activeTable = key; render(); });
+                button.replaceChildren(el('span', '', `${table.name || key}（${table.content[0].length - 1}）`));
+                button.setAttribute('aria-pressed', String(key === activeTable)); list.append(button);
+            }
+            list.addEventListener('scroll', () => { templateTabsLeft = list.scrollLeft; });
+            const expandTables = toolbarButton(navigation, templateTablesExpanded ? '收起表格' : '展开全部表格', 'chevron', () => {
+                templateTablesExpanded = !templateTablesExpanded;
+                list.dataset.expanded = String(templateTablesExpanded);
+                expandTables.setAttribute('aria-expanded', String(templateTablesExpanded));
+                const label = templateTablesExpanded ? '收起表格' : '展开全部表格';
+                expandTables.title = label; expandTables.setAttribute('aria-label', label);
+                if (!templateTablesExpanded) list.querySelector('[aria-pressed=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            }, 'icon-button');
+            expandTables.setAttribute('aria-expanded', String(templateTablesExpanded));
+            expandTables.setAttribute('aria-controls', list.id); expandTables.disabled = tables.length < 2;
+            navigation.append(list); sidebar.append(navigation);
+            if (!tables.length) sidebar.append(el('p', 'note', '暂无表格，点击“新增表格”开始设计。'));
+            const entry = tables.find(([key]) => key === activeTable);
+            if (entry) {
+                const [key, table] = entry;
+                const heading = el('div', 'db-template-heading'); heading.append(el('h2', '', '表格设置'));
+                toolbarButton(heading, '删除表格', 'trash', () => { if (confirm(`删除表格「${table.name}」及其模板内容？可撤销此操作。`)) change(() => { delete book[key]; }); }, 'icon-button danger'); editor.append(heading);
+                const name = field(editor, '表格名称', table.name || key);
+                name.addEventListener('focus', remember, { once: true });
+                name.addEventListener('input', () => {
+                    table.name = name.value;
+                    list.querySelector('[aria-pressed=true] > span').textContent = `${name.value || key}（${table.content[0].length - 1}）`;
+                    dirty(kind);
+                });
+                const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
+                toolbarButton(fieldsHeading, '新增字段', 'plus', () => change(() => {
+                    table.content[0].push('新字段'); for (const row of table.content.slice(1)) row.push('');
+                }), 'icon-button'); editor.append(fieldsHeading);
+                const fields = el('div', 'db-template-fields');
+                for (let column = 1; column < table.content[0].length; column++) {
+                    const row = el('div', 'db-template-field');
+                    const input = field(row, `字段 ${column}`, table.content[0][column] ?? '');
+                    input.addEventListener('focus', remember, { once: true });
+                    input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); });
+                    const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
+                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => { for (const dataRow of table.content) dataRow.splice(column, 1); });
+                    }, 'danger');
+                    remove.disabled = table.content[0].length <= 2; fields.append(row);
+                }
+                editor.append(fields, el('p', 'note', '至少保留一个字段。字段顺序即填表顺序。'));
+            } else editor.append(el('p', 'note', '新增表格后，即可编辑表名和字段。'));
+            workspace.append(sidebar, editor); content.append(workspace, saveBar); list.scrollLeft = templateTabsLeft; return;
+        }
         const create = el('details', 'advanced'); create.append(el('summary', '', '新增数据表'));
         const name = field(create, '表名', '新表'), columns = field(create, '列名（英文逗号分隔）', '名称,内容');
         toolbarButton(create, '创建数据表', 'plus', () => {
@@ -125,14 +191,6 @@ export function renderDatabasePanel(body, context) {
                 change(() => { table.content[0].push('新列'); for (const row of table.content.slice(1)) row.push(''); });
             });
             toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { delete book[key]; }); }, 'danger'); section.append(heading);
-            if(template){
-                const fields=el('div','db-template-fields');
-                for(let column=1;column<table.content[0].length;column++){
-                    const row=el('div','db-template-field');const control=field(row,`字段 ${column}`,table.content[0][column]||'');control.addEventListener('focus',remember,{once:true});control.addEventListener('input',()=>{table.content[0][column]=control.value;dirty(kind);});
-                    const remove=toolbarButton(row,'删除字段','trash',()=>{if(!confirm('删除此字段及其模板内容？'))return;change(()=>{for(const dataRow of table.content)dataRow.splice(column,1);});},'danger');remove.disabled=table.content[0].length<=2;fields.append(row);
-                }
-                section.append(fields);content.append(section);continue;
-            }
             const scroll = el('div', 'db-table-scroll'), grid = el('table'); const head = el('thead'), header = el('tr'); header.append(el('th', '', '行'));
             for (let column = 1; column < table.content[0].length; column++) {
                 const cell = el('th'), input = el('input'); input.value = table.content[0][column] || ''; input.setAttribute('aria-label', `列名 ${table.name} ${column}`);
@@ -206,7 +264,7 @@ export function renderDatabasePanel(body, context) {
             const url=field(content,'API 基础地址',config.url||'',{type:'url'});url.addEventListener('input',()=>{config.url=url.value;dirty('settings');});
             const key=field(content,'API Key',config.apiKey||'',{type:'password'});key.autocomplete='new-password';key.addEventListener('input',()=>{config.apiKey=key.value;dirty('settings');});
             const keyWrap=el('div','key-input-wrap');key.before(keyWrap);keyWrap.append(key);
-            const eye=toolbarButton(keyWrap,'显示密钥','eye',()=>{const visible=key.type==='password';key.type=visible?'text':'password';if(context.icon)eye.replaceChildren(context.icon(visible?'eyeOff':'eye'));eye.title=visible?'隐藏密钥':'显示密钥';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(visible));},'key-toggle');eye.querySelector('span')?.remove();eye.setAttribute('aria-pressed','false');
+            const eye=toolbarButton(keyWrap,'显示密钥','eye',()=>{const visible=key.type==='password';key.type=visible?'text':'password';if(context.icon)eye.replaceChildren(context.icon(visible?'eyeOff':'eye'));eye.title=visible?'隐藏密钥':'显示密钥';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(visible));},'key-toggle');if(context.icon)eye.replaceChildren(context.icon('eye'));else eye.querySelector('span')?.remove();eye.setAttribute('aria-pressed','false');
             const model=field(content,'模型',config.model||'',{options:config.model?[[config.model,config.model]]:[['','读取列表或输入模型 ID']]});model.dataset.searchable='true';model.dataset.allowCustom='true';model.addEventListener('change',()=>{config.model=model.value;dirty('settings');});
             const modelRow=el('div','connection-model-row');model.before(modelRow);modelRow.append(model);
             const currentPage=()=>!disposed&&tab==='api'&&model.isConnected;

@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange } from '../database.js';
 
+import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
+
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const functions = source.slice(source.indexOf('function assertDatabaseWritable('), source.indexOf('const tokenCounts ='));
 function fixture() {
@@ -14,7 +16,7 @@ function fixture() {
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
     const context = vm.createContext({ state, inlineEdit: null, panelDirty: false, panelRevision: 1, AbortController, DOMException,
-        sourceHash, storeDatabase, databaseSummaryTriggered, messageSummaryRange, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
+        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: () => ({}), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
@@ -163,4 +165,52 @@ test('finishing fill does not reopen management or clear a different panel draft
     f.finish(); await task;
     assert.equal(f.panels.length, 1); assert.equal(f.context.panelDirty, true);
     f.panel().dirty(false); assert.equal(f.context.panelDirty, true);
+});
+
+
+test('overview context keeps chat history and seed bound to the opened conversation', async () => {
+    const f = fixture();
+    const seed = defaultDatabase(), history = [{ index: 1, data: defaultDatabase() }];
+    f.state.header.chat_metadata.independentDatabase = { seed, history };
+    await f.run('databasePanel()');
+    const panel = f.panel();
+    assert.equal(panel.characterName, 'A'); assert.equal(panel.chatName, 'chat');
+    assert.equal(panel.seed, seed); assert.equal(panel.chat, f.state.chat);
+    f.state.header = { chat_metadata: { independentDatabase: { history: [{ index: 99 }] } } };
+    f.state.chat = []; f.state.file = 'other';
+    assert.equal(panel.history(), history);
+    assert.equal(panel.chat.length, 2);
+});
+
+
+test('history deletion persists only the opened chat and restores on save failure', async () => {
+    const f = fixture(); storeDatabase(f.state.chat, f.state.header, defaultDatabase(), 1);
+    await f.run('databasePanel()');
+    const expected = databaseSummaryHistory(f.state.chat);
+    await f.panel().deleteHistory('message-1', expected);
+    assert.equal(f.writes.length, 1); assert.equal(f.state.chat[1].TavernDB_ACU_Data, undefined);
+    assert.equal(f.state.databaseHistorySaving, false);
+    const g = fixture(); storeDatabase(g.state.chat, g.state.header, defaultDatabase(), 1);
+    await g.run('databasePanel()');
+    g.run("saveChat = async () => { throw Error('save failed'); }");
+    await assert.rejects(g.panel().deleteHistory('message-1', databaseSummaryHistory(g.state.chat)), /save failed/);
+    assert.ok(g.state.chat[1].TavernDB_ACU_Data); assert.equal(g.state.databaseHistorySaving, false);
+});
+
+test('history deletion rejects switched chats, updates and chat generation', async () => {
+    const f = fixture(); await f.run('databasePanel()');
+    f.state.busy = true;
+    await assert.rejects(f.panel().deleteHistory('all', databaseSummaryHistory(f.state.chat)), /等待生成/);
+    f.state.busy = false; f.state.databaseController = {};
+    await assert.rejects(f.panel().deleteHistory('all', databaseSummaryHistory(f.state.chat)), /数据库更新/);
+    f.state.databaseController = null; f.state.file = 'other';
+    await assert.rejects(f.panel().deleteHistory('all', databaseSummaryHistory(f.state.chat)), /聊天已切换/);
+    assert.equal(f.writes.length, 0);
+});
+
+
+test('preview guard rejects legacy snapshot deletion even when message text is unchanged', () => {
+    const f = fixture(); f.run('guard = databaseWriteGuard(1)');
+    f.state.chat[1].extra.independentDatabase = { snapshotDeleted: true };
+    assert.throws(() => f.run('guard.check()'), /数据库已变化/);
 });

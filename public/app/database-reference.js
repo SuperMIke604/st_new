@@ -674,7 +674,7 @@ export function referencePreviewRows(table,state) {_dpState=state;return _dpGetD
 export const referencePagination = _dpPaginationRange;
 
 export function extractDataFromMessage(message, options = {}) {
-    if (!message) return null;
+    if (!message || message.extra?.independentDatabase?.snapshotDeleted) return null;
     const { requireMate = false } = options;
 
     // 1. 优先取已保存的结构化数据

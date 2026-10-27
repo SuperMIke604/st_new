@@ -34,6 +34,7 @@ import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
 import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, databaseSummaryTriggered, messageSummaryRange } from './database.js';
+import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
@@ -2030,6 +2031,7 @@ async function databaseModels(config) {
  const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
 }
 function assertDatabaseWritable() {
+    if (state.databaseHistorySaving) throw new Error('正在保存历史总结删除，请稍候。');
     if (state.loading) throw new Error('正在切换聊天，请稍候。');
     if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。');
     if (state.dirty && !state.busy) throw new Error('当前聊天尚未保存，请先重试保存。');
@@ -2037,7 +2039,7 @@ function assertDatabaseWritable() {
 function databaseWriteGuard(index) {
     const chat = state.chat, header = state.header, identity = `${state.character?.avatar}/${state.file}`, target = chat[index];
     const hash = sourceHash(chat, index);
-    const snapshot = () => JSON.stringify([header.chat_metadata?.independentDatabase?.seed, chat.slice(0, index + 1).map(message => message.TavernDB_ACU_Data)]);
+    const snapshot = () => JSON.stringify([header.chat_metadata?.independentDatabase?.seed, chat.slice(0, index + 1).map(message => [message.TavernDB_ACU_Data, message.extra?.independentDatabase?.snapshotDeleted])]);
     let original = snapshot();
     return {
         check() {
@@ -2061,9 +2063,17 @@ async function databasePanel(preview = false) {
     const sameChat = () => { if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity) throw new Error('聊天已切换，请重新打开数据库。'); };
     const content = el('div', 'panel-content'); body.append(content);
     renderDatabasePanel(content, {
-        worlds: databaseWorlds, models: databaseModels, preview, el, field, action, icon, notify, pickFile, chatName: state.file, chat: state.chat,
+        worlds: databaseWorlds, models: databaseModels, preview, el, field, action, icon, notify, pickFile, characterName: state.character.name, chatName: state.file, chat, seed: header.chat_metadata?.independentDatabase?.seed,
         settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
-        history: () => state.header.chat_metadata?.independentDatabase?.history || [],
+        history: () => header.chat_metadata?.independentDatabase?.history || [],
+        getSeed: () => header.chat_metadata?.independentDatabase?.seed,
+        deleteHistory: async (id, expected) => {
+            sameChat(); assertDatabaseWritable();
+            if (state.databaseController || state.busy) throw new Error('请等待生成或数据库更新完成后再删除历史总结。');
+            state.databaseHistorySaving = true;
+            try { return await deleteDatabaseSummaryHistory(chat, header, id, expected, saveChat); }
+            finally { state.databaseHistorySaving = false; }
+        },
         dirty: value => { if (revision === panelRevision) panelDirty = value; }, stop: () => state.databaseController?.abort(),
         saveSettings: async value => {
             sameChat(); const enabling = !state.own.database?.auto && value.auto;

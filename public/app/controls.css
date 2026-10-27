@@ -85,7 +85,7 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .persona-actions, .db-toolbar, .db-fill-bar, .db-template-field { gap: var(--control-gap); }
 .connection-model-row > .model-refresh { flex-basis: var(--control-size); }
 .key-input-wrap { height: var(--control-size); }
-.key-input-wrap input { padding-right: calc(var(--control-size) + 12px); }
+:root #panel .field .key-input-wrap > input { padding-right: calc(var(--control-size) + 12px); }
 .key-toggle { right: 0; top: 0; transform: none; }
 .global-world-control { min-height: var(--control-size); padding: var(--control-tag-gap); border: 0; border-radius: var(--control-radius); box-shadow: inset 0 0 0 1px var(--line); }
 .global-world-tags { min-width: 0; gap: var(--control-tag-gap); padding: 0; }
