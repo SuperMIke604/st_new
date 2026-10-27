@@ -37,24 +37,11 @@ export function scriptRows(tree, parentEnabled = true, folder = '') {
         return [{ script: item, parent: tree, index, enabled, folder }];
     });
 }
-export function scriptScopeEnabled(settings, character, scope) {
-    const enabled = settings.extension_settings?.tavern_helper?.script?.enabled;
-    const legacy = settings.extension_settings?.TavernHelper;
-    if (scope === 'global') return (enabled?.global ?? legacy?.global_script_enabled) !== false;
-    const characters = enabled?.characters ?? legacy?.characters_with_scripts;
-    return !Array.isArray(characters) || characters.includes(character?.avatar);
-}
-export function patchScriptScope(settings, scope, { tree, enabled, avatar, allAvatars = [] }) {
+export function patchGlobalScripts(settings, tree) {
+    validateScriptTree(tree);
     const helper = (settings.extension_settings ||= {}).tavern_helper ||= {};
     const scripts = helper.script ||= {};
-    if (!scripts.enabled || typeof scripts.enabled !== 'object' || Array.isArray(scripts.enabled)) scripts.enabled = {};
-    if (scope === 'global') { validateScriptTree(tree); scripts.scripts = structuredClone(tree); scripts.enabled.global = enabled; }
-    else {
-        const current = scripts.enabled.characters ?? settings.extension_settings.TavernHelper?.characters_with_scripts;
-        const avatars = new Set(Array.isArray(current) ? current : allAvatars);
-        if (enabled) avatars.add(avatar); else avatars.delete(avatar);
-        scripts.enabled.characters = [...avatars];
-    }
+    scripts.scripts = structuredClone(tree);
 }
 export function scriptSupport(script) {
     const text = String(script.content || '');
@@ -73,17 +60,15 @@ export function scriptSupport(script) {
     return { supported: true, reason: '可在脚本面板中尝试运行；仅提供已接入的兼容接口。' };
 }
 export function characterScriptPlan(settings, character) {
-    const enabled = scriptScopeEnabled(settings, character, 'character');
-    return scriptRows(scriptTrees(settings, character).character).map(row => ({ ...row.script, scope: 'character', enabled: enabled && row.enabled }));
+    return scriptRows(scriptTrees(settings, character).character).map(row => ({ ...row.script, scope: 'character', enabled: row.enabled }));
 }
 export function nativeScriptPlan(settings, character) {
-    const enabled = scriptScopeEnabled(settings, character, 'global');
-    return [...scriptRows(scriptTrees(settings, character).global).map(row => ({ ...row.script, scope: 'global', enabled: enabled && row.enabled })), ...characterScriptPlan(settings, character)];
+    return [...scriptRows(scriptTrees(settings, character).global).map(row => ({ ...row.script, scope: 'global', enabled: row.enabled })), ...characterScriptPlan(settings, character)];
 }
 export function usesMvuCompat(settings, character) { return characterScriptPlan(settings, character).some(script => script.enabled && scriptSupport(script).adapter === 'mvu'); }
 export function activeScripts(settings, character) {
     const trees = scriptTrees(settings, character);
-    return ['global', 'character'].flatMap(scope => scriptScopeEnabled(settings, character, scope) ? scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })) : []);
+    return ['global', 'character'].flatMap(scope => scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })));
 }
 export function scriptSnapshot({ chat = [], header, character, settings = {}, own = {}, file = '' }) {
     const recent = Math.max(0, chat.length - 40);

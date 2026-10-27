@@ -51,3 +51,12 @@ test('concurrent opens share one request and invalidation blocks stale writes', 
     const stale = catalog.load({ force: true }); catalog.invalidate(); resolve(cards);
     await assert.rejects(stale, { name: 'AbortError' }); assert.equal(catalog.cache, null);
 });
+
+test('management pages may reuse an expired catalogue until explicit refresh or invalidation', async () => {
+    let now = 0, reads = 0;
+    const catalog = new CharacterCatalog({ post: async () => { reads++; return cards; } }, { ...options, now: () => now });
+    await catalog.load(); now = 60000;
+    assert.deepEqual(await catalog.load({ allowStale: true }), cards); assert.equal(reads, 1);
+    await catalog.load({ force: true, allowStale: true }); assert.equal(reads, 2);
+    catalog.invalidate(); await catalog.load({ allowStale: true }); assert.equal(reads, 3);
+});

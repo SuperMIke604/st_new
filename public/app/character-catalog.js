@@ -5,9 +5,9 @@ export class CharacterCatalog {
         Object.assign(this, { api, now, pause, timeout }); this.cache = null; this.pending = null; this.revision = 0;
     }
     invalidate() { this.cache = null; this.pending = null; this.revision++; }
-    async load({ force = false, knownAvatar, timing } = {}) {
+    async load({ force = false, knownAvatar, timing, allowStale = false } = {}) {
         if (this.pending) return timing ? timing.measure('角色目录 · 等待共享读取', 'data', () => this.pending, () => ({ metrics: { cacheHit: 1, sharedRequest: 1 } })) : this.pending;
-        if (!force && this.cache?.items.length && this.now() - this.cache.at < 30000) {
+        if (!force && this.cache?.items.length && (allowStale || this.now() - this.cache.at < 30000)) {
             timing?.start('角色目录 · 命中内存缓存', 'data')('success', { itemCount: this.cache.items.length, metrics: { cacheHit: 1 } });
             return this.cache.items;
         }

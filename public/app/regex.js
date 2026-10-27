@@ -9,6 +9,15 @@ export function scopedRegexes({ settings = {}, preset = {}, character = null } =
     const local = character?.data?.extensions?.regex_scripts ?? character?.extensions?.regex_scripts;
     return { global: Array.isArray(global) ? global : [], preset: presetRegexes(preset), character: Array.isArray(local) ? local : [] };
 }
+export async function saveCharacterRegexes(api, avatar, rules) {
+    const expected = structuredClone(rules);
+    const result = await api.post('/api/characters/merge-attributes', { avatar, data: { extensions: { regex_scripts: expected } } });
+    if (result !== 'OK' && result?.ok !== true) throw Error('角色卡正则保存失败。');
+    const card = await api.post('/api/characters/get', { avatar_url: avatar }, { signal: AbortSignal.timeout(15000) });
+    const savedRules = card?.data?.extensions?.regex_scripts ?? card?.extensions?.regex_scripts;
+    if (!Array.isArray(savedRules) || JSON.stringify(savedRules) !== JSON.stringify(expected)) throw Error('角色卡正则保存核验失败，请重试。');
+    return card;
+}
 export function activeRegexes(input) {
     const scopes = scopedRegexes(input);
     return [...scopes.global, ...scopes.preset, ...scopes.character];

@@ -48,9 +48,9 @@ test('ordinary global and character scripts load the entire API without MVU and 
     assert.equal(reports.some(item => item.type === 'failed'), false);
 });
 
-test('native plan preserves disabled scopes and folders instead of enabling scripts while opening APIs', () => {
+test('native plan honors global item toggles and preserves disabled character folders', () => {
     const settings = { extension_settings: { tavern_helper: { script: { enabled: { global: false }, scripts: [{ id: 'g', content: 'void 0' }] } } } };
     const character = { data: { extensions: { tavern_helper: { scripts: [{ type: 'folder', enabled: false, scripts: [{ id: 'c', content: 'void 0' }] }] } } } };
     const plan = nativeScriptPlan(settings, character);
-    assert.deepEqual(plan.map(item => [item.scope, item.id, item.enabled]), [['global', 'g', false], ['character', 'c', false]]);
+    assert.deepEqual(plan.map(item => [item.scope, item.id, item.enabled]), [['global', 'g', true], ['character', 'c', false]]);
 });

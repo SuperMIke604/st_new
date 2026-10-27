@@ -16,7 +16,7 @@ test('double click and touch double tap edit; single taps, controls and cancelle
 
 test('delete while editing checks current message and saves only the selected floor; cancel keeps the draft', async () => {
     const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-    const fn = source.slice(source.indexOf('async function deleteEditedMessage('), source.indexOf('function searchPanel('));
+    const fn = source.slice(source.indexOf('async function deleteEditedMessage('), source.indexOf('function chatHistoryPanel('));
     const first = { mes: 'first' }, selected = { mes: 'selected', is_user: true }, last = { mes: 'last' };
     const state = { chat: [first, selected, last] }; let confirmed = false, saved = 0, invalidated = -1, rendered = 0;
     const context = vm.createContext({ state, inlineEdit: { message: selected, text: 'draft' }, assertIdle() { if (state.busy) throw Error('busy'); }, confirm: () => confirmed,

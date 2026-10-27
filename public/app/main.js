@@ -1,7 +1,8 @@
 import { RecentCharacters } from './home-data.js';
+import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit } from './message-edit.js';
-import { scriptTrees, scriptRows, scriptScopeEnabled, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchScriptScope } from './scripts.js';
+import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchGlobalScripts } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
 import { patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
@@ -40,7 +41,7 @@ import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, move
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
 import { installSelects } from './select.js';
 import { normalizeConnection, modelOptions, inheritedConnection, visibleConnectionPassword, connectionProfiles, upsertConnection } from './connection.js';
-import { applyRegex, presetRegexes, compileRegex, activeRegexes, scopedRegexes } from './regex.js';
+import { applyRegex, presetRegexes, compileRegex, activeRegexes, scopedRegexes, saveCharacterRegexes } from './regex.js';
 installSelects();
 
 const $ = id => document.getElementById(id);
@@ -50,12 +51,40 @@ const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
 const characterCatalog = new CharacterCatalog(api);
-async function loadCharacterCatalog(force = false, timing) {
+async function loadCharacterCatalog(force = false, timing, allowStale = false) {
     const finish = (timing || loadTimings).start('读取角色列表', 'data');
     try {
-        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar, timing });
+        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar, timing, allowStale });
         state.characters = characters; finish('success', { itemCount: characters.length }); return characters;
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
+}
+async function loadManagerCharacters(target, timing) {
+    if (characterCatalog.cache?.items.length) return loadCharacterCatalog(false, timing, true);
+    const cards = new Map();
+    for (const card of [state.character, ...state.characters, ...(recentCharacters.cache?.items || []).map(item => ({ avatar: item.avatar, name: item.characterName || item.avatar?.replace(/\.[^.]+$/, '') }))]) {
+        if (card?.avatar && card.name && !cards.has(card.avatar)) cards.set(card.avatar, { avatar: card.avatar, name: card.name });
+    }
+    if (target && !cards.has(target)) cards.set(target, { avatar: target, name: target.replace(/\.[^.]+$/, '') });
+    return cards.size ? [...cards.values()] : loadCharacterCatalog(false, timing);
+}
+function appendManagerCharacterPicker(body, cards, selected, scope) {
+    const wrap = el('label', 'field'); wrap.append(el('span', '', '管理的角色卡'));
+    const row = el('div', 'character-manager-target'), select = el('select'); select.setAttribute('aria-label', '管理的角色卡');
+    for (const card of cards) { const option = el('option', '', card.name); option.value = card.avatar; select.append(option); }
+    select.value = selected || '';
+    const refresh = action(characterCatalog.cache ? '刷新角色列表' : '全部角色', async () => {
+        if (panelDirty && !confirm('放弃未保存的修改？')) return;
+        refresh.disabled = true;
+        const revision = panelRevision;
+        try { await loadCharacterCatalog(true); if (revision !== panelRevision) return; panelDirty = false; await regexPanel(scope, select.value); }
+        finally { refresh.disabled = false; }
+    }, 'refresh');
+    row.append(select, refresh); wrap.append(row); body.append(wrap);
+    select.addEventListener('change', () => run(async () => {
+        if (panelDirty && !confirm('放弃未保存的修改？')) { select.value = selected; return; }
+        panelDirty = false; await regexPanel(scope, select.value);
+    }));
+    return select;
 }
 const state = { ready: false, settings: {}, bundle: {}, own: {}, characters: [], character: null, chat: [], header: null, file: '', busy: false, dirty: false, controller: null, preset: {}, worlds: [], saves: Promise.resolve(), error: '' };
 const scriptSchema = new ScriptSchema(), roleAvatars = new RoleAvatarStore();
@@ -202,7 +231,7 @@ function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
 }
-function assertIdle() { if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertIdle() { if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
 function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
@@ -252,7 +281,7 @@ function synchronize() {
     if (scriptSchema.identity && scriptSchema.identity !== scriptIdentity()) scriptSchema.dispose();
     if (scriptRuntime.frame) scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
     if (!state.character) scriptAutoIdentity = '';
-    if (state.ready && state.character && !state.loading && !state.busy && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
+    if (state.ready && state.character && !state.loading && !state.busy && !state.historySaving && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
         scriptAutoIdentity = scriptIdentity();
         if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
             void openScriptWorkspace(false).catch(error => notify(`角色脚本启动失败：${error.message}`, true));
@@ -515,6 +544,7 @@ function disposePanelWork() {
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
+    if (state.historySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     disposePanelWork();
@@ -526,6 +556,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     return $('panel-body');
 }
 function closePanel() {
+    if (state.historySaving) { notify('正在保存聊天记录，请稍候', 'info'); return false; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return false; }
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
     disposePanelWork();
@@ -641,7 +672,7 @@ async function loadChat(file, internal = false, character = state.character) {
     const databaseMetadata = header.chat_metadata.independentDatabase ||= {};
     databaseMetadata.autoStart ??= chat.length;
     // No await between these assignments: character, identity and contents switch together.
-    Object.assign(state, { character, header, chat, file: nextFile });
+    Object.assign(state, { character, header, chat, file: nextFile, chatUnpersisted: !file });
     clearWelcome(); list.setMessages(state.chat, { reset: true, latest: true });
     $('message-input').value = ''; synchronize(); status('正在保存聊天位置…');
     if (file) await rememberChat(internal ? { lastCharacter: character.avatar } : {});
@@ -670,6 +701,7 @@ function saveChat() {
     const task = state.saves.catch(() => {}).then(async () => {
         finishQueue();
         await api.saveChat(record.avatar, record.file, record.header, record.messages);
+        if (state.character?.avatar === record.avatar && state.file === record.file) state.chatUnpersisted = false;
         state.dirty = false; status('已保存'); synchronize();
     }).catch(error => { state.dirty = true; status('未保存 · 可重试', true); synchronize(); throw error; });
     state.saves = task; return task;
@@ -1053,7 +1085,10 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
     body.append(tabs);
-    if (scope.endsWith('-script')) { finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : 5 } }); await renderScriptManager(body, revision, scope, target, timing); return; }
+    if (scope.endsWith('-script')) {
+        const manager = el('div', 'script-manager'); body.append(manager);
+        finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : 5 } }); await renderScriptManager(manager, revision, scope, target, timing); return;
+    }
     let entity = null; let rules = []; let selected = target;
     const chooseTarget = (label, options, value) => {
         const wrap = el('label', 'field'); wrap.append(el('span', '', label)); const select = el('select');
@@ -1072,10 +1107,9 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
         chooseTarget('管理的预设', available.map(item => [item.name, item.name]), selected);
         rules = copy(presetRegexes(entity?.data));
     } else {
-        await loadCharacterCatalog(false, timing);
-        const cards = state.characters; if (revision !== panelRevision) return;
+        const cards = await loadManagerCharacters(target, timing); if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
-        chooseTarget('管理的角色卡', cards.map(card => [card.avatar, card.name]), selected);
+        appendManagerCharacterPicker(body, cards, selected, scope);
         if (selected) entity = cards.find(card => card.avatar === selected);
         if (selected) entity = await api.post('/api/characters/get', { avatar_url: selected }, { timing });
         if (revision !== panelRevision) return;
@@ -1116,9 +1150,8 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
             if (!result?.name) throw new Error('预设正则保存失败。');
             await reloadResources();
         } else {
-            const result = await api.post('/api/characters/merge-attributes', { avatar: selected, data: { extensions: { regex_scripts: copy(rules) } } });
-            if (result?.ok !== true) throw new Error('角色卡正则保存失败。');
-            if (state.character?.avatar === selected) state.character = await api.post('/api/characters/get', { avatar_url: selected });
+            const savedCard = await saveCharacterRegexes(api, selected, rules);
+            if (state.character?.avatar === selected) state.character = savedCard;
         }
         panelDirty = false; list.setMessages(state.chat, { reset: true }); notify('正则已保存');
     }, 'edit', 'primary')); body.append(footer); render();
@@ -1358,36 +1391,26 @@ async function renderScriptManager(body, revision, scope, target, timing) {
     const kind = scope === 'global-script' ? 'global' : 'character';
     let entity = null, selected = target;
     if (kind === 'character') {
-        await loadCharacterCatalog(false, timing); if (revision !== panelRevision) return;
-        selected = state.characters.some(card => card.avatar === selected) ? selected : state.characters.find(card => card.avatar === state.character?.avatar)?.avatar || state.characters[0]?.avatar;
-        const chooser = el('select'); chooser.setAttribute('aria-label', '管理脚本的角色卡');
-        for (const card of state.characters) { const option = el('option', '', card.name); option.value = card.avatar; chooser.append(option); }
-        chooser.value = selected || ''; body.append(chooser);
-        chooser.addEventListener('change', () => run(async () => {
-            if (panelDirty && !confirm('放弃未保存的脚本修改？')) { chooser.value = selected; return; }
-            panelDirty = false; await regexPanel(scope, chooser.value);
-        }));
+        const cards = await loadManagerCharacters(target, timing); if (revision !== panelRevision) return;
+        selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
+        appendManagerCharacterPicker(body, cards, selected, scope);
         if (!selected) { note(body, '没有可管理的角色卡。'); return; }
         entity = await api.post('/api/characters/get', { avatar_url: selected }, { timing }); if (revision !== panelRevision) return;
     }
     const prepareTree = () => copy(scriptTrees(state.settings, entity)[kind]);
     let tree = timing ? timing.measureSync('正则与脚本 · 准备脚本数据', 'data', prepareTree, value => ({ metrics: { scriptCount: scriptRows(value).length } })) : prepareTree();
-    const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = scriptScopeEnabled(state.settings, entity, kind);
-    const enabledLabel = el('label', 'check-field'); enabledLabel.append(enabled, el('span', '', kind === 'global' ? '启用全局脚本' : '启用此角色卡的脚本')); body.append(enabledLabel);
     const dirty = () => { panelDirty = true; };
-    enabled.addEventListener('change', dirty);
-    note(body, kind === 'global' ? '全局脚本只管理和保留，不在本前端执行或适配。' : '进入聊天后自动运行已启用的兼容脚本。逐梦演艺圈已接入变量校验、状态栏与编辑器、头像库、场景开关和人设/剧本/总结归档；原本停用的脚本需自行启用。');
     const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
     const renderList = () => {
         rows.replaceChildren(); const entries = scriptRows(tree);
         if (!entries.length) { note(rows, '还没有脚本，可新建或导入。'); return; }
         for (const row of entries) {
-            const script = row.script, support = kind === 'global' ? { supported: false, reason: '仅管理，不在本前端执行或适配。' } : scriptSupport(script), details = el('details', 'prompt-item');
+            const script = row.script, support = scriptSupport(script), details = el('details', 'prompt-item');
             details.classList.toggle('prompt-disabled', script.enabled === false);
             const summary = el('summary', 'prompt-summary');
             const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = script.enabled !== false; toggle.setAttribute('aria-label', `启用脚本 ${script.name || '未命名'}`);
             toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; details.classList.toggle('prompt-disabled', !toggle.checked); dirty(); });
-            const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', kind === 'global' ? '仅管理' : support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
+            const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
             inlineEntryActions(summary, [action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash', 'danger')], script.name || '未命名脚本');
             let built = false;
             details.addEventListener('toggle', () => {
@@ -1410,15 +1433,14 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
     }, 'folder'), action('导出脚本', () => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'export'), action('打开当前角色脚本', openScriptWorkspace, 'tools'));
+    }, 'export'));
     const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
         assertIdle();
         validateScriptTree(tree);
         if (kind === 'global') {
-            state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'global', { tree, enabled: enabled.checked })); state.own = settingsOwn(state.settings);
+            state.settings = await api.patchSettings(settings => patchGlobalScripts(settings, tree)); state.own = settingsOwn(state.settings);
         } else {
             const savedCard = await saveCharacterScripts(api, selected, tree);
-            state.settings = await api.patchSettings(settings => patchScriptScope(settings, 'character', { enabled: enabled.checked, avatar: selected, allAvatars: state.characters.map(card => card.avatar) })); state.own = settingsOwn(state.settings);
             if (state.character?.avatar === selected) state.character = savedCard; characterCatalog.invalidate();
         }
         scriptRuntime.dispose(); scriptSchema.dispose(); scriptAutoIdentity = ''; panelDirty = false; synchronize(); notify('脚本已保存，当前角色脚本已自动加载。');
@@ -2031,6 +2053,7 @@ async function databaseModels(config) {
  const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
 }
 function assertDatabaseWritable() {
+    if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。');
     if (state.databaseHistorySaving) throw new Error('正在保存历史总结删除，请稍候。');
     if (state.loading) throw new Error('正在切换聊天，请稍候。');
     if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。');
@@ -2370,29 +2393,33 @@ async function deleteEditedMessage(message) {
     list.setMessages(state.chat, { reset: true }); await saveChat();
 }
 
-function searchPanel() {
-    const body = showPanel('查找对话', '全部消息'); if (!body) return;
-    const search = field(body, '搜索文字', '', { type: 'search' });
-    const floor = field(body, '跳到楼层', '', { type: 'number' }); floor.min = '0'; floor.step = '1';
-    body.append(action('跳转', () => {
-        const index = Number(floor.value); if (!Number.isInteger(index) || index < 0 || index >= state.chat.length) throw new Error('请输入存在的楼层编号。');
-        panelDirty = false; closePanel(); list.jump(index);
-    }, 'down'));
-    const results = el('div', 'resource-list'); body.append(results);
-    let timer;
-    search.addEventListener('input', () => {
-        panelDirty = false; clearTimeout(timer);
-        timer = setTimeout(() => {
-            results.replaceChildren(); const query = search.value.trim().toLowerCase(); if (!query) return;
-            let count = 0;
-            for (let index = state.chat.length - 1; index >= 0 && count < 80; index--) {
-                const message = state.chat[index]; const offset = message.mes?.toLowerCase().indexOf(query) ?? -1; if (offset < 0) continue;
-                const result = action(`#${index} · ${message.name}`, () => { panelDirty = false; closePanel(); list.jump(index); }, 'search', 'resource-row');
-                result.append(el('small', '', message.mes.slice(Math.max(0, offset - 30), offset + 120))); results.append(result); count++;
-            }
-            if (!count) note(results, '没有找到匹配消息。');
-            if (count === 80) note(results, '仅显示最近 80 个结果，请缩小搜索范围。');
-        }, 150);
+function chatHistoryPanel() {
+    assertSaved(); if (!state.character) throw Error('请先打开聊天。');
+    const body = showPanel('聊天记录管理', '当前聊天', 'chat-history-panel'); if (!body) return;
+    const revision = panelRevision, identity = scriptIdentity(), source = state.chat;
+    let original = copy(source), header = copy(state.header);
+    renderChatHistoryManager(body, {
+        chat: original, el, action, notify,
+        dirty: value => { if (revision === panelRevision) { const previous = panelDirty; panelDirty = value; if (previous && !value) synchronize(); } },
+        jump: id => { assertSaved(); if (identity !== scriptIdentity()) throw Error('聊天已切换。'); if (closePanel()) list.jump(id); },
+        makeMessage: (role, text) => ({ name: role === 'user' ? persona().name : state.character.name, is_user: role === 'user', is_system: false, send_date: new Date().toISOString(), mes: text, extra: {} }),
+        save: async (messages, start) => {
+            assertSaved();
+            if (state.databaseController) throw Error('请等待数据库更新完成后再保存聊天记录。');
+            const check = () => {
+                if (revision !== panelRevision || identity !== scriptIdentity() || JSON.stringify(state.chat) !== JSON.stringify(original) || JSON.stringify(state.header) !== JSON.stringify(header)) throw Error('当前聊天已变化，请重新打开聊天记录管理。');
+            };
+            check(); state.historySaving = true;
+            try {
+                const next = copy(messages); invalidateDatabases(next, start);
+                await state.saves;
+                const saved = await persistChatHistory(api, { avatar: state.character.avatar, file: state.file, header, original, messages: next, allowMissing: !!state.chatUnpersisted, check });
+                state.chat = saved; state.chatUnpersisted = false; original = copy(saved); header = copy(state.header);
+                generationPreload.invalidate(); scriptAutoIdentity = ''; scriptRuntime.dispose(); scriptSchema.dispose();
+                list.setMessages(state.chat, { reset: true }); status('已保存'); synchronize();
+                return saved;
+            } finally { state.historySaving = false; }
+        },
     });
 }
 function databasePreviewPanel() {
@@ -2485,7 +2512,7 @@ quickRepliesToggle.addEventListener('click', () => {
 });
 document.addEventListener('click', event => { if (!quickReplies.contains(event.target) && !quickRepliesToggle.contains(event.target)) closeQuickReplies(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
-for (const [label, glyph, callback] of [['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['查找对话', 'search', searchPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+for (const [label, glyph, callback] of [['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['聊天记录管理', 'history', chatHistoryPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
@@ -2496,7 +2523,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 composerTools.append(action('脚本面板', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 window.addEventListener('resize', raiseNotification);
@@ -2511,7 +2538,7 @@ $('message-input').addEventListener('keydown', event => {
 });
 $('stop-button').addEventListener('click', () => state.controller?.abort(new DOMException('user-stop', 'AbortError')));
 
-window.addEventListener('beforeunload', event => { if (state.busy || state.dirty || inlineEdit || panelDirty || $('message-input').value.trim()) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (state.busy || state.historySaving || state.dirty || inlineEdit || panelDirty || $('message-input').value.trim()) { event.preventDefault(); event.returnValue = ''; } });
 function resizeViewport() {
     const viewport = window.visualViewport;
     document.documentElement.style.setProperty('--viewport-height', `${viewport?.height || innerHeight}px`);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scriptTrees, scriptRows, activeScripts, scriptScopeEnabled, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchScriptScope, characterScriptPlan, usesMvuCompat } from '../scripts.js';
+import { scriptTrees, scriptRows, activeScripts, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchGlobalScripts, characterScriptPlan, nativeScriptPlan, usesMvuCompat } from '../scripts.js';
 import { scriptDocument } from '../script-runtime.js';
 
 test('global and character scripts remain separate and disabled folders suppress children', () => {
@@ -12,7 +12,6 @@ test('global and character scripts remain separate and disabled folders suppress
     assert.deepEqual(activeScripts(settings, card).map(item => item.id), ['g']);
     card.data.extensions.tavern_helper.scripts[0].enabled = true;
     assert.deepEqual(activeScripts(settings, card).map(item => item.id), ['g', 'c']);
-    assert.equal(scriptScopeEnabled(settings, { avatar: 'other.png' }, 'character'), false);
     assert.deepEqual(cardScript.data, { keep: 42 });
 });
 test('external MVU modules, schema imports and IndexedDB are explicitly unsupported', () => {
@@ -50,16 +49,50 @@ test('malformed script imports are rejected and native parent DOM dependencies a
     for (const invalid of [[null], [42], [{ type: 'folder', scripts: 'bad' }], [{ content: 3 }]]) assert.throws(() => validateScriptTree(invalid));
     assert.equal(scriptSupport({ content: 'const p=window.parent; const $=p.jQuery;' }).supported, false);
 });
-test('scope saves preserve unrelated native settings and do not enable other legacy cards', () => {
+test('global script saves preserve native scope settings and unrelated helper fields', () => {
     const settings = { extension_settings: { TavernHelper: { characters_with_scripts: ['old.png'], global_script_enabled: false }, tavern_helper: { optimize: { keep: true } } } };
-    patchScriptScope(settings, 'character', { avatar: 'new.png', enabled: true, allAvatars: ['old.png', 'new.png', 'unrelated.png'] });
-    assert.deepEqual(settings.extension_settings.tavern_helper.script.enabled.characters, ['old.png', 'new.png']);
+    const legacy = structuredClone(settings.extension_settings.TavernHelper);
+    patchGlobalScripts(settings, [{ content: 'void 0', data: { keep: true } }]);
     assert.equal(settings.extension_settings.tavern_helper.optimize.keep, true);
-    assert.equal(scriptScopeEnabled(settings, null, 'global'), false);
-    patchScriptScope(settings, 'global', { tree: [{ content: 'void 0', data: { keep: true } }], enabled: true });
-    assert.equal(settings.extension_settings.tavern_helper.script.enabled.global, true);
-    assert.deepEqual(settings.extension_settings.tavern_helper.script.enabled.characters, ['old.png', 'new.png']);
+    assert.equal(settings.extension_settings.tavern_helper.script.enabled, undefined);
+    assert.deepEqual(settings.extension_settings.TavernHelper, legacy);
+    assert.deepEqual(scriptTrees(settings).global, [{ content: 'void 0', data: { keep: true } }]);
 });
+test('global scripts follow item and folder toggles despite saved modern or legacy scope switches', () => {
+    const tree = [
+        { id: 'on', content: 'void 0', enabled: true, data: { keep: 42 } },
+        { id: 'off', content: 'void 0', enabled: false },
+        { type: 'folder', enabled: false, scripts: [{ id: 'nested', content: 'void 0', enabled: true }] },
+    ];
+    for (const modern of [false, true]) {
+        const settings = { extension_settings: { TavernHelper: { global_script_enabled: false, scriptsRepository: tree }, ...(modern ? { tavern_helper: { script: { scripts: tree, enabled: { global: false, characters: ['keep.png'] } } } } : {}) } };
+        assert.deepEqual(activeScripts(settings, null).map(script => script.id), ['on']);
+        assert.deepEqual(nativeScriptPlan(settings, null).map(script => [script.id, script.enabled]), [['on', true], ['off', false], ['nested', false]]);
+        patchGlobalScripts(settings, tree);
+        assert.deepEqual(scriptTrees(settings).global, tree);
+        assert.equal(settings.extension_settings.TavernHelper.global_script_enabled, false);
+        if (modern) assert.deepEqual(settings.extension_settings.tavern_helper.script.enabled, { global: false, characters: ['keep.png'] });
+        assert.deepEqual(activeScripts(settings, null).map(script => script.id), ['on']);
+    }
+});
+
+test('character plans ignore modern and legacy role switches while honoring items and folders', () => {
+    const tree = [
+        { id: 'on', content: 'void 0', enabled: true },
+        { id: 'off', content: 'void 0', enabled: false },
+        { type: 'folder', enabled: false, scripts: [{ id: 'nested', content: 'void 0', enabled: true }] },
+    ];
+    const card = { avatar: 'card.png', data: { extensions: { tavern_helper: { scripts: tree } } } };
+    for (const modern of [false, true]) {
+        const settings = { extension_settings: { TavernHelper: { characters_with_scripts: [] }, ...(modern ? { tavern_helper: { script: { enabled: { characters: [] } } } } : {}) } };
+        const previous = structuredClone(settings);
+        assert.deepEqual(characterScriptPlan(settings, card).map(script => [script.id, script.enabled]), [['on', true], ['off', false], ['nested', false]]);
+        assert.deepEqual(nativeScriptPlan(settings, card).map(script => [script.id, script.enabled]), [['on', true], ['off', false], ['nested', false]]);
+        assert.deepEqual(activeScripts(settings, card).map(script => script.id), ['on']);
+        assert.deepEqual(settings, previous);
+    }
+});
+
 test('snapshot keeps floor indexes while bounding old message text and preserving the latest MVU data', () => {
     const chat = Array.from({ length: 100 }, (_, index) => ({ mes: 'message ' + index, variables: index === 2 ? { 0: { stat_data: { value: 2 } } } : {} }));
     const snapshot = scriptSnapshot({ chat }); assert.equal(snapshot.chat.length, 100);

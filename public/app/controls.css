@@ -236,6 +236,24 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .prompt-summary .prompt-inline-actions { position: relative; isolation: isolate; height: var(--control-size); }
 .regex-panel .regex-list { display: grid; gap: 9px; margin-top: 15px; }
 .regex-panel .regex-list > .regex-rule { padding: 0; margin: 0; }
+.regex-panel .script-manager { padding-top: 16px; }
+.character-manager-target { display: flex; gap: var(--control-gap); align-items: center; }
+.character-manager-target > :is(select,.select-control) { flex: 1; min-width: 0; }
+.character-manager-target > .button { flex-shrink: 0; }
+.history-controls { padding: 0; margin: 0; border: 0; min-width: 0; }
+.history-toolbar { flex-wrap: wrap; align-items: center; }
+.history-jump-row { display: flex; align-items: flex-end; gap: var(--control-gap); margin-bottom: 16px; }
+.history-jump-row > .field { flex: 1; min-width: 0; margin: 0; }
+.history-jump-row > .button { flex-shrink: 0; }
+.history-messages { display: grid; gap: 9px; margin-bottom: 16px; }
+.history-message { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.history-message-label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.history-message-label > input { flex-shrink: 0; }
+.history-message-content { display: grid; gap: 4px; min-width: 0; }
+.history-message-heading { font-size: var(--type-item-size); line-height: var(--type-item-line); overflow-wrap: anywhere; }
+.history-message-preview { font-size: var(--type-aux-size); line-height: var(--type-aux-line); color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-message-hidden { background: var(--ui-tone-eae2d6,#eae2d6); }
+.history-message > .button { flex-shrink: 0; }
 .regex-panel .prompt-title { display: block; white-space: nowrap; text-overflow: ellipsis; }
 .regex-panel .prompt-summary > small { order: 3; white-space: nowrap; }
 .regex-panel .prompt-summary > .prompt-action-anchor { order: 4; margin-left: auto; }
