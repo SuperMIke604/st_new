@@ -13,7 +13,7 @@ import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js'
 import { warmHistoryRegex, historyRegexCache } from './history-regex-cache.js';
 import { CharacterCatalog } from './character-catalog.js';
 import { loadTimings, timingStatusText, timingDetailText, requestFailure } from './load-timings.js';
-import { exportDiagnostics } from './diagnostic-export.js';
+import { exportDiagnostics, copyDiagnostics } from './diagnostic-export.js';
 import { BUILD } from './version.js';
 import { PresetSelection } from './preset-selection.js';
 import { PresetTokenPreview } from './preset-tokens.js';
@@ -48,10 +48,10 @@ const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
 const characterCatalog = new CharacterCatalog(api);
-async function loadCharacterCatalog(force = false) {
-    const finish = loadTimings.start('读取角色列表', 'data');
+async function loadCharacterCatalog(force = false, timing) {
+    const finish = (timing || loadTimings).start('读取角色列表', 'data');
     try {
-        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar });
+        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar, timing });
         state.characters = characters; finish('success', { itemCount: characters.length }); return characters;
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
@@ -98,6 +98,7 @@ function loadingIndicator(text, detail = '', compact = false) {
 const nextPaint = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
 async function loadPanelContent(host, label, render, retry, { retainContent = false } = {}) {
     const revision = panelRevision, token = {}, finish = loadTimings.start(label, 'page');
+    const timing = loadTimings.scope(finish.id);
     panelLoads.set(host, token);
     const current = () => panelRevision === revision && panelLoads.get(host) === token;
     const loading = loadingIndicator(`正在加载${label}…`);
@@ -108,15 +109,16 @@ async function loadPanelContent(host, label, render, retry, { retainContent = fa
     let outcome = 'cancelled', content;
     try {
         // Category changes keep the current page visible until its replacement is ready.
-        if (!retainContent) await nextPaint();
-        if (state.startupLoading) await startupPromise;
+        if (!retainContent) await timing.measure(`${label} · 等待加载提示绘制`, 'data', nextPaint);
+        if (state.startupLoading) await timing.measure(`${label} · 等待应用初始化`, 'data', () => startupPromise);
         if (!current()) return;
         if (!state.ready) throw new Error(state.startupError || '应用初始化未完成，请刷新后重试。');
         content = el('div', 'panel-content');
-        await render(content, revision);
+        await timing.measure(`${label} · 准备页面内容`, 'data', () => render(content, revision, timing));
         if (!current()) return;
         previous?._dispose?.();
-        host.replaceChildren(content); await nextPaint();
+        timing.measureSync(`${label} · 挂载界面`, 'data', () => host.replaceChildren(content));
+        await timing.measure(`${label} · 等待内容绘制`, 'data', nextPaint);
         if (current()) { outcome = 'success'; content._onReady?.(); }
     } catch (error) {
         outcome = current() ? 'error' : 'cancelled';
@@ -131,7 +133,8 @@ async function loadPanelContent(host, label, render, retry, { retainContent = fa
         if (outcome !== 'success') content?._dispose?.();
         loading.remove();
         if (current()) { host.removeAttribute('aria-busy'); panelLoads.delete(host); }
-        finish(outcome);
+        timing.close(outcome);
+        finish(outcome, { metrics: { nodeCount: content?.querySelectorAll?.('*').length || 0, imageCount: content?.querySelectorAll?.('img').length || 0, imagesPending: [...(content?.querySelectorAll?.('img') || [])].filter(img => !img.complete).length } });
     }
 }
 function action(label, callback, glyph, className = '') {
@@ -531,6 +534,11 @@ function closePanel() {
     return true;
 }
 function timingPanel() {
+    const iconAction = (label, callback, glyph) => {
+        const button = action(label, callback, glyph, 'icon-button');
+        button.title = label; button.setAttribute('aria-label', label); button.querySelector('span')?.remove();
+        return button;
+    };
     // Diagnostics have their own dialog and never enter the editable panel or
     // chat lifecycle (dirty flags, save queues, generation controller/history).
     const existing = document.getElementById('timing-dialog');
@@ -538,7 +546,7 @@ function timingPanel() {
     const dialog = el('dialog', 'timing-panel'); dialog.id = 'timing-dialog'; dialog.setAttribute('aria-labelledby', 'timing-title');
     const heading = el('div'), title = el('h1', '', '加载日志'); title.id = 'timing-title';
     heading.append(el('small', '', '最近 200 条 · 耗时记录'), title);
-    const header = el('header', 'panel-header'), close = action('关闭日志', () => dialog.close(), 'close', 'timing-close');
+    const header = el('header', 'panel-header'), close = iconAction('关闭日志', () => dialog.close(), 'close');
     header.append(heading, close);
     const body = el('div', 'timing-body'); dialog.append(header, body);
     dialog.addEventListener('close', () => dialog.remove());
@@ -565,13 +573,10 @@ function timingPanel() {
         loadTimings.start(label, 'diagnostic')('success', { metrics: { generationActive, signalAborted } });
         return JSON.stringify({ schema: 3, exportedAt: new Date().toISOString(), buildRevision: BUILD.revision, context: { generationActive, signalAborted, visibility: document.visibilityState, generationId: loadTimings.generationId }, preload: generationPreload.stats(), cache: historyRegexCache.capacity(), entries: loadTimings.snapshot() }, null, 2);
     };
-    toolbar.append(action('刷新记录', draw, 'refresh'), action('导出日志', () => exportDiagnostics(snapshotText('导出日志快照'), body, () => !!state.busy), 'export'), action('复制日志', async () => {
-        const text = snapshotText('复制日志快照');
-        try { if (!navigator.clipboard?.writeText) throw new Error(); await navigator.clipboard.writeText(text); note(body, '日志已复制。'); }
-        catch { const preview = el('textarea', 'timing-copy'); preview.readOnly = true; preview.rows = 10; preview.value = text; preview.setAttribute('aria-label', '日志 JSON，可全选复制'); body.append(preview); preview.focus(); preview.select(); }
-    }, 'copy'), action('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
-    body.append(toolbar); note(body, '刷新记录只更新列表；清空保留进行中记录。生成中导出会保留快照，可立即复制，结束后再下载文件，避免浏览器下载影响连接。');
-    note(body, '兼容回退、页面切换导致的取消和刷新中断属于正常记录。真正失败的请求会显示状态码或网络原因。');
+    toolbar.append(iconAction('刷新记录', draw, 'refresh'), iconAction('导出日志', () => exportDiagnostics(snapshotText('导出日志快照'), body, () => !!state.busy), 'export'), iconAction('复制日志', async () => {
+        await copyDiagnostics(snapshotText('复制日志快照'), body); notify('日志已复制');
+    }, 'copy'), iconAction('清空日志', () => { loadTimings.clear(); draw(); }, 'trash'));
+    body.append(toolbar);
     body.append(container); draw();
 }
 function field(parent, label, value = '', { multiline = false, type = 'text', hint = '', options, rows = 5 } = {}) {
@@ -651,9 +656,11 @@ async function rememberChat(patch = {}) {
 function saveChat() {
     generationPreload.invalidate();
     if (!state.character) return Promise.resolve();
-    const record = { avatar: state.character.avatar, file: state.file, header: copy(state.header), messages: copy(state.chat) };
+    const record = loadTimings.measureSync('复制聊天保存快照', 'generation', () => ({ avatar: state.character.avatar, file: state.file, header: copy(state.header), messages: copy(state.chat) }));
     state.dirty = true; status('保存中…'); synchronize();
+    const finishQueue = loadTimings.start('等待聊天保存队列', 'generation');
     const task = state.saves.catch(() => {}).then(async () => {
+        finishQueue();
         await api.saveChat(record.avatar, record.file, record.header, record.messages);
         state.dirty = false; status('已保存'); synchronize();
     }).catch(error => { state.dirty = true; status('未保存 · 可重试', true); synchronize(); throw error; });
@@ -1022,9 +1029,10 @@ async function regexPanel(scope = 'global', target = '') {
         if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
     } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
-    return loadPanelContent(host, '正则与脚本', (body, revision) => renderRegexPanel(body, revision, scope, target), () => regexPanel(scope, target), { retainContent: reuse });
+    return loadPanelContent(host, '正则与脚本', (body, revision, timing) => renderRegexPanel(body, revision, scope, target, timing), () => regexPanel(scope, target), { retainContent: reuse });
 }
-async function renderRegexPanel(body, revision, scope, target) {
+async function renderRegexPanel(body, revision, scope, target, timing) {
+    const finishData = timing?.start('正则与脚本 · 准备分类与规则', 'data');
     body.classList.add('regex-panel-content');
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
     const available = presetCatalog(fresh.bundle);
@@ -1034,7 +1042,7 @@ async function renderRegexPanel(body, revision, scope, target) {
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
     body.append(tabs);
-    if (scope.endsWith('-script')) { await renderScriptManager(body, revision, scope, target); return; }
+    if (scope.endsWith('-script')) { finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : 5 } }); await renderScriptManager(body, revision, scope, target, timing); return; }
     let entity = null; let rules = []; let selected = target;
     const chooseTarget = (label, options, value) => {
         const wrap = el('label', 'field'); wrap.append(el('span', '', label)); const select = el('select');
@@ -1053,15 +1061,16 @@ async function renderRegexPanel(body, revision, scope, target) {
         chooseTarget('管理的预设', available.map(item => [item.name, item.name]), selected);
         rules = copy(presetRegexes(entity?.data));
     } else {
-        await loadCharacterCatalog();
+        await loadCharacterCatalog(false, timing);
         const cards = state.characters; if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
         chooseTarget('管理的角色卡', cards.map(card => [card.avatar, card.name]), selected);
         if (selected) entity = cards.find(card => card.avatar === selected);
-        if (selected) entity = await api.post('/api/characters/get', { avatar_url: selected });
+        if (selected) entity = await api.post('/api/characters/get', { avatar_url: selected }, { timing });
         if (revision !== panelRevision) return;
         rules = copy(scopedRegexes({ character: entity }).character);
     }
+    finishData?.('success', { metrics: { ruleCount: rules.length, scopeCode: { global: 1, preset: 2, character: 3 }[scope] } });
     if (scope !== 'global' && !entity) { note(body, '没有可管理的对象，请先创建或导入。'); return; }
     const count = el('p', 'note'); body.append(count);
     const toolbar = el('div', 'regex-toolbar'); body.append(toolbar);
@@ -1069,7 +1078,7 @@ async function renderRegexPanel(body, revision, scope, target) {
     body._dispose = () => rows._disposeDrag?.();
     const updateCount = () => { count.textContent = `${rules.length} 条规则 · ${rules.filter(rule => !rule.disabled).length} 条启用`; };
     const dirty = () => { panelDirty = true; updateCount(); };
-    const render = () => { updateCount(); renderRegexEditor(rows, rules, dirty); };
+    const render = () => { updateCount(); const build = () => renderRegexEditor(rows, rules, dirty); return timing ? timing.measureSync('正则与脚本 · 构建正则列表', 'data', build, () => ({ metrics: { ruleCount: rules.length } })) : build(); };
     toolbar.append(action('新建正则', () => {
         rules.push({ id: uuid(), scriptName: '新的正则', findRegex: '', replaceString: '', placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, trimStrings: [], minDepth: null, maxDepth: null, substituteRegex: 0 });
         dirty(); render(); rows.lastElementChild.open = true;
@@ -1334,11 +1343,11 @@ async function prepareRoleMvu(generation = false, rawReply = null) {
         return { changed: seeded || prepared.count > 0, message: prepared.data ? 'MVU 变量已就绪：支持初始化、JSONPatch 更新及已启用的 Zod 结构校验。' : '未找到 InitVar 初始变量或已有 MVU 快照，请检查角色关联的世界书。' };
     });
 }
-async function renderScriptManager(body, revision, scope, target) {
+async function renderScriptManager(body, revision, scope, target, timing) {
     const kind = scope === 'global-script' ? 'global' : 'character';
     let entity = null, selected = target;
     if (kind === 'character') {
-        await loadCharacterCatalog(); if (revision !== panelRevision) return;
+        await loadCharacterCatalog(false, timing); if (revision !== panelRevision) return;
         selected = state.characters.some(card => card.avatar === selected) ? selected : state.characters.find(card => card.avatar === state.character?.avatar)?.avatar || state.characters[0]?.avatar;
         const chooser = el('select'); chooser.setAttribute('aria-label', '管理脚本的角色卡');
         for (const card of state.characters) { const option = el('option', '', card.name); option.value = card.avatar; chooser.append(option); }
@@ -1348,16 +1357,17 @@ async function renderScriptManager(body, revision, scope, target) {
             panelDirty = false; await regexPanel(scope, chooser.value);
         }));
         if (!selected) { note(body, '没有可管理的角色卡。'); return; }
-        entity = await api.post('/api/characters/get', { avatar_url: selected }); if (revision !== panelRevision) return;
+        entity = await api.post('/api/characters/get', { avatar_url: selected }, { timing }); if (revision !== panelRevision) return;
     }
-    let tree = copy(scriptTrees(state.settings, entity)[kind]);
+    const prepareTree = () => copy(scriptTrees(state.settings, entity)[kind]);
+    let tree = timing ? timing.measureSync('正则与脚本 · 准备脚本数据', 'data', prepareTree, value => ({ metrics: { scriptCount: scriptRows(value).length } })) : prepareTree();
     const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = scriptScopeEnabled(state.settings, entity, kind);
     const enabledLabel = el('label', 'check-field'); enabledLabel.append(enabled, el('span', '', kind === 'global' ? '启用全局脚本' : '启用此角色卡的脚本')); body.append(enabledLabel);
     const dirty = () => { panelDirty = true; };
     enabled.addEventListener('change', dirty);
     note(body, kind === 'global' ? '全局脚本只管理和保留，不在本前端执行或适配。' : '进入聊天后自动运行已启用的兼容脚本。逐梦演艺圈已接入变量校验、状态栏与编辑器、头像库、场景开关和人设/剧本/总结归档；原本停用的脚本需自行启用。');
     const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
-    const render = () => {
+    const renderList = () => {
         rows.replaceChildren(); const entries = scriptRows(tree);
         if (!entries.length) { note(rows, '还没有脚本，可新建或导入。'); return; }
         for (const row of entries) {
@@ -1381,6 +1391,7 @@ async function renderScriptManager(body, revision, scope, target) {
             }); rows.append(details);
         }
     };
+    const render = () => timing ? timing.measureSync('正则与脚本 · 构建脚本列表', 'data', renderList, () => ({ metrics: { scriptCount: scriptRows(tree).length } })) : renderList();
     toolbar.append(action('新建脚本', () => { tree.push({ type: 'script', id: uuid(), name: '新脚本', enabled: false, content: '', info: '', button: { enabled: false, buttons: [] }, data: {} }); dirty(); render(); rows.lastElementChild.open = true; }, 'plus'), action('导入脚本', async () => {
         const file = await pickFile('.json'); if (!file) return; const value = JSON.parse(await file.text());
         const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.data?.extensions?.tavern_helper?.scripts;
@@ -1465,11 +1476,11 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
 
 async function characterPanel(force = false) {
     const host = showPanel('角色卡', '角色资料库', 'library-panel'); if (!host) return;
-    return loadPanelContent(host, '角色卡', (body, revision) => renderCharacterPanel(body, revision, force), () => characterPanel(true));
+    return loadPanelContent(host, '角色卡', (body, revision, timing) => renderCharacterPanel(body, revision, force, timing), () => characterPanel(true));
 }
-async function renderCharacterPanel(body, revision, force = false) {
-    let library = libraryState(state.own.characterLibrary);
-    await loadCharacterCatalog(force);
+async function renderCharacterPanel(body, revision, force = false, timing) {
+    let library = timing ? timing.measureSync('角色卡 · 整理分类数据', 'data', () => libraryState(state.own.characterLibrary)) : libraryState(state.own.characterLibrary);
+    await loadCharacterCatalog(force, timing);
     if (revision !== panelRevision) return;
     let folder = 'all'; let mode = 'grid'; let page = 0;
     const selected = new Set();
@@ -1593,8 +1604,10 @@ async function renderCharacterPanel(body, revision, force = false) {
         for (const [id, label] of [['', '未分类'], ...library.folders.map(item => [item.id, item.name])]) { const option = el('option', '', label); option.value = id; destination.append(option); }
         if ([...destination.options].some(option => option.value === value)) destination.value = value;
     }
-    function renderCards() {
-        const found = filterCards(state.characters || [], library, folder, search.value, sort.value);
+    function renderCards() { return timing ? timing.measureSync('角色卡 · 构建卡片列表', 'data', renderCardsContent, () => ({ metrics: { renderedItems: cards.children.length } })) : renderCardsContent(); }
+    function renderCardsContent() {
+        const filter = () => filterCards(state.characters || [], library, folder, search.value, sort.value);
+        const found = timing ? timing.measureSync('角色卡 · 筛选与排序', 'data', filter, value => ({ metrics: { totalItems: (state.characters || []).length, renderedItems: value.length } })) : filter();
         const pages = Math.max(1, Math.ceil(found.length / 60)); page = Math.min(page, pages - 1);
         const visible = found.slice(page * 60, (page + 1) * 60);
         path.textContent = `角色卡 / ${folder === 'all' ? '全部角色' : folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
@@ -1859,10 +1872,10 @@ async function openCharacterWorld(avatar) {
 }
 async function worldsPanel(target = '', initial = null, character = state.character) {
     const host = showPanel('世界书', '背景与记忆'); if (!host) return;
-    return loadPanelContent(host, '世界书', (body, revision) => renderWorldPanel(body, revision, target, initial, character), () => worldsPanel(target, initial, character));
+    return loadPanelContent(host, '世界书', (body, revision, timing) => renderWorldPanel(body, revision, target, initial, character, timing), () => worldsPanel(target, initial, character));
 }
-async function renderWorldPanel(body, revision, target, initial, character) {
-    const worlds = await api.post('/api/worldinfo/list'); if (revision !== panelRevision) return;
+async function renderWorldPanel(body, revision, target, initial, character, timing) {
+    const worlds = await api.post('/api/worldinfo/list', {}, { timing }); if (revision !== panelRevision) return;
     const currentCard = character?.data || character;
     const linked = currentCard?.extensions?.world;
     if (!target && !initial && linked && worlds.some(book => book.file_id === linked)) target = linked;
@@ -1870,7 +1883,8 @@ async function renderWorldPanel(body, revision, target, initial, character) {
     const globals = new Set(active);
     let bookDirty = !!initial;
     const globalSection = el('div', 'global-world-section'); body.append(globalSection);
-    renderGlobalWorldSelect(globalSection, worlds, globals, { el, icon, changed: () => { panelDirty = true; } });
+    const buildSelection = () => renderGlobalWorldSelect(globalSection, worlds, globals, { el, icon, changed: () => { panelDirty = true; } });
+    if (timing) timing.measureSync('世界书 · 构建全局选择器', 'data', buildSelection, () => ({ metrics: { totalItems: worlds.length } })); else buildSelection();
     const globalSettings = el('details', 'advanced world-global-settings'); globalSettings.append(el('summary', '', '世界书全局设置'));
     const globalDraft = copy(state.settings.world_info_settings || {}), globalGrid = el('div', 'parameter-grid'); globalSettings.append(globalGrid);
     for (const [key, label, fallback, min, max] of worldSettingsFields) {
@@ -1901,12 +1915,16 @@ async function renderWorldPanel(body, revision, target, initial, character) {
     if (target && worlds.some(world => world.file_id === target)) select.value = target;
     const tools = el('div', 'connection-profile-tools'); bar.append(select, tools);
     let original = initial ? '' : select.value;
-    let draft = worldDraft(initial || (original ? await api.post('/api/worldinfo/get', { name: original }) : { entries: {} }));
+    const loadedBook = initial || (original ? await api.post('/api/worldinfo/get', { name: original }, { timing }) : { entries: {} });
+    let draft = timing ? timing.measureSync('世界书 · 整理条目数据', 'data', () => worldDraft(loadedBook), value => ({ metrics: { entryCount: Object.keys(value.entries || {}).length } })) : worldDraft(loadedBook);
     if (revision !== panelRevision) return;
     const name = { value: initial ? target : original };
     const entries = el('div', 'world-entry-list'); body.append(entries);
     const dirty = () => { bookDirty = true; panelDirty = true; };
-    const render = (target = entries) => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
+    const render = (target = entries, trace = timing) => {
+        const build = () => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
+        return trace ? trace.measureSync('世界书 · 构建条目列表', 'data', build, () => ({ metrics: { entryCount: Object.keys(draft.entries || {}).length } })) : build();
+    };
     const button = (label, glyph, callback, className = '') => { const control = action(label, callback, glyph, className); control.title = label; control.setAttribute('aria-label', label); tools.append(control); return control; };
     button('修改世界书名称', 'edit', () => {
         const value = prompt('世界书名称', name.value);
@@ -1942,10 +1960,10 @@ async function renderWorldPanel(body, revision, target, initial, character) {
         if (panelDirty && !confirm('放弃未保存的修改并切换世界书？')) { select.value = previous; return; }
         const next = select.value, request = ++bookRequest;
         try {
-            await loadPanelContent(entries, '世界书条目', async content => {
-                const loaded = await api.post('/api/worldinfo/get', { name: next });
+            await loadPanelContent(entries, '世界书条目', async (content, _revision, trace) => {
+                const loaded = await api.post('/api/worldinfo/get', { name: next }, { timing: trace });
                 if (request !== bookRequest || revision !== panelRevision) return;
-                original = next; name.value = next; draft = worldDraft(loaded); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render(content);
+                original = next; name.value = next; draft = trace.measureSync('世界书 · 整理条目数据', 'data', () => worldDraft(loaded)); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render(content, trace);
             }, () => worldsPanel(next, null, character));
         } catch (error) { if (request === bookRequest) select.value = previous; throw error; }
     }));

@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { exportDiagnostics } from '../diagnostic-export.js';
+import { exportDiagnostics, copyDiagnostics } from '../diagnostic-export.js';
+
+test('copy writes directly and leaves no visible JSON editor when the clipboard API is unavailable', async () => {
+    let copied, restored = false, temporary;
+    await copyDiagnostics('直接复制', {}, { clipboard: { async writeText(text) { copied = text; } } });
+    assert.equal(copied, '直接复制');
+    const parent = { children: [], append(node) { this.children.push(node); } };
+    const doc = { activeElement: { focus() { restored = true; } }, createElement() { temporary = { style: {}, setAttribute() {}, focus() {}, select() { copied = this.value; }, remove() { parent.children = parent.children.filter(item => item !== this); } }; return temporary; }, execCommand: command => command === 'copy' };
+    await copyDiagnostics('兼容复制', parent, { clipboard: { async writeText() { throw Error('denied'); } }, document: doc });
+    assert.equal(copied, '兼容复制'); assert.equal(temporary.style.left, '-10000px'); assert.equal(parent.children.length, 0); assert.equal(restored, true);
+    doc.execCommand = () => false;
+    await assert.rejects(copyDiagnostics('failed', parent, { clipboard: null, document: doc }), /复制失败/);
+    assert.equal(parent.children.length, 0);
+});
 
 test('in-flight export captures a snapshot without download and saves the same snapshot after completion', async () => {
     let busy = true, urlsCreated = 0, blob, clicked = 0;

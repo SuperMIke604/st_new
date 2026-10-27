@@ -1,5 +1,22 @@
 // External file handlers may pause or replace the page. Keep active generation
 // exports in memory, and download the captured snapshot only after completion.
+export async function copyDiagnostics(text, parent, { clipboard = globalThis.navigator?.clipboard, document: doc = globalThis.document } = {}) {
+    try { if (clipboard?.writeText) { await clipboard.writeText(text); return; } } catch { /* HTTP/mobile browsers may require the legacy copy path. */ }
+    const focused = doc.activeElement, selection = doc.getSelection?.();
+    const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [];
+    const input = doc.createElement('textarea'); input.value = text; input.readOnly = true;
+    input.setAttribute('aria-hidden', 'true'); input.tabIndex = -1;
+    Object.assign(input.style, { position: 'fixed', left: '-10000px', top: '0', opacity: '0', pointerEvents: 'none' });
+    parent.append(input);
+    try {
+        input.focus({ preventScroll: true }); input.select();
+        if (!doc.execCommand?.('copy')) throw new Error('复制失败，请允许浏览器访问剪贴板后重试。');
+    } finally {
+        input.remove(); focused?.focus?.({ preventScroll: true });
+        if (selection && ranges.length) { selection.removeAllRanges(); for (const range of ranges) selection.addRange(range); }
+    }
+}
+
 export function downloadDiagnostics(text, parent, { document: doc = document, urls = URL, later = setTimeout } = {}) {
     const url = urls.createObjectURL(new Blob([text], { type: 'application/json' }));
     const link = doc.createElement('a'); link.href = url; link.download = 'loading-timings.json';

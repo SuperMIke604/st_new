@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+import { LoadTimings } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const functions = source.slice(source.indexOf('async function openCharacter('), source.indexOf('async function chatsPanel('));
 function fixture(post, failSettings = false) {
     const state = { character: { avatar: 'A.png', name: 'A' }, file: 'A-chat', header: { chat_metadata: { integrity: 'A-integrity' } }, chat: [{ mes: 'A private chat' }], own: {}, settings: {}, saves: Promise.resolve() };
     const input = { value: 'unsent draft' }, writes = [], patches = [], rendered = [], loading = [], stages = [];
-    const context = vm.createContext({ state, copy: structuredClone, api: { post, saveChat: async (...args) => writes.push(args) },
+    const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, api: { post, saveChat: async (...args) => writes.push(args) },
         assertSaved() {}, synchronize() { loading.push(!!state.loading); }, status: text => stages.push(text), uuid: () => 'new-id', safeName: value => value,
         persona: () => ({ name: 'User' }), $: () => input, clearWelcome() {},
         list: { setMessages: chat => rendered.push(chat) }, recentCharacters: { invalidate() {} },

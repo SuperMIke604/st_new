@@ -45,7 +45,7 @@ test('a slower previous page cannot overwrite the current page or remove its loa
     assert.equal(f.host.attributes['aria-busy'], 'true');
     await f.paint(); await f.paint(); await second;
     assert.equal(f.host.children[0].children[0].textContent, '新内容');
-    assert.deepEqual(f.logs.snapshot().map(entry => entry.status), ['cancelled', 'success']);
+    assert.deepEqual(f.logs.snapshot().filter(entry => entry.kind === 'page').map(entry => entry.status), ['cancelled', 'success']);
 });
 test('page failures remove the spinner, show retry and record failure', async () => {
     const f = fixture(), running = f.run(() => { throw new Error('offline'); });

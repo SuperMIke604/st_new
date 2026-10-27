@@ -1,4 +1,5 @@
-import { timedFetch } from './load-timings.js';
+import { timedFetch, loadTimings } from './load-timings.js';
+import { prepareChatSaveBody } from './chat-save-body.js';
 export class ApiError extends Error {
     constructor(message, status) { super(message); this.status = status; }
 }
@@ -11,12 +12,12 @@ export class TavernAPI {
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
-    async response(path, data = {}, { signal, form = false, fallbackStatuses = [] } = {}) {
+    async response(path, data = {}, { signal, form = false, fallbackStatuses = [], serializedBody, contentEncoding, timing } = {}) {
         const response = await timedFetch(path, {
             method: 'POST', credentials: 'same-origin', signal,
-            headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }) },
-            body: form ? data : JSON.stringify(data),
-        }, { fallbackStatuses });
+            headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }), ...(contentEncoding ? { 'Content-Encoding': contentEncoding } : {}) },
+            body: form ? data : serializedBody ?? JSON.stringify(data),
+        }, { fallbackStatuses, timing });
         if (response.redirected && response.url.includes('/login')) throw new ApiError('请先在原生页面登录，再重新打开 /app/。', 401);
         if (!response.ok) {
             const raw = await response.text();
@@ -27,20 +28,28 @@ export class TavernAPI {
         return response;
     }
     async post(path, data = {}, options) {
+        const timing = options?.timing, label = String(path).split('?')[0];
         const reads = ['/api/settings/get', '/api/avatars/get', '/api/characters/all', '/api/characters/get', '/api/worldinfo/list', '/api/worldinfo/get'];
         const cacheable = reads.includes(path) && !options?.signal;
-        const key = path + JSON.stringify(data);
+        const key = cacheable ? path + JSON.stringify(data) : null;
         const hit = this.readCache.get(key);
-        if (cacheable && hit && hit.expires > Date.now()) return structuredClone(await hit.promise);
+        if (cacheable && hit && hit.expires > Date.now()) {
+            const sharedRequest = hit.resolved ? 0 : 1;
+            const read = async () => structuredClone(await hit.promise);
+            return timing ? timing.measure(`${label} · 复用读取缓存`, 'data', read, () => ({ metrics: { cacheHit: 1, sharedRequest } })) : read();
+        }
         if (!cacheable && !path.includes('/tokenizers/') && !path.includes('/generate')) this.readCache.clear();
         const load = async () => {
             const response = await this.response(path, data, options);
-            const text = await response.text(); if (!text) return null;
-            try { return JSON.parse(text); } catch { return text; }
+            const text = timing ? await timing.measure(`${label} · 接收响应体`, 'data', () => response.text(), value => ({ metrics: { responseChars: value.length } })) : await response.text();
+            if (!text) return null;
+            const parse = () => { try { return JSON.parse(text); } catch { return text; } };
+            return timing ? timing.measureSync(`${label} · 解析响应`, 'data', parse) : parse();
         };
         const promise = load();
-        if (cacheable) { const entry = { promise, expires: Date.now() + (path.startsWith('/api/worldinfo/') ? 60000 : 5000) }; this.readCache.set(key, entry); promise.catch(() => { if (this.readCache.get(key) === entry) this.readCache.delete(key); }); }
-        return structuredClone(await promise);
+        if (cacheable) { const entry = { promise, resolved: false, expires: Date.now() + (path.startsWith('/api/worldinfo/') ? 60000 : 5000) }; this.readCache.set(key, entry); promise.then(() => { entry.resolved = true; }, () => { if (this.readCache.get(key) === entry) this.readCache.delete(key); }); }
+        const value = await promise;
+        return timing ? timing.measureSync(`${label} · 复制响应数据`, 'data', () => structuredClone(value)) : structuredClone(value);
     }
     async settings() {
         const bundle = await this.post('/api/settings/get');
@@ -97,9 +106,23 @@ export class TavernAPI {
     }
     async saveChat(avatar, file, header, messages) {
         const payload = { avatar_url: avatar, file_name: file, chat: [header, ...messages] };
+        const json = loadTimings.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
+        const finishCompression = loadTimings.start('准备聊天保存传输', 'generation');
+        let prepared;
+        try { prepared = await prepareChatSaveBody(json, { compress: this.chatCompression !== false }); finishCompression('success', { metrics: prepared.metrics }); }
+        catch (error) { finishCompression('error'); throw error; }
         for (let attempt = 0; ; attempt++) {
-            try { const result = await this.post('/api/chats/save', payload); if (!result?.ok) throw new Error('聊天保存失败。'); return; }
-            catch (error) { if (error.status !== 500 || attempt >= 3) throw error; await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1))); }
+            try { const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) }); if (!result?.ok) throw new Error('聊天保存失败。'); return; }
+            catch (error) {
+                if (error.status === 415 && prepared.metrics.gzip) {
+                    this.chatCompression = false;
+                    prepared = { ...prepared, body: prepared.plainBody, metrics: { ...prepared.metrics, gzip: 0, transferBytes: prepared.metrics.payloadBytes, compressionFallback: 1 } };
+                    loadTimings.start('聊天保存压缩兼容回退', 'generation')('fallback', { httpStatus: 415, reason: 'compatibility', metrics: prepared.metrics });
+                    attempt--; continue;
+                }
+                if (error.status !== 500 || attempt >= 3) throw error;
+                await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
+            }
         }
     }
 }

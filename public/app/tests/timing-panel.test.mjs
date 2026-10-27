@@ -17,6 +17,7 @@ class Node {
     close() { this.open = false; this.events.close?.(); }
     remove() { this.removed = true; }
     click() { this.clicked = true; }
+    querySelector() { return null; }
 }
 
 test('log refresh, export and clear remain independent of pending generation and editor state', async () => {

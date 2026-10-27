@@ -1,5 +1,5 @@
 const storageKey = 'independent-load-timings';
-const metricNames = { hits: '缓存命中', misses: '缓存未命中', dynamicSkips: '动态规则跳过缓存', noRules: '无适用规则', oversize: '超限未缓存', evictions: '缓存淘汰', entryLimitEvictions: '条数上限淘汰', charLimitEvictions: '字符上限淘汰', invalidations: '配置变化清缓存', messages: '处理消息数', effectiveMessages: '非空历史消息数', filteredMessages: '正则过滤为空', filteredHits: '过滤标记命中', filteredResults: '新建过滤标记', regexMs: '正则处理 ms', macroMs: '宏展开 ms', executions: '实际执行正则组数', regexExecuteMs: '实际执行正则 ms', workMs: '预热计算 ms', yieldMs: '分片让出等待 ms', mergedTriggers: '合并触发数', cacheEntries: '缓存条数', cacheMaxEntries: '条数上限', cacheChars: '缓存字符数', cacheMaxChars: '字符上限', generationActive: '生成中', signalAborted: '已主动取消', pendingCount: '进行中记录数' };
+const metricNames = { hits: '缓存命中', misses: '缓存未命中', dynamicSkips: '动态规则跳过缓存', noRules: '无适用规则', oversize: '超限未缓存', evictions: '缓存淘汰', entryLimitEvictions: '条数上限淘汰', charLimitEvictions: '字符上限淘汰', invalidations: '配置变化清缓存', messages: '处理消息数', effectiveMessages: '非空历史消息数', filteredMessages: '正则过滤为空', filteredHits: '过滤标记命中', filteredResults: '新建过滤标记', regexMs: '正则处理 ms', macroMs: '宏展开 ms', executions: '实际执行正则组数', regexExecuteMs: '实际执行正则 ms', workMs: '预热计算 ms', yieldMs: '分片让出等待 ms', mergedTriggers: '合并触发数', cacheEntries: '缓存条数', cacheMaxEntries: '条数上限', cacheChars: '缓存字符数', cacheMaxChars: '字符上限', generationActive: '生成中', signalAborted: '已主动取消', pendingCount: '进行中记录数', payloadBytes: '原始请求字节', transferBytes: '上传字节', gzip: 'gzip 压缩', compressionFallback: '压缩回退', cacheHit: '读取缓存命中', sharedRequest: '等待共享读取', responseChars: '响应字符数', renderedItems: '显示条数', totalItems: '资料总数', ruleCount: '正则规则数', scriptCount: '脚本数', entryCount: '世界书条目数', scopeCode: '正则脚本分类编号', nodeCount: '界面节点数', imageCount: '图片数', imagesPending: '待完成图片数' };
 export class LoadTimings {
     constructor({ limit = 200, storage, now = () => performance.now(), date = () => new Date().toISOString(), logger = null, flushDelay = 0 } = {}) {
         this.limit = limit; this.storage = storage; this.now = now; this.date = date; this.logger = logger; this.sequence = 0;
@@ -22,10 +22,11 @@ export class LoadTimings {
         clearTimeout(this.flushTimer); this.flushTimer = null;
         try { this.storage?.setItem(storageKey, JSON.stringify(this.snapshot())); } catch { /* Storage may be unavailable or full. */ }
     }
-    start(label, kind = 'page') {
+    start(label, kind = 'page', context = {}) {
         const entry = { id: ++this.sequence, label, kind, startedAt: this.date(), durationMs: 0, status: 'loading' };
+        if (Number.isInteger(context.parentId) && context.parentId > 0) entry.parentId = context.parentId;
         if (kind === 'generation' && ['发送消息', '重新生成'].includes(label)) this.generationId = entry.id;
-        if (this.generationId && ['generation', 'request'].includes(kind)) entry.generationId = this.generationId;
+        if (!entry.parentId && this.generationId && ['generation', 'request'].includes(kind)) entry.generationId = this.generationId;
         const started = this.now(); this.pending.set(entry, started);
         this.retain(entry);
         this.persist();
@@ -44,6 +45,20 @@ export class LoadTimings {
             try { this.logger?.info(`[加载耗时] ${label} · ${entry.durationMs} ms · ${status}`); } catch { /* Diagnostics cannot break generation. */ }
         };
         finish.id = entry.id; return finish;
+    }
+    scope(parentId) {
+        const pending = new Set();
+        const start = (label, kind = 'data') => {
+            const finish = this.start(label, kind, { parentId });
+            const done = (status, details) => { pending.delete(done); finish(status, details); };
+            pending.add(done); done.id = finish.id; return done;
+        };
+        return {
+            start,
+            async measure(label, kind, task, details = () => ({})) { const finish = start(label, kind); try { const value = await task(); finish('success', details(value)); return value; } catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; } },
+            measureSync(label, kind, task, details = () => ({})) { const finish = start(label, kind); try { const value = task(); finish('success', details(value)); return value; } catch (error) { finish(error?.name === 'AbortError' ? 'cancelled' : 'error'); throw error; } },
+            close(status) { for (const finish of [...pending]) finish(status); },
+        };
     }
     async measure(label, kind, task) {
         const finish = this.start(label, kind);
@@ -98,11 +113,11 @@ export function timingDetailText(entry) {
     return http;
 }
 
-export async function timedFetch(path, options, { fallbackStatuses = [], fallbackReason = 'compatibility' } = {}) {
+export async function timedFetch(path, options, { fallbackStatuses = [], fallbackReason = 'compatibility', timing } = {}) {
     // Only the endpoint path is logged: query values and request/response bodies
     // can contain user data, prompts or credentials and never enter this log.
     const label = String(path).split('?')[0];
-    const finish = loadTimings.start(label, 'request');
+    const finish = (timing || loadTimings).start(label, 'request');
     try {
         const response = await fetch(path, options);
         const fallback = !response.ok && fallbackStatuses.includes(response.status);

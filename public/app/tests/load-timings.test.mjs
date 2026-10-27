@@ -43,6 +43,43 @@ test('character count is retained in logs without storing character names', () =
     assert.equal(timingDetailText(logs.snapshot()[0]), '读取到 12 项');
 });
 
+test('independent panel scopes correlate stages and close unfinished work without affecting another panel', async () => {
+    const logs = new LoadTimings(), first = logs.start('角色卡', 'page'), second = logs.start('世界书', 'page');
+    const a = logs.scope(first.id), b = logs.scope(second.id);
+    a.start('未完成阶段'); b.measureSync('构建界面', 'data', () => 42, () => ({ metrics: { renderedItems: 4 } }));
+    a.close('cancelled');
+    await assert.rejects(b.measure('读取资料', 'data', async () => { throw new Error('private-content'); }));
+    b.close('error'); first('cancelled'); second('error');
+    const entries = logs.snapshot();
+    assert.equal(entries.find(entry => entry.label === '未完成阶段').parentId, first.id);
+    assert.equal(entries.find(entry => entry.label === '未完成阶段').status, 'cancelled');
+    assert.equal(entries.find(entry => entry.label === '构建界面').parentId, second.id);
+    assert.equal(entries.find(entry => entry.label === '构建界面').metrics.renderedItems, 4);
+    assert.equal(entries.find(entry => entry.label === '读取资料').status, 'error');
+    assert.ok(!JSON.stringify(entries).includes('private-content'));
+});
+
+test('panel request diagnostics distinguish headers, response body and shared cache without revealing resource names', async () => {
+    const original = globalThis.fetch, api = new TavernAPI(), logs = new LoadTimings();
+    const rootA = logs.start('世界书', 'page'), rootB = logs.start('世界书', 'page');
+    let stream;
+    globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) { stream = controller; } }));
+    try {
+        const first = api.post('/api/worldinfo/get', { name: 'private-book-name' }, { timing: logs.scope(rootA.id) });
+        await new Promise(resolve => setImmediate(resolve));
+        const second = api.post('/api/worldinfo/get', { name: 'private-book-name' }, { timing: logs.scope(rootB.id) });
+        assert.equal(logs.snapshot().find(entry => entry.label === '/api/worldinfo/get').status, 'success');
+        assert.equal(logs.snapshot().find(entry => entry.label.endsWith('接收响应体')).status, 'loading');
+        stream.enqueue(new TextEncoder().encode('{"entries":{"private-entry":{"content":"private-text"}}}')); stream.close();
+        assert.deepEqual(await first, await second);
+        const shared = logs.snapshot().find(entry => entry.label.endsWith('复用读取缓存'));
+        assert.equal(shared.parentId, rootB.id); assert.equal(shared.metrics.sharedRequest, 1);
+        const body = logs.snapshot().find(entry => entry.label.endsWith('接收响应体'));
+        assert.equal(body.parentId, rootA.id); assert.ok(body.metrics.responseChars > 0);
+        assert.ok(!JSON.stringify(logs.snapshot()).includes('private-'));
+    } finally { globalThis.fetch = original; }
+});
+
 test('generation records correlate by id and batched persistence can flush on navigation', () => {
     let writes = 0;
     const logs = new LoadTimings({ flushDelay: 1000, storage: { setItem() { writes++; } } });
