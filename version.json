@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "dafcd4e11177fe745dc536700d8a51656cae65ec2a35b3a48c0454bc8771ec26",
-  "publishedAt": "2026-10-27T08:32:30.352941+00:00",
+  "revision": "13bd5f08c43615151eb4ca51a71f385752438829f2478ee86a9b3a27d2141aa4",
+  "publishedAt": "2026-10-27T14:26:44.627096+00:00",
   "files": {
     "public/app/api.js": "c49b58e6735e33714cb03502a9d67f435f932c96b1e81f76292d65b720f15f5e",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -29,7 +29,7 @@
     "public/app/index.html": "1c6a7b5c87f8c8e4eff20fdfca2b2e19913f1a265dc42917e0d1f69b922f950e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "5a41ebc36bdc955028621e1564ccea61d640fc765b6d1ce418f373d866b71d68",
-    "public/app/main.js": "0df195a9295dd64d5faee6c589cbda0fa9768db61e6e993d5157a6a5fffad94e",
+    "public/app/main.js": "b17ef8e26770eaf068e1fe6741f2323068fef19db2dc8862d92e218c0a6055f4",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -52,8 +52,8 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "3e292ed7db5701bb9a3f113551fe782f597387b847a1b668147a859fa58e1f32",
     "public/app/select.js": "e1f0a56b4b87a2c9db6e13e1b41fd61ee5abf8c315ee767cc7d226bfe592715e",
-    "public/app/style.css": "38f77cfc4fbdc346d86d3b1b74a37dbc302454aea332dfa7c4d911e7adc15581",
-    "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
+    "public/app/style.css": "02b7a68407be6be6666a8a9df5640ed9d015ea36b91ad82a4313dd1a263e087d",
+    "public/app/theme-init.js": "025cc18acc3d4892c8311be0b9e7b88df8938ea2799a4e50aa6e6aad7e6c95b2",
     "public/app/toast.js": "16398643017b5b43362c62bf73023426685add0260a3c90563665c950e7009cb",
     "public/app/typography.css": "24c9f3576fd79fafe27daf54f9326b587931abca4793ca24e9c44eee29ec3102",
     "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
@@ -71,7 +71,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "821af7e025b5d76bcdbfe859338ca021062838e83046c43aefdbdc3335c4a64f"
+    "public/app/version.js": "e92bd8802120d2382c1d527400c0c50a9c265cdbe5af45b8607f095e7d198de6"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

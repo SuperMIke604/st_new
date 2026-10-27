@@ -4,6 +4,8 @@
 
 ## 开发上下文
 
+当前能力、梳理基线、验证范围与待办入口见 [项目现状](docs/project-status.md)。该文档区分源码实现、自动测试与实际部署，避免将历史记录当作当前验收结论。
+
 新任务先遵循 [AGENTS.md](AGENTS.md)，按任务读取领域文档；整体入口为 [架构地图](docs/architecture.md)。接口与数据位置见 [集成契约](docs/sillytavern-integration.md)，验收环境、Git、验证、发布和交接见 [开发流程](docs/development.md)。
 
 UI 复用 [现有规范](docs/ui-design-guidelines.md)；剧情资料库见 [模型与快照](docs/domains/lore-database.md)；助手见 [兼容范围](docs/scripts-compatibility.md)；加载见 [性能约束](docs/domains/performance.md)。文档区分当前代码、历史验收和待核实事项，不依赖长对话恢复背景。

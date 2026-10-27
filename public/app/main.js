@@ -461,7 +461,7 @@ async function reloadResources() {
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     document.documentElement.dataset.palette = state.own.palette || 'paper';
     try{localStorage.setItem('independent-palette',state.own.palette||'paper');}catch{}
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',(state.own.palette||'paper')==='paper'?'#f3eee4':'#f7f8f4');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',state.own.palette==='mist'?'#f3eee4':(state.own.palette||'paper')==='paper'?'#f3eee4':'#f7f8f4');
     try { const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null'); if (saved) state.own.reading = readingSettings(saved, true); } catch { /* Use server preferences when local data is unavailable. */ }
     applyReading(state.own.reading);
     await presetSelection.load(legacySelection, presets().map(item => item.name));
@@ -2446,7 +2446,7 @@ function toolsPanel() {
     if (state.dirty) body.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
-    const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [['sage', '鼠尾草绿'], ['paper', '米白纸色']] });
+    const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色']] });
     palette.addEventListener('change', () => { document.documentElement.dataset.palette = palette.value; });
     const rememberReading = value => { const settings = readingSettings(value, true); state.own.reading = settings; try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ } applyReading(settings); };
     const reading = readingSettings(state.own.reading), typography = el('div', 'parameter-grid'); body.append(typography);
@@ -2463,7 +2463,7 @@ function toolsPanel() {
         rememberReading(values()); panelDirty = true;
     }, 'refresh'), action('保存阅读设置', async () => {
         const reading = readingSettings(values(), true);
-        await saveOwn({ enterSend: enter.value === 'enter', palette: palette.value, reading }); rememberReading(reading); document.documentElement.dataset.palette = palette.value; try{localStorage.setItem('independent-palette',palette.value);}catch{} document.querySelector('meta[name="theme-color"]')?.setAttribute('content',palette.value==='paper'?'#f3eee4':'#f7f8f4'); panelDirty = false; notify('阅读设置已保存');
+        await saveOwn({ enterSend: enter.value === 'enter', palette: palette.value, reading }); rememberReading(reading); document.documentElement.dataset.palette = palette.value; try{localStorage.setItem('independent-palette',palette.value);}catch{} document.querySelector('meta[name="theme-color"]')?.setAttribute('content',palette.value==='mist'?'#f3eee4':palette.value==='paper'?'#f3eee4':'#f7f8f4'); panelDirty = false; notify('阅读设置已保存');
     }, 'tools', 'primary')); body.append(footer);
     note(body, '手机输入框默认回车换行，用发送按钮发送。此页面独立运行，不加载原生前端或第三方扩展。');
     const native = el('a', 'native-link', '打开原生页面'); native.href = '/'; native.target = '_blank'; native.rel = 'noopener'; body.append(native);

@@ -4,7 +4,7 @@
 
 ## 源码与模型
 
-源码均位于 `public/app/`：`database.js` 管契约和配置适配，`database-reference.js` 管参考解析/操作/旧消息抽取，`database-defaults.js` 保存参考默认配置，`database-ui.js` 管管理界面，`database-preview.js` 管卡片、差异、分页与单元格编辑。实际请求和持久化由 `main.js` 的 `currentDatabase/databasePanel/updateDatabase/autoUpdateDatabase` 协调。
+源码均位于 `public/app/`：`database.js` 管契约和配置适配，`database-reference.js` 管参考解析/操作/旧消息抽取，`database-defaults.js` 保存参考默认配置，`database-ui.js` 管管理界面，`database-preview.js` 管卡片、差异、分页与单元格编辑，`database-overview.js` 管当前聊天历史汇总、概览及删除回退。实际请求和持久化由 `main.js` 的 `currentDatabase/databasePanel/updateDatabase/autoUpdateDatabase` 协调。
 
 资料库是当前聊天上的 `chatSheets` 表格快照，不是固定人物/事件实体服务。`defaultDatabase()` 的回退表为当前状态、人物、事件；不代表真实聊天类型或模板固定。
 
@@ -40,6 +40,7 @@
 
 - 配置属于前端 own 设置中的 `database`；`databaseSettings/migrateLegacySettings` 适配 `charCardPrompts`、`overviewTemplate`、API 和预设字段。保留未知字段并维护原字段导出映射，不按命名猜测两个设置必然同义。
 - 每份填表预设有自己的模板；切换或编辑模板不应直接覆盖已有聊天快照。应用到当前聊天是独立动作。
+- 模板页先选择所属 AI 指令预设，再通过表格导航编辑表名及字段；支持增删表、增删字段与撤销，每张表至少保留一个有效字段。字段增删同步调整已有模板数据行；删除表或字段会确认，保存前仍为草稿。切换所属预设保留上一预设的模板草稿并清空当前撤销栈，不改变两类总结的执行预设绑定。
 - 状态与操作分为数据库状态、消息总结、数据库总结。`activePreset` 仅表示正在编辑的预设；`messageSummaryPreset/databaseSummaryPreset` 独立绑定执行预设，编辑器切换不会改变绑定。旧配置保留原消息总结预设，首次适配新增数据库总结预设；删除绑定预设时回退到保留的预设。其余未知配置继续保留，废弃的 `autoHideMessages` 字段在适配时移除。
 - 状态与操作中的配置仅在点击该页“保存配置”后持久化；其他标签页的自动或手动保存不夹带该页草稿。存在未保存配置时执行总结须先保存，执行按钮不会隐式保存；保存失败保留草稿和未保存状态。保存队列执行时合入最新已保存状态，避免排队的其他标签页保存覆盖刚提交的状态配置。
 - 消息总结沿用保留最新 N 层、每批楼层数和标签处理配置。数据库总结仅处理最新快照的完整表格，不发送楼层对话；默认预设合并冗余记录，以原表键和表头返回更新。总 Token 按总结连接模型调用后端 tokenizer 统计完整表格文本（含消息封装），指定表条数不含表头。两阈值为“或”，0 禁用对应条件，缺失的表不会触发条数条件；已达条数阈值不依赖 tokenizer 可用性。
@@ -63,4 +64,4 @@
 - 自动消息范围用 -1 表示尚无进度，包含 0 楼；批次末尾是用户消息时等待下一条可用角色回复，不越过保留的最新楼层。
 - `defaultFillPrompt` 允许空 operations，但 `parseUpdate` 对 `changed=false` 抛错；现有测试也断言抛错。修复应先明确成功无变化和进度语义，不擅自修改提示词规避问题。
 
-数据相关改动优先检查 `tests/database.test.mjs`、`database-reference.test.mjs`、`generation-preload.test.mjs`；若涉及消息/变量/分支，扩大至相应测试与隔离后端回读。验收应覆盖旧格式、未知字段、模板独立、快照覆盖历史、停止、落盘失败和会话隔离。测试命令见 [开发流程](../development.md)。
+数据相关改动优先检查 `tests/database.test.mjs`、`database-reference.test.mjs`、`database-concurrency.test.mjs`、`database-overview.test.mjs`、`database-preview.test.mjs`、`generation-preload.test.mjs`；若涉及消息/变量/分支，扩大至相应测试与隔离后端回读。验收应覆盖旧格式、未知字段、模板独立、快照覆盖历史、停止、落盘失败和会话隔离。测试命令见 [开发流程](../development.md)。
