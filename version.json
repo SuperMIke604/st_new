@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "14da997524bf8bdf61a0045ff3d3a5433b566930a43f6515b732e5adc91c4178",
-  "publishedAt": "2026-10-27T02:02:58.317144+00:00",
+  "revision": "8bcb3aa46cc8d56c7935b5345f88c2930efa90fe5226ba6d042910b6df630a72",
+  "publishedAt": "2026-10-27T03:23:02.159769+00:00",
   "files": {
     "public/app/api.js": "c49b58e6735e33714cb03502a9d67f435f932c96b1e81f76292d65b720f15f5e",
     "public/app/character-catalog.js": "f90e33a57c00139033c9a1cbd94de2fbeb8592faa0fa0a53ddffa488316d8db4",
@@ -27,7 +27,7 @@
     "public/app/index.html": "1c6a7b5c87f8c8e4eff20fdfca2b2e19913f1a265dc42917e0d1f69b922f950e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "5a41ebc36bdc955028621e1564ccea61d640fc765b6d1ce418f373d866b71d68",
-    "public/app/main.js": "d4cfbe56a4e8d2e53baef15874a9407a836f0321e86b90e9e161f4f384f663a7",
+    "public/app/main.js": "00ad40c53b37cc8b1de4409c0824dd24deccb7e4dce7c1a1254435d96651c644",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -49,7 +49,7 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "87560524d0879dfcd2ee454bd6dc4b96de71fd17912e7e30ae58be408bb511a5",
     "public/app/select.js": "e1f0a56b4b87a2c9db6e13e1b41fd61ee5abf8c315ee767cc7d226bfe592715e",
-    "public/app/style.css": "7e977c8d10fabfbe8676bf51c30d987157527fa98427891b7a1a0750c3a6c063",
+    "public/app/style.css": "4b39e4b08452205395ca46e2ccaa90a022c61899db2fb046e47aa44387fa211a",
     "public/app/theme-init.js": "9a14123c7989c05f51776d6375a302a22ea20497022e7bebd53715f265f9af5e",
     "public/app/toast.js": "16398643017b5b43362c62bf73023426685add0260a3c90563665c950e7009cb",
     "public/app/typography.css": "355e6a37c5e96c11f8ba8907cd05abdab092a46611c380d14cb26a05da93fcd0",
@@ -65,10 +65,10 @@
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
     "public/app/virtual-chat.js": "9f821281f64ea4b1510d42bb7dc33e90e63bef77206f2d1ed25b6252e18f5909",
-    "public/app/world-editor.js": "ac090ef53ad343af01518749350bc332d5d58b1e404f993f58ac50e9dcba7b8a",
+    "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "8f8fded2c7cf45d618b0b74e4b239a3a0e483ad166a22ac5538aab0d93a9d2d9"
+    "public/app/version.js": "5a2eeb6de4e148a27a13c7c8d682fc8ffa96c8eca78b1f9e004ece53d8fe9ba2"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

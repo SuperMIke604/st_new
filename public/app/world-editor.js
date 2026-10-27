@@ -24,18 +24,22 @@ export function newWorldEntry(book) {
 
 export function renderWorldEntries(container, book, { el, field, action, dirty, icon, countTokens }) {
     const opened = new Set(); let freshId = null;
+    let disposers = [];
+    container._dispose = () => { for (const dispose of disposers) dispose(); disposers = []; };
     const sortRows = () => {
         const rows = [...container.querySelectorAll(':scope > .prompt-item')];
         rows.sort((a, b) => (a.dataset.entryId === freshId ? -1 : b.dataset.entryId === freshId ? 1 : 0) || Number(a.classList.contains('prompt-disabled')) - Number(b.classList.contains('prompt-disabled')) || Number(book.entries[b.dataset.entryId].order ?? 100) - Number(book.entries[a.dataset.entryId].order ?? 100) || Number(book.entries[b.dataset.entryId].independentCreatedAt || 0) - Number(book.entries[a.dataset.entryId].independentCreatedAt || 0) || b._originalIndex - a._originalIndex);
         rows.forEach(row => container.append(row));
     };
     const render = () => {
+        container._dispose();
         container.replaceChildren();
         const header = el('div', 'section-heading'); header.append(el('h2', '', `条目 · ${Object.keys(book.entries).length}`), action('新增条目', () => { freshId = newWorldEntry(book); opened.add(freshId); dirty(); render(); }, 'plus')); container.append(header);
         for (const [index, [id, entry]] of Object.entries(book.entries).entries()) {
             const row = el('details', 'prompt-item'); row.open = opened.has(id);
+            let active = true; disposers.push(() => { active = false; });
             row._originalIndex = index; row.dataset.entryId = id;
-            row.addEventListener('toggle', () => { if (row.open) opened.add(id); else opened.delete(id); });
+            row.addEventListener('toggle', () => { if (!active) return; if (row.open) opened.add(id); else opened.delete(id); });
             const summary = el('summary', 'world-entry-summary world-entry-rich');
             const title = el('span', 'prompt-title', entry.comment || `条目 ${entry.uid ?? id}`);
             const status = el('span', 'world-entry-mode');
@@ -71,28 +75,34 @@ export function renderWorldEntries(container, book, { el, field, action, dirty, 
             for (const [value, label] of [[0, '角色描述前'], [1, '角色描述后'], [4, '聊天深度'], [2, '作者注释前'], [3, '作者注释后'], [5, '示例对话前'], [6, '示例对话后'], [7, '输出口']]) { const option = el('option', '', label); option.value = value; position.append(option); }
             position.value = entry.position ?? 0; positionWrap.append(position); placement.append(positionWrap);
             summary.append(enabled, title, actions, chevron, placement); row.append(summary);
-            const form = el('div', 'prompt-form'); row.append(form);
-            const input = (label, key, fallback, options = {}) => {
-                const control = field(form, label, entry[key] ?? fallback, options);
-                control.addEventListener(options.options ? 'change' : 'input', () => { entry[key] = options.type === 'number' || options.numeric ? Number(control.value) : control.value; dirty(); });
-                return control;
+            let built = false, updatePosition = () => {}, updateCount = () => {};
+            position.addEventListener('change', () => { entry.position = Number(position.value); dirty(); updatePosition(); });
+            const buildForm = () => {
+                if (built) return; built = true;
+                const form = el('div', 'prompt-form'); row.append(form);
+                const input = (label, key, fallback, options = {}) => {
+                    const control = field(form, label, entry[key] ?? fallback, options);
+                    control.addEventListener(options.options ? 'change' : 'input', () => { entry[key] = options.type === 'number' || options.numeric ? Number(control.value) : control.value; dirty(); });
+                    return control;
+                };
+                const name = input('条目名称', 'comment', ''); name.addEventListener('input', () => { title.textContent = name.value || `条目 ${entry.uid ?? id}`; });
+                const keys = field(form, '关键词（英文逗号分隔）', (entry.key || entry.keys || []).join(', '));
+                keys.addEventListener('input', () => { entry.key = keys.value.split(',').map(text => text.trim()).filter(Boolean); dirty(); });
+                for (const [key, label] of [['excludeRecursion', '不可递归'], ['preventRecursion', '防止进一步递归']]) {
+                    const wrap = el('label', 'check-field'), check = el('input'); check.type = 'checkbox'; check.checked = !!entry[key]; check.addEventListener('change', () => { entry[key] = check.checked; dirty(); }); wrap.append(check, el('span', '', label)); form.append(wrap);
+                }
+                const content = input('条目内容', 'content', '', { multiline: true, rows: 7 });
+                const counter = el('small', 'world-token-count', 'Token：…'); content.parentElement.append(counter);
+                let timer, version = 0, disposed = false;
+                disposers.push(() => { disposed = true; version++; clearTimeout(timer); });
+                updateCount = async () => { if (disposed || !row.open) return; const current = ++version; if (!content.value) { counter.textContent = 'Token：0'; return; } try { const tokens = await countTokens?.(content.value); if (current === version && counter.isConnected) counter.textContent = Number.isFinite(tokens) ? `Token：${tokens}（含消息封装）` : 'Token：不可用'; } catch { if (current === version) counter.textContent = 'Token：计数失败'; } };
+                content.addEventListener('input', () => { version++; clearTimeout(timer); timer = setTimeout(updateCount, 500); });
+                const depth = input('聊天深度', 'depth', 4, { type: 'number' }); depth.min = 0;
+                const role = input('消息角色', 'role', 0, { options: [[0, '系统'], [1, '用户'], [2, '助手']], numeric: true });
+                updatePosition = () => { depth.closest('.field').hidden = role.closest('.field').hidden = Number(position.value) !== 4; }; updatePosition();
             };
-            const name = input('条目名称', 'comment', ''); name.addEventListener('input', () => { title.textContent = name.value || `条目 ${entry.uid ?? id}`; });
-            const keys = field(form, '关键词（英文逗号分隔）', (entry.key || entry.keys || []).join(', '));
-            keys.addEventListener('input', () => { entry.key = keys.value.split(',').map(text => text.trim()).filter(Boolean); dirty(); });
-            for (const [key, label] of [['excludeRecursion', '不可递归'], ['preventRecursion', '防止进一步递归']]) {
-                const wrap = el('label', 'check-field'), check = el('input'); check.type = 'checkbox'; check.checked = !!entry[key]; check.addEventListener('change', () => { entry[key] = check.checked; dirty(); }); wrap.append(check, el('span', '', label)); form.append(wrap);
-            }
-            const content = input('条目内容', 'content', '', { multiline: true, rows: 7 });
-            const counter = el('small', 'world-token-count', 'Token：…'); content.parentElement.append(counter);
-            let timer, version = 0;
-            const updateCount = async () => { const current = ++version; if (!content.value) { counter.textContent = 'Token：0'; return; } try { const tokens = await countTokens?.(content.value); if (current === version && counter.isConnected) counter.textContent = Number.isFinite(tokens) ? `Token：${tokens}（含消息封装）` : 'Token：不可用'; } catch { if (current === version) counter.textContent = 'Token：计数失败'; } };
-            content.addEventListener('input', () => { version++; clearTimeout(timer); timer = setTimeout(updateCount, 500); });
-            row.addEventListener('toggle', () => { if (row.open) updateCount(); });
-            if (row.open) updateCount();
-            const depth = input('聊天深度', 'depth', 4, { type: 'number' }); depth.min = 0;
-            const role = input('消息角色', 'role', 0, { options: [[0, '系统'], [1, '用户'], [2, '助手']], numeric: true });
-            const updatePosition = () => { depth.closest('.field').hidden = role.closest('.field').hidden = Number(position.value) !== 4; }; updatePosition(); position.addEventListener('change', () => { entry.position = Number(position.value); dirty(); updatePosition(); });
+            row.addEventListener('toggle', () => { if (active && row.open) { buildForm(); updateCount(); } });
+            if (row.open) buildForm();
             container.append(row);
         }
         sortRows();

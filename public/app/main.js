@@ -1926,6 +1926,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
     if (revision !== panelRevision) return;
     const name = { value: initial ? target : original };
     const entries = el('div', 'world-entry-list'); body.append(entries);
+    body._dispose = () => { entries._dispose?.(); entries.querySelector(':scope > .panel-content')?._dispose?.(); };
     const dirty = () => { bookDirty = true; panelDirty = true; };
     const render = (target = entries, trace = timing) => {
         const build = () => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
@@ -1966,6 +1967,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
         if (panelDirty && !confirm('放弃未保存的修改并切换世界书？')) { select.value = previous; return; }
         const next = select.value, request = ++bookRequest;
         try {
+            body._dispose();
             await loadPanelContent(entries, '世界书条目', async (content, _revision, trace) => {
                 const loaded = await api.post('/api/worldinfo/get', { name: next }, { timing: trace });
                 if (request !== bookRequest || revision !== panelRevision) return;
