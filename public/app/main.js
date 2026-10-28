@@ -30,7 +30,7 @@ import { autosizePrompt } from './prompt-autosize.js';
 import { worldDraft, renderWorldEntries } from './world-editor.js';
 import { renderGlobalWorldSelect } from './world-select.js';
 import { decorateCodeBlocks } from './code-blocks.js';
-import { messageMarkdown } from './message-markdown.js';
+import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
@@ -300,7 +300,9 @@ function synchronize() {
     $('composer').hidden = !state.character;
     document.body.classList.toggle('home-view', !state.character);
     // Refresh reply controls when a request starts/ends, including after stop.
-    list.update(state.chat.length - 1);
+    const names = JSON.stringify([persona().name, state.character?.name || 'Assistant']);
+    if (list.displayNames !== names) { list.displayNames = names; list.setMessages(state.chat); }
+    else list.update(state.chat.length - 1);
 }
 
 function markdown(text) {
@@ -319,6 +321,7 @@ function messageNumber(message, index, tokens = '-') {
 }
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
+    const names = { user: persona().name, char: state.character?.name || 'Assistant' };
     node._message = message;
     node.classList.toggle('from-user', !!message.is_user);
     if (!existing) {
@@ -349,7 +352,7 @@ function renderMessage(message, index, existing) {
             reasoning = el('details', 'message-reasoning'); reasoning.append(el('summary', '', '思考过程'), el('pre'));
             node.querySelector('.message-content').before(reasoning);
         }
-        reasoning.querySelector('pre').textContent = regexText(message.extra.reasoning, 6, { phase: 'display', depth: state.chat.length - index - 1 });
+        reasoning.querySelector('pre').textContent = displayNameMacros(regexText(message.extra.reasoning, 6, { phase: 'display', depth: state.chat.length - index - 1 }), names);
     } else reasoning?.remove();
     node.querySelector('.message-name').textContent = message.name || (message.is_user ? persona().name : state.character?.name || 'Assistant');
     const floor = node.querySelector('.message-number');
@@ -384,9 +387,9 @@ function renderMessage(message, index, existing) {
         waiting.classList.add('message-waiting'); node.querySelector('.message-content').after(waiting);
     } else if (!pending) waiting?.remove();
     const depth = state.chat.length - index - 1;
-    if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth) {
+    if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth || node._userName !== names.user || node._charName !== names.char) {
         const body = node.querySelector('.message-content');
-        body.innerHTML = markdown(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }));
+        body.innerHTML = markdown(displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names));
         const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, { acceptNode: text => text.parentElement.closest('pre,code,script,style,iframe,.dialogue-quote') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
         const texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
         for (const text of texts) {
@@ -403,6 +406,7 @@ function renderMessage(message, index, existing) {
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;
         node._preset = state.preset; node._depth = depth;
+        node._userName = names.user; node._charName = names.char;
     }
     return node;
 }

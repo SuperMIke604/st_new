@@ -25,6 +25,10 @@ function htmlEnd(source, start) {
     return source.length;
 }
 const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Display only names; do not execute stateful prompt/variable macros here.
+export function displayNameMacros(source, { user, char }) {
+    return String(source ?? '').replace(/\{\{\s*(user|char)\s*\}\}/gi, (_, key) => String((key.toLowerCase() === 'user' ? user : char) ?? ''));
+}
 export function messageMarkdown(source, converter) {
     let prefix = 'TAVERNHTMLBLOCK';
     while (source.includes(prefix)) prefix += 'X';

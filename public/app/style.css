@@ -57,7 +57,7 @@ dialog.regex-panel{width:850px}.regex-tabs{display:flex;gap:6px;flex-wrap:wrap;p
 
 .prompt-title{display:flex;align-items:center;gap:6px}.prompt-title>span:first-child{min-width:0}.prompt-autofill{display:inline-flex;flex-shrink:0;color:var(--ui-tone-8b9e7a,#8b9e7a)}
 
-.world-entry-list{display:grid;gap:9px;margin-top:20px}.world-entry-list>.prompt-item{content-visibility:auto;contain-intrinsic-size:auto 108px}.world-entry-summary{display:flex;align-items:center;gap:10px;padding:15px 17px;cursor:pointer;list-style:none}.world-entry-summary::-webkit-details-marker{display:none}
+.world-entry-list{display:grid;gap:9px;margin-top:20px}.world-entry-list>.panel-content{display:grid;gap:inherit}:is(.world-entry-list,.world-entry-list>.panel-content)>.prompt-item{content-visibility:auto;contain-intrinsic-size:auto 108px}.world-entry-summary{display:flex;align-items:center;gap:10px;padding:15px 17px;cursor:pointer;list-style:none}.world-entry-summary::-webkit-details-marker{display:none}
 
 .prompt-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;color:var(--ui-tone-91a282,#91a282)}.prompt-chevron svg{display:block;width:16px;height:16px;min-width:16px;transition:transform .15s ease}.prompt-item[open]>.prompt-summary .prompt-chevron svg{transform:rotate(180deg)}
 @media(max-width:700px){}
@@ -256,7 +256,7 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .prompt-title>.prompt-kind{flex-shrink:0;margin-left:6px;vertical-align:middle}
 
 /* Keep world selection and entry heading on one compact vertical rhythm. */
-.connection-profile-bar:has(+.world-entry-list){margin-bottom:0}.world-entry-list{margin-top:8px}.world-entry-list>.section-heading{margin:0 0 2px;min-height:40px}.world-entry-list>.prompt-item{margin-top:0}
+.connection-profile-bar:has(+.world-entry-list){margin-bottom:0}.world-entry-list{margin-top:8px}:is(.world-entry-list,.world-entry-list>.panel-content)>.section-heading{margin:0 0 2px;min-height:40px}:is(.world-entry-list,.world-entry-list>.panel-content)>.prompt-item{margin-top:0}
 
 .global-world-section{padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:18px}.library-toolbar{align-items:center}.library-toolbar input.library-search{box-sizing:border-box}.folder-row .folder-edit{display:inline-flex;align-items:center;justify-content:center}.folder-row[data-folder-id]{touch-action:pan-y}
 
