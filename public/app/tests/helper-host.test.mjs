@@ -7,9 +7,11 @@ import { validateVariables } from '../variable-manager.js';
 import { scriptSnapshot } from '../scripts.js';
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const hostSource = main.slice(main.indexOf('async function helperHostAction('), main.indexOf('\nfunction variableManagerPanel('));
-function fixture() {
+function fixture({ unpersisted = false, stored } = {}) {
     let records = [{ chat_metadata: { integrity: 'identity' } }, { mes: 'reply', swipe_id: 0, variables: { 0: { score: 2 } } }], settings = { extension_settings: { independentHelper: { keep: 42 } }, world_info_settings: { world_info: { globalSelect: ['Enabled'] } } }, writes = 0;
     const state = { character: { avatar: 'card.png', data: { extensions: { world: 'Allowed' } } }, file: 'chat', header: structuredClone(records[0]), chat: structuredClone(records.slice(1)), settings: structuredClone(settings) };
+    state.chatUnpersisted = unpersisted;
+    if (stored !== undefined) records = structuredClone(stored);
     const scriptRuntime = { processing: false };
     const context = vm.createContext({ state, scriptRuntime, inlineEdit: null, panelDirty: false, variablesSaving: false, structuredClone, AbortSignal, copy: structuredClone,
         patchHelperVariables, patchHelperMessages, validateVariables, scriptSnapshot, scriptIdentity: () => 'identity', settingsOwn: () => ({}),
@@ -31,6 +33,39 @@ test('host saves a fresh variable transaction, verifies persistence and retains 
     const result = await f.call('save-variables', { changes: [{ type: 'message', message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, value: { 0: { score: 5 } } }] });
     assert.equal(f.records()[1].variables[0].score, 5); assert.equal(f.state.chat[0], reference);
     assert.equal(result.snapshot.chat[0].variables[0].score, 5); assert.equal(f.context.variablesSaving, false);
+});
+
+test('the first helper write initializes an unsaved chat for each chat mutation API', async () => {
+    for (const operation of ['save-variables', 'set-messages', 'save-chat']) {
+        const f = fixture({ unpersisted: true, stored: [] }), reference = f.state.chat[0];
+        const change = { type: 'message', message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, value: { 0: { score: 5 } } };
+        const patch = { message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, data: { score: 5 } };
+        await f.call(operation, { changes: [change], messages: operation === 'save-chat' ? [] : [patch] });
+        assert.equal(f.records()[0].chat_metadata.integrity, 'identity');
+        assert.equal(f.records()[1].mes, 'reply');
+        assert.equal(f.records()[1].variables[0].score, 5);
+        assert.equal(f.state.chat[0], reference);
+        assert.equal(f.state.chatUnpersisted, false);
+        assert.equal(f.writes(), 1);
+    }
+});
+
+test('helper initialization rejects absent saved chats and invalid server responses', async () => {
+    for (const [unpersisted, stored] of [[false, []], [true, null], [true, {}], [true, [{ mes: 'missing header' }]]]) {
+        const f = fixture({ unpersisted, stored });
+        await assert.rejects(f.call('save-variables', { changes: [{ type: 'chat', base: {}, value: { score: 5 } }] }), /格式/);
+        assert.equal(f.writes(), 0);
+    }
+});
+
+test('unsaved-chat initialization still rejects stale variables and preserves fresh server metadata', async () => {
+    const f = fixture({ unpersisted: true, stored: [] });
+    await assert.rejects(f.call('save-variables', { changes: [{ type: 'chat', base: { stale: true }, value: { score: 5 } }] }), /修改/);
+    assert.equal(f.writes(), 0); assert.equal(f.state.chatUnpersisted, true);
+    const stored = [{ chat_metadata: { integrity: 'identity', serverOnly: 42 } }, structuredClone(f.state.chat[0])];
+    const existing = fixture({ unpersisted: true, stored });
+    await existing.call('save-variables', { changes: [{ type: 'chat', base: {}, value: { score: 5 } }] });
+    assert.equal(existing.records()[0].chat_metadata.serverOnly, 42);
 });
 test('host rejects another chat, unsaved edits, ordinary generation and stale updates without writing', async () => {
     const f = fixture();

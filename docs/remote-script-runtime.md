@@ -39,6 +39,8 @@ import 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artif
 
 设置保存在 `extension_settings.independentHelper`；全局变量沿用 `extension_settings.variables.global`。每次写入均校验格式、大小、当前聊天、回复分支、消息修订和旧变量值；完整批次验证后才保存，再从后端回读核验。保留生成流程和脚本持有的消息对象身份。失效、停用、未授权或重启后的脚本请求被拒绝。初始化和事件超时停止环境，防止迟到回调继续写入。
 
+新聊天首次落盘也可由助手变量或消息写入触发：仅当当前聊天尚未保存且后端返回空记录时，使用内存中的聊天头和开场消息作为校验基线，保存后回读核验。已保存聊天缺失或后端响应格式异常时仍拒绝写入，不自动重建历史聊天。
+
 ## 与生成流程连接
 
 生成前等待原模块的异步 jQuery ready 初始化，发送 `generation_started`；用户消息就绪时发送 `message_sent`。完整模型原文先保存，再交给原模块的 `message_received` 事件处理，完成后才应用显示正则。生成结束发送 `generation_ended`。处理错误保留已收到的回复并显示原因。

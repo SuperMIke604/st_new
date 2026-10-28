@@ -1189,9 +1189,13 @@ async function helperHostAction(operation, payload, identity) {
     try {
         if (['save-variables', 'set-messages', 'save-chat'].includes(operation)) {
             const avatar = state.character.avatar, file = state.file;
-            const records = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
+            const fresh = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
+            // A new chat stays in memory until its first write, including MVU initialization.
+            // Only that session may seed an absent file; never recreate a missing saved chat.
+            const records = state.chatUnpersisted && Array.isArray(fresh) && !fresh.length ? [copy(state.header), ...copy(state.chat)] : fresh;
             const next = operation === 'save-variables' ? patchHelperVariables(records, payload?.changes) : operation === 'save-chat' ? patchHelperMessages(patchHelperVariables(records, payload?.changes), payload?.messages) : patchHelperMessages(records, payload?.messages);
             await api.saveChat(avatar, file, next[0], next.slice(1));
+            check(); state.chatUnpersisted = false;
             const verified = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
             if (JSON.stringify(verified) !== JSON.stringify(next)) throw Error('脚本聊天保存核验失败，请重新打开聊天。');
             // Preserve message object identities held by generation and MVU.
