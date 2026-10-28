@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "13bd5f08c43615151eb4ca51a71f385752438829f2478ee86a9b3a27d2141aa4",
-  "publishedAt": "2026-10-27T14:26:44.627096+00:00",
+  "revision": "6c2e771ab9607302b93941e76e81d9d187eed6e176eabe4dc8d156c70f493445",
+  "publishedAt": "2026-10-28T03:41:25.878515+00:00",
   "files": {
     "public/app/api.js": "c49b58e6735e33714cb03502a9d67f435f932c96b1e81f76292d65b720f15f5e",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -29,7 +29,7 @@
     "public/app/index.html": "1c6a7b5c87f8c8e4eff20fdfca2b2e19913f1a265dc42917e0d1f69b922f950e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "5a41ebc36bdc955028621e1564ccea61d640fc765b6d1ce418f373d866b71d68",
-    "public/app/main.js": "b17ef8e26770eaf068e1fe6741f2323068fef19db2dc8862d92e218c0a6055f4",
+    "public/app/main.js": "9be58cc778c8689a78dd2c1a11f120260e08c1915fab94b663f0c19b55df4e9a",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -39,7 +39,7 @@
     "public/app/preset-tokens.js": "4cd2dff1db736a4045c9cadba7014f995db86c670daca783c14e594f2a00c180",
     "public/app/prompt-autosize.js": "58e2fa7e3184c890d2029925935873fead42f8316dcf683b99219b27cbde3acb",
     "public/app/prompt-drag.js": "1330234d153a33de7daa8c88c03f850deb17f6a235559a555adf4fe63d1696d1",
-    "public/app/reading.js": "7592ee8324ace58d4b897454fbbc74773c711d39020162d1528964ec9df814ea",
+    "public/app/reading.js": "d27baef975571556a8719730c37b5d862b5de73929d10277f7b4f6ba33687eb6",
     "public/app/README.md": "1641b2567090bcfe5d332ab3b3cdbf4c9852e45fd7825ab722813f6074a7433e",
     "public/app/regex.js": "1f221bf9228f47cf2fae8325b03f0408bd28f1321a8f6e9c0e94b09dc13f7350",
     "public/app/role-avatar-store.js": "56b22ae55b0fd42ab26298d723b92e10175112f9d48bcfd67096cb025deab261",
@@ -52,7 +52,7 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "3e292ed7db5701bb9a3f113551fe782f597387b847a1b668147a859fa58e1f32",
     "public/app/select.js": "e1f0a56b4b87a2c9db6e13e1b41fd61ee5abf8c315ee767cc7d226bfe592715e",
-    "public/app/style.css": "02b7a68407be6be6666a8a9df5640ed9d015ea36b91ad82a4313dd1a263e087d",
+    "public/app/style.css": "aa66071a3957ecb49fca45b67842cc3d978acf76b3ff81f6646a526fadaab897",
     "public/app/theme-init.js": "025cc18acc3d4892c8311be0b9e7b88df8938ea2799a4e50aa6e6aad7e6c95b2",
     "public/app/toast.js": "16398643017b5b43362c62bf73023426685add0260a3c90563665c950e7009cb",
     "public/app/typography.css": "24c9f3576fd79fafe27daf54f9326b587931abca4793ca24e9c44eee29ec3102",
@@ -71,7 +71,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "e92bd8802120d2382c1d527400c0c50a9c265cdbe5af45b8607f095e7d198de6"
+    "public/app/version.js": "b774253151023687bdfe4e442e1f078f4d4a57771941fc0beca8eeccacf9ef3c"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

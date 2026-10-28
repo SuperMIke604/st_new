@@ -270,9 +270,9 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 
 @media(max-width:700px){dialog[open]{z-index:90;top:calc(var(--viewport-top) + 48px)!important;bottom:auto!important;height:calc(var(--viewport-height) - 48px)!important;max-height:calc(var(--viewport-height) - 48px)!important}body:has(dialog[open]) #conversation{pointer-events:none}.appbar{z-index:100}}
 
-.message-content .dialogue-quote{color:#4f796a}:is([data-palette=paper],[data-palette=mist]) .message-content .dialogue-quote{color:#9a6549}
+:is(.message-content,.reading-sample) .dialogue-quote{color:var(--reading-dialogueColor,#4f796a)}:is([data-palette=paper],[data-palette=mist]) :is(.message-content,.reading-sample) .dialogue-quote{color:var(--reading-dialogueColor,#9a6549)}
 
-.message-content .dialogue-quote{color:#315b4c}:is([data-palette=paper],[data-palette=mist]) .message-content .dialogue-quote{color:#75452e}
+:is(.message-content,.reading-sample) .dialogue-quote{color:var(--reading-dialogueColor,#315b4c)}:is([data-palette=paper],[data-palette=mist]) :is(.message-content,.reading-sample) .dialogue-quote{color:var(--reading-dialogueColor,#75452e)}
 
 .message-jumps{display:flex;gap:2px;margin-left:auto}.message-jumps .button>span{display:none}.message-jumps-bottom{justify-content:flex-end;margin-top:10px}
 

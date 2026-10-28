@@ -307,6 +307,15 @@ function markdown(text) {
     const source = String(text || '');
     return globalThis.DOMPurify.sanitize(messageMarkdown(source, converter), { FORBID_TAGS: ['style', 'iframe', 'form', 'input', 'button', 'video', 'audio', 'svg'], FORBID_ATTR: ['style', 'srcset'] });
 }
+function messageNumber(message, index, tokens = '-') {
+    let text = `#${index} · ${tokens}`;
+    const timing = message.swipe_info?.[message.swipe_id || 0] ?? message;
+    if (!message.is_user && timing.gen_started && timing.gen_finished) {
+        const duration = new Date(timing.gen_finished).getTime() - new Date(timing.gen_started).getTime();
+        if (Number.isFinite(duration) && duration >= 0) text += ` · ${Math.round(duration / 1000)}s`;
+    }
+    return text;
+}
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
     node._message = message;
@@ -344,10 +353,10 @@ function renderMessage(message, index, existing) {
     node.querySelector('.message-name').textContent = message.name || (message.is_user ? persona().name : state.character?.name || 'Assistant');
     const floor = node.querySelector('.message-number');
     if (!state.busy && node._countedText !== message.mes) {
-        node._countedText = message.mes; const source = message.mes;
-        floor.textContent = `#${index} · -`;
-        if (source?.trim()) void api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{role:message.is_user?'user':'assistant',content:source}]).then(result => { if(node._countedText===source) floor.textContent=`#${index} · ${result.token_count || '-'}`; }).catch(()=>{});
+        node._countedText = message.mes; node._tokenCount = '-'; const source = message.mes;
+        if (source?.trim()) void api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{role:message.is_user?'user':'assistant',content:source}]).then(result => { if(node._countedText===source) { node._tokenCount = result.token_count ?? '-'; floor.textContent = messageNumber(node._message, index, node._tokenCount); } }).catch(()=>{});
     }
+    floor.textContent = messageNumber(message, index, node._countedText === message.mes ? node._tokenCount : '-');
     if (inlineEdit?.message === message) {
         if (!node.querySelector('.inline-editor')) {
             const editor = el('div', 'inline-editor');
@@ -2454,12 +2463,23 @@ function toolsPanel() {
     const values = () => Object.fromEntries([...readingInputs].map(([key, input]) => [key, input.value]));
     for (const [key, label, , min, max, step] of readingFields) {
         const input = field(typography, label, reading[key], { type: 'number' }); input.min = min; input.max = max; input.step = step; readingInputs.set(key, input);
-        input.addEventListener('input', () => { if (input.value !== '' && input.validity.valid) rememberReading(values()); });
+        input.addEventListener('input', () => { if (input.value !== '' && [...readingInputs.values()].every(input => input.validity.valid)) rememberReading(values()); });
     }
-    const sample = el('div', 'reading-sample'); sample.append(el('p', '', '风从窗边吹来，书页轻轻翻过。文字沿着页面两侧整齐排列，让每一次阅读都从容一些。'), el('p', '', '你可以调整字号、字间距、行间距和段间距，找到适合自己的阅读节奏。')); body.append(sample);
+    const dialogueColor = field(typography, '对话文字颜色', reading.dialogueColor, { hint: '仅调整聊天消息中引号内的对话文字。填写色号，例如 #75452e；留空跟随主题。' });
+    dialogueColor.placeholder = '跟随主题'; dialogueColor.spellcheck = false; readingInputs.set('dialogueColor', dialogueColor);
+    dialogueColor.addEventListener('input', () => {
+        dialogueColor.setCustomValidity('');
+        try { readingSettings({ dialogueColor: dialogueColor.value }, true); }
+        catch (error) { dialogueColor.setCustomValidity(error.message); return; }
+        if ([...readingInputs.values()].every(input => input.validity.valid)) rememberReading(values());
+    });
+    const sample = el('div', 'reading-sample');
+    const sampleDialogue = el('p'); sampleDialogue.append(el('span', 'dialogue-quote', '“这是对话文字的颜色预览。”'));
+    sample.append(el('p', '', '风从窗边吹来，书页轻轻翻过。文字沿着页面两侧整齐排列，让每一次阅读都从容一些。'), sampleDialogue); body.append(sample);
     const footer = el('div', 'editor-footer');
     footer.append(action('恢复默认排版', () => {
         for (const [key, , fallback] of readingFields) readingInputs.get(key).value = fallback;
+        dialogueColor.value = ''; dialogueColor.setCustomValidity('');
         rememberReading(values()); panelDirty = true;
     }, 'refresh'), action('保存阅读设置', async () => {
         const reading = readingSettings(values(), true);
