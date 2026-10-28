@@ -187,6 +187,16 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
     const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
+    // Read only the authenticated user's settings. No preset or resource scans,
+    // and no cache: callers use this before writes and for persisted readback.
+    router.post('/settings', async (request, response) => {
+        try {
+            const settings = JSON.parse(await io.readFile(path.join(request.user.directories.root, 'settings.json'), 'utf8'));
+            if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw Error('Invalid settings');
+            response.set?.('Cache-Control', 'no-store');
+            response.json({ settings });
+        } catch { response.status(500).json({ error: '无法读取设置，请重试。' }); }
+    });
     for (const [route, kind, directory] of [['/characters', 'characters', 'characters'], ['/worlds', 'worlds', 'worlds']]) router.post(route, async (request, response) => {
         try { response.json(await catalog(request.user.directories[directory], kind)); }
         catch { response.status(500).json({ error: '无法读取资源目录，请重试。' }); }

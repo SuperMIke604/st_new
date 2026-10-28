@@ -8,6 +8,31 @@ import { init, validateManifest, listRecentCharacters, installUpdate, createCata
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
 
+test('settings snapshots read only the authenticated user file, without caching or preset scans', async () => {
+    const routes = new Map(), reads = [];
+    let value = { unknown: { keep: 7 } };
+    const io = { readFile: async file => { reads.push(file); return file === 'plugin.mjs' ? 'plugin' : JSON.stringify(value); } };
+    await init({ post: (route, handler) => routes.set(route, handler) }, { pluginFile: 'plugin.mjs', io });
+    const call = async root => {
+        const result = { statusCode: 200, headers: {} };
+        const response = { set: (key, value) => { result.headers[key] = value; }, json: body => { result.body = body; }, status: code => { result.statusCode = code; return response; } };
+        await routes.get('/settings')({ user: { directories: { root } } }, response);
+        return result;
+    };
+    assert.deepEqual((await call('/user-a')).body, { settings: value });
+    value = { externalEdit: true };
+    const second = await call('/user-b');
+    assert.deepEqual(second.body.settings, value);
+    assert.equal(second.headers['Cache-Control'], 'no-store');
+    assert.deepEqual(reads, ['plugin.mjs', path.join('/user-a', 'settings.json'), path.join('/user-b', 'settings.json')]);
+    value = [];
+    assert.equal((await call('/user-a')).statusCode, 500);
+    io.readFile = async () => { throw Error('private filename'); };
+    const failed = await call('/user-a');
+    assert.equal(failed.statusCode, 500);
+    assert.ok(!JSON.stringify(failed).includes('private filename'));
+});
+
 test('catalog projections cache per file, detect external edits/additions/removals and isolate directories', async () => {
     const records = new Map(), reads = [];
     const add = (dir, name, value, stamp = 1) => records.set(path.join(dir, name), { value: JSON.stringify(value), stamp });

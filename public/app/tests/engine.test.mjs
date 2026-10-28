@@ -183,7 +183,7 @@ test('settings writes read fresh snapshots and preserve unknown native fields', 
     const originalFetch = globalThis.fetch;
     let saved = { power_user: { unrelated: 'preserve' }, custom: 1, independent_frontend: {} };
     globalThis.fetch = async (url, options) => {
-        if (url.endsWith('/get')) return Response.json({ settings: JSON.stringify(saved) });
+        if (url.endsWith('/get') || url.endsWith('/settings')) return Response.json({ settings: JSON.stringify(saved) });
         saved = JSON.parse(options.body); return Response.json({ result: 'ok' });
     };
     try {

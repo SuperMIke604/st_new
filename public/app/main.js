@@ -247,11 +247,12 @@ async function saveOwn(patch) {
         patch = { ...patch }; delete patch.preset;
         if (!Object.keys(patch).length) return;
     }
-    state.settings = await api.patchSettings(settings => { Object.assign(settingsOwn(settings), patch); settings.extension_settings.independent_frontend = settings.independent_frontend; });
+    const chatPosition = Object.keys(patch).every(key => ['lastCharacter', 'lastChats'].includes(key));
+    state.settings = await api.patchSettings(settings => { Object.assign(settingsOwn(settings), patch); settings.extension_settings.independent_frontend = settings.independent_frontend; }, { source: chatPosition ? '保存聊天位置设置' : '保存前端偏好设置' });
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     api.readCache.clear();
-    const persisted = settingsOwn((await api.settings()).settings);
+    const persisted = settingsOwn((await api.settings({ lightweight: true, source: chatPosition ? '核验聊天位置设置' : '核验前端偏好设置' })).settings);
     for (const key of Object.keys(patch)) if (JSON.stringify(persisted[key]) !== JSON.stringify(patch[key])) throw new Error('设置保存后核验失败，请重试。');
 }
 function persona() {
@@ -643,6 +644,7 @@ async function navigation() {
 
 async function openCharacter(avatar, { latest = false } = {}) {
     assertSaved();
+    const finishSwitch = loadTimings.start('切换角色聊天', 'data');
     generationPreload.cancelScheduled();
     let loaded = false;
     state.loading = true; synchronize();
@@ -660,10 +662,11 @@ async function openCharacter(avatar, { latest = false } = {}) {
     await loadChat(file, true, character);
     loaded = true;
     synchronize();
-    } finally { state.loading = false; synchronize(); if (loaded) preloadNextGeneration(); }
+    } finally { state.loading = false; synchronize(); finishSwitch(loaded ? 'success' : 'error'); if (loaded) preloadNextGeneration(); }
 }
 async function loadChat(file, internal = false, character = state.character) {
     if (!internal) assertSaved();
+    const finishSwitch = !internal ? loadTimings.start(file ? '切换历史聊天' : '新建聊天', 'data') : null;
     if (!internal) generationPreload.cancelScheduled();
     let loaded = false;
     if (!internal) { state.loading = true; synchronize(); }
@@ -688,7 +691,7 @@ async function loadChat(file, internal = false, character = state.character) {
     else if (internal && state.own.lastCharacter !== character.avatar) await saveOwn({ lastCharacter: character.avatar });
     status('已读取');
     loaded = true;
-    } finally { if (!internal) { state.loading = false; synchronize(); if (loaded) preloadNextGeneration(); } }
+    } finally { if (!internal) { state.loading = false; synchronize(); finishSwitch(loaded ? 'success' : 'error'); if (loaded) preloadNextGeneration(); } }
 }
 async function rememberChat(patch = {}) {
     try {
@@ -1231,8 +1234,8 @@ async function helperHostAction(operation, payload, identity) {
                     if (operation === 'save-settings') { if (legacySettings) helper.mvu = copy(value); else (helper.scriptSettings ||= {})[payload.scriptId] = copy(value); }
                     else (settings.extension_settings.variables ||= {}).global = copy(value);
                 }
-            });
-            api.readCache.clear(); const verified = await api.settings(); check();
+            }, { source: ({ 'save-buttons': '保存脚本按钮设置', 'save-settings': '保存脚本设置', 'save-globals': '保存脚本全局变量', 'save-lore-settings': '保存脚本世界书设置' })[operation] });
+            api.readCache.clear(); const verified = await api.settings({ lightweight: true, source: '核验脚本设置或全局变量' }); check();
             const saved = operation === 'save-buttons' ? { buttons: verified.settings.extension_settings?.independentHelper?.scriptButtons?.[payload.scriptId] } : operation === 'save-settings' ? (legacySettings ? verified.settings.extension_settings?.independentHelper?.mvu : verified.settings.extension_settings?.independentHelper?.scriptSettings?.[payload.scriptId]) : operation === 'save-globals' ? verified.settings.extension_settings?.variables?.global : verified.settings.extension_settings?.independentHelper?.loreSettings;
             if (Object.entries(value).some(([key, item]) => JSON.stringify(saved?.[key]) !== JSON.stringify(item))) throw Error('脚本设置保存核验失败。');
             state.settings = verified.settings; state.own = settingsOwn(state.settings);
@@ -1264,7 +1267,7 @@ function variableManagerPanel() {
                         if (JSON.stringify(existing) !== JSON.stringify(base) && JSON.stringify(existing) !== JSON.stringify(value)) throw Error('全局变量已被其他页面修改，请重新读取。');
                         ((settings.extension_settings ||= {}).variables ||= {}).global = copy(value);
                     });
-                    api.readCache.clear(); const verified = await api.settings();
+                    api.readCache.clear(); const verified = await api.settings({ lightweight: true, source: '核验全局变量' });
                     if (JSON.stringify(verified.settings.extension_settings?.variables?.global) !== JSON.stringify(value)) throw Error('全局变量保存核验失败，请重试。');
                     current(); state.settings = verified.settings; state.own = settingsOwn(state.settings);
                 } else {

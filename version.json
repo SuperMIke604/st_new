@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "revision": "6c2e771ab9607302b93941e76e81d9d187eed6e176eabe4dc8d156c70f493445",
-  "publishedAt": "2026-10-28T03:41:25.878515+00:00",
+  "revision": "c79f24d99a1a27a40b334d765191a0c4f5fd46906b154d5e721576ebb0721cd0",
+  "publishedAt": "2026-10-28T04:33:42.658855+00:00",
   "files": {
-    "public/app/api.js": "c49b58e6735e33714cb03502a9d67f435f932c96b1e81f76292d65b720f15f5e",
+    "public/app/api.js": "34553b19c8415bd31615d7b4adeadb975ee8a8faeb328cc3311461530e1576c0",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
     "public/app/chat-history.js": "57ecb3d5238639547ba31b71541da92cc5996a58247c6d127ae3f56ea2e8b3ab",
@@ -29,7 +29,7 @@
     "public/app/index.html": "1c6a7b5c87f8c8e4eff20fdfca2b2e19913f1a265dc42917e0d1f69b922f950e",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "5a41ebc36bdc955028621e1564ccea61d640fc765b6d1ce418f373d866b71d68",
-    "public/app/main.js": "9be58cc778c8689a78dd2c1a11f120260e08c1915fab94b663f0c19b55df4e9a",
+    "public/app/main.js": "280390c8fca617ed650e8f56bfe7aeed9e75f7d06990e35fa3a9b9d4f241f2ab",
     "public/app/message-edit.js": "fce091149f5721d3307b7fae4682a3e94ecddaf6ad98ce5fbca40262d971ac3d",
     "public/app/message-markdown.js": "b8568d9b4b2d11b9dd5debea5586c700fdd351ecde9b3eb72668931409cb45e7",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -71,10 +71,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "a8d2a237663857abfdf4796ed8cfef598ae2a54f80e8b86d4bae29b78afb16ac",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "b774253151023687bdfe4e442e1f078f4d4a57771941fc0beca8eeccacf9ef3c"
+    "public/app/version.js": "34c7a4270cc5dc458afe4f88b3a92c8c469e462c47da695dca838022748b701b"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "50838a09a95ca79f0d75001fd53a7d58c719562823c59eb35a7f8226f72500bc"
+    "sha256": "4821043911de703d3d7264bdacc24de5f2048476c2aa60ffa2be736a4d532ceb"
   }
 }

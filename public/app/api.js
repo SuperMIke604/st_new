@@ -59,9 +59,25 @@ export class TavernAPI {
         const value = await promise;
         return timing ? timing.measureSync(`${label} · 复制响应数据`, 'data', () => structuredClone(value)) : structuredClone(value);
     }
-    async settings() {
-        const bundle = await this.post('/api/settings/get');
-        return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings };
+    async settings({ lightweight = false, source = '读取设置快照' } = {}) {
+        if (!lightweight) {
+            const bundle = await this.post('/api/settings/get');
+            return { bundle, settings: typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings };
+        }
+        const finish = loadTimings.start(source, 'data'), timing = loadTimings.scope(finish.id);
+        try {
+            let bundle;
+            if (!this.missingSettingsRoute) {
+                try { bundle = await this.post('/api/plugins/st-new-updater/settings', {}, { timing, fallbackStatuses: [404] }); }
+                catch (error) { if (error.status !== 404) throw error; this.missingSettingsRoute = true; }
+            }
+            // Always read fresh, including the fallback. Never reuse an old
+            // settings bundle for a mutation or its verification.
+            if (this.missingSettingsRoute) bundle = await this.post('/api/settings/get', {}, { timing, signal: AbortSignal.timeout(15000) });
+            const settings = typeof bundle.settings === 'string' ? JSON.parse(bundle.settings) : bundle.settings;
+            if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw Error('设置响应格式无效');
+            finish(); return { bundle, settings };
+        } catch (error) { finish('error'); throw error; }
     }
     async bootstrapSettings() {
         try {
@@ -100,14 +116,18 @@ export class TavernAPI {
     }
     // The native endpoint replaces the entire settings file. Read fresh and patch
     // only owned fields, serializing writes so UI operations cannot race.
-    patchSettings(patch) {
+    patchSettings(patch, { source = '保存设置' } = {}) {
+        const finish = loadTimings.start(source, 'data'), timing = loadTimings.scope(finish.id);
         const task = this.saveQueue.catch(() => {}).then(async () => {
-            this.readCache.clear();
-            const { settings } = await this.settings();
-            patch(settings);
-            const result = await this.post('/api/settings/save', settings);
-            if (result?.result !== 'ok') throw new Error('设置未保存，请重试。');
-            return settings;
+            try {
+                this.readCache.clear();
+                const { settings } = await this.settings({ lightweight: true });
+                patch(settings);
+                const result = await this.post('/api/settings/save', settings, { timing });
+                if (result?.result !== 'ok') throw new Error('设置未保存，请重试。');
+                finish();
+                return settings;
+            } catch (error) { finish('error'); throw error; }
         });
         this.saveQueue = task;
         return task;
