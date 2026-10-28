@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js';
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
@@ -36,7 +37,7 @@ export function renderDatabasePanel(body, context) {
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板']])) {
+        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板']])) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); tabs.append(control);
         }
         content.replaceChildren();
@@ -81,7 +82,7 @@ export function renderDatabasePanel(body, context) {
             toolbarButton(toolbar,'重置模板','refresh',()=>{if(!confirm('重置当前预设模板？'))return;remember();replace({mate:{type:'chatSheets'}});});
             toolbarButton(toolbar, '应用模板到当前聊天', 'refresh', () => {
                 if (!confirm('用此模板替换当前聊天数据库草稿？原快照会保留，点击保存数据后生效。')) return;
-                undo.data.push(structuredClone(data)); data = validateDatabase(book); dataDirty = true; context.dirty(true); tab = context.preview ? 'data' : 'settings'; render();
+                undo.data.push(structuredClone(data)); data = validateDatabase(book); dataDirty = true; context.dirty(true); tab = 'data'; render();
             });
         } else {
             note(`${context.chatName} · ${sheets(book).length} 张表 · ${sheets(book).reduce((sum, [, table]) => sum + table.content.length - 1, 0)} 行${context.legacy ? ' · 已读取旧插件快照' : ''}`);
@@ -224,14 +225,14 @@ export function renderDatabasePanel(body, context) {
         select.value = settings.activePreset; toolbar.append(select, presetTools); content.append(toolbar);
         select.addEventListener('change', () => { settings.presets.find(item => item.id === settings.activePreset).template = structuredClone(settings.template); settings.activePreset = select.value; settings.template = structuredClone(settings.presets.find(item => item.id === select.value).template || defaultDatabase()); dirty('settings'); render(); });
         const preset = settings.presets.find(item => item.id === settings.activePreset);
-        toolbarButton(presetTools, '新增预设', 'plus', () => { preset.template = structuredClone(settings.template); const value = { id: crypto.randomUUID(), name: '新填表预设', messages: [{ role: 'system', content: defaultFillPrompt }], template: defaultDatabase() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template); dirty('settings'); render(); });
-        toolbarButton(presetTools, '复制预设', 'copy', () => { preset.template = structuredClone(settings.template); const value = { ...structuredClone(preset), id: crypto.randomUUID(), name: `${preset.name}（副本）` }; settings.presets.push(value); settings.activePreset = value.id; dirty('settings'); render(); });
+        toolbarButton(presetTools, '新增预设', 'plus', () => { preset.template = structuredClone(settings.template); const value = { id: uuid(), name: '新填表预设', messages: [{ role: 'system', content: defaultFillPrompt }], template: defaultDatabase() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template); dirty('settings'); render(); });
+        toolbarButton(presetTools, '复制预设', 'copy', () => { preset.template = structuredClone(settings.template); const value = { ...structuredClone(preset), id: uuid(), name: `${preset.name}（副本）` }; settings.presets.push(value); settings.activePreset = value.id; dirty('settings'); render(); });
         toolbarButton(presetTools, '删除预设', 'trash', () => { if (settings.presets.length < 2) throw new Error('至少保留一个填表预设。'); if (!confirm('删除当前填表预设？保存后生效。')) return; settings.presets = settings.presets.filter(item => item !== preset); settings.activePreset = settings.presets[0].id; for(const key of ['messageSummaryPreset','databaseSummaryPreset'])if(settings[key]===preset.id)settings[key]=settings.activePreset; settings.template = structuredClone(settings.presets[0].template || defaultDatabase()); dirty('settings'); render(); }, 'danger');
         toolbarButton(presetTools, '导出填表预设', 'export', () => download({ name: preset.name, prompt: preset.messages, overviewTemplate: JSON.stringify(settings.template), version: '2.0.0' }, 'database-preset.json'));
         toolbarButton(presetTools, '导入填表预设', 'import', async () => {
             const file = await pickFile('.json'); if (!file) return; const imported = JSON.parse(await file.text());
             const migrated = imported.prompt || imported.charCardPrompts ? migrateLegacySettings(imported.charCardPrompts ? imported : { charCardPrompts: [imported] }) : databaseSettings({ presets: [imported], template: imported.template || defaultDatabase() });
-            preset.template = structuredClone(settings.template); const value = { ...migrated.presets[0], id: crypto.randomUUID() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template || migrated.template); dirty('settings'); render(); notify('填表预设已载入，保存后生效');
+            preset.template = structuredClone(settings.template); const value = { ...migrated.presets[0], id: uuid() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template || migrated.template); dirty('settings'); render(); notify('填表预设已载入，保存后生效');
         });
         const name = field(content, '预设名称', preset.name); name.addEventListener('input', () => { preset.name = name.value; dirty('settings'); });
         const heading = el('div', 'section-heading'), title = el('div');title.append(el('h2', '', '提示词条目'), el('span', 'item-count', `${preset.messages.length} 个条目`));heading.append(title);toolbarButton(heading, '添加条目', 'plus', () => { const message={role:'user',content:''};preset.messages.push(message);openedPrompts.add(message);dirty('settings');render();content.querySelector('.prompt-item:last-child')?.scrollIntoView({block:'nearest'}); });content.append(heading);
@@ -240,7 +241,7 @@ export function renderDatabasePanel(body, context) {
         preset.messages.forEach((message, index) => {
             const section = el('details', 'prompt-item');section.open=openedPrompts.has(message);section.addEventListener('toggle',()=>{if(!section.isConnected)return;if(section.open)openedPrompts.add(message);else openedPrompts.delete(message);});
             const summary=el('summary','prompt-summary'),label=el('span','prompt-title'),kind=el('small','prompt-kind',({system:'系统',user:'用户',assistant:'助手'})[message.role]);label.append(el('span','',`提示词 ${index+1}`));label.append(kind);summary.append(label);
-            const anchor=el('span','prompt-action-anchor'),tools=el('span','prompt-actions prompt-inline-actions inset-action-menu');tools.hidden=true;tools.id=`db-prompt-actions-${crypto.randomUUID()}`;tools.setAttribute('role','group');tools.setAttribute('aria-label','条目操作');tools.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+            const anchor=el('span','prompt-action-anchor'),tools=el('span','prompt-actions prompt-inline-actions inset-action-menu');tools.hidden=true;tools.id=`db-prompt-actions-${uuid()}`;tools.setAttribute('role','group');tools.setAttribute('aria-label','条目操作');tools.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
             const more=toolbarButton(anchor,`提示词 ${index+1} 的条目操作`,'more',()=>{const expand=tools.hidden;for(const menu of rows.querySelectorAll('.prompt-inline-actions'))menu.hidden=true;for(const toggle of rows.querySelectorAll('.prompt-actions-toggle'))toggle.setAttribute('aria-expanded','false');tools.hidden=!expand;more.setAttribute('aria-expanded',String(expand));},'prompt-actions-toggle');more.setAttribute('aria-expanded','false');more.setAttribute('aria-controls',tools.id);more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});anchor.prepend(tools);summary.append(anchor);
             summary.addEventListener('keydown',event=>{if(event.key==='Escape'&&!tools.hidden){event.preventDefault();event.stopPropagation();tools.hidden=true;more.setAttribute('aria-expanded','false');more.focus();}});
             const form=el('div','prompt-form');section.append(summary,form);const role=field(form,'消息角色',message.role,{options:[['system','System · 系统'],['user','User · 用户'],['assistant','Assistant · 助手']]});role.addEventListener('change',()=>{message.role=role.value;kind.textContent=({system:'系统',user:'用户',assistant:'助手'})[message.role];dirty('settings');});
