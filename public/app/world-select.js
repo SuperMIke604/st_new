@@ -1,11 +1,12 @@
 import { installPopoverToggle } from './popover-toggle.js';
+import { uuid } from './uuid.js';
 export function renderGlobalWorldSelect(container, worlds, selected, { el, icon, changed }) {
     const label = el('div', 'global-world-label', '已启用的世界书（全局有效）');
     const control = el('div', 'global-world-control');
     const tags = el('div', 'global-world-tags');
     const toggle = el('button', 'global-world-toggle'); toggle.type = 'button'; toggle.append(icon('chevron'));
     toggle.setAttribute('aria-label', '选择全局世界书'); toggle.setAttribute('aria-expanded', 'false');
-    const popup = el('div', 'global-world-popup'); popup.setAttribute('popover', 'auto'); popup.id = `global-world-${crypto.randomUUID()}`;
+    const popup = el('div', 'global-world-popup'); popup.setAttribute('popover', 'auto'); popup.id = `global-world-${uuid()}`;
     toggle.setAttribute('aria-controls', popup.id);
     const search = el('input', 'global-world-search'); search.type = 'search'; search.placeholder = '搜索世界书…'; search.setAttribute('aria-label', '搜索全局世界书');
     const list = el('div', 'global-world-options'); list.setAttribute('role', 'group'); list.setAttribute('aria-label', '全局世界书选项');

@@ -10,3 +10,12 @@ export function installMessageEdit(node, edit, { now = Date.now } = {}) {
     });
     node.addEventListener('pointercancel', () => { last = null; });
 }
+
+export function installMessageEditDismiss(root, cancel) {
+    const dismiss = event => {
+        if (event.target.closest('.inline-editor')) return;
+        if (event.target.closest('button,a,input,textarea,select,summary,[role="button"],[contenteditable="true"]')) cancel();
+    };
+    root.addEventListener('click', dismiss, true);
+    root.addEventListener('focusin', dismiss, true);
+}

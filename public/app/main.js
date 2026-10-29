@@ -1,7 +1,7 @@
 import { RecentCharacters } from './home-data.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
-import { installMessageEdit } from './message-edit.js';
+import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
 import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchGlobalScripts } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
 import { patchHelperVariables, patchHelperMessages } from './helper-state.js';
@@ -232,8 +232,15 @@ function status(text, error = false) {
     if (state.loading) $('chat-loading-label').textContent = text;
 }
 function assertIdle() { if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
-function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
-function assertSaved() { assertIdle(); if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。'); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
+function cancelMessageEdit() {
+    if (!inlineEdit) return;
+    const index = state.chat.indexOf(inlineEdit.message);
+    inlineEdit = null;
+    if (index >= 0) list.update(index);
+}
+installMessageEditDismiss(document, cancelMessageEdit);
+function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); cancelMessageEdit(); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
+function assertSaved() { assertIdle(); cancelMessageEdit(); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
     settings.extension_settings ||= {};
     const own = settings.independent_frontend = settings.extension_settings.independent_frontend ||= settings.independent_frontend || {};
@@ -361,6 +368,7 @@ function renderMessage(message, index, existing) {
         if (source?.trim()) void api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{role:message.is_user?'user':'assistant',content:source}]).then(result => { if(node._countedText===source) { node._tokenCount = result.token_count ?? '-'; floor.textContent = messageNumber(node._message, index, node._tokenCount); } }).catch(()=>{});
     }
     floor.textContent = messageNumber(message, index, node._countedText === message.mes ? node._tokenCount : '-');
+    for (const jumps of node.querySelectorAll('.message-jumps')) jumps.hidden = inlineEdit?.message === message;
     if (inlineEdit?.message === message) {
         if (!node.querySelector('.inline-editor')) {
             const editor = el('div', 'inline-editor');
@@ -373,7 +381,7 @@ function renderMessage(message, index, existing) {
                 invalidateDatabases(state.chat, index);
                 if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.mes;
                 inlineEdit = null; list.update(index); await saveChat();
-            }, undefined, 'primary'), action('取消', () => { inlineEdit = null; list.update(index); }), action('删除', () => deleteEditedMessage(message), undefined, 'danger'));
+            }, undefined, 'primary'), action('取消', cancelMessageEdit), action('删除', () => deleteEditedMessage(message), undefined, 'danger'));
             editor.append(text, buttons); node.append(editor);
         }
         node.querySelector('.message-content').hidden = true;
@@ -560,6 +568,7 @@ function disposePanelWork() {
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
+    cancelMessageEdit();
     if (state.historySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
@@ -2078,7 +2087,7 @@ function assertDatabaseWritable() {
     if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。');
     if (state.databaseHistorySaving) throw new Error('正在保存历史总结删除，请稍候。');
     if (state.loading) throw new Error('正在切换聊天，请稍候。');
-    if (inlineEdit) throw new Error('请先保存或取消正在编辑的消息。');
+    cancelMessageEdit();
     if (state.dirty && !state.busy) throw new Error('当前聊天尚未保存，请先重试保存。');
 }
 function databaseWriteGuard(index) {
