@@ -1,4 +1,4 @@
-import { scriptModuleUrls } from './script-modules.js';
+import { scriptModuleUrls, fallbackModuleUrls } from './script-modules.js';
 import { helperMessageRevision } from './helper-state.js';
 
 export function scriptTrees(settings = {}, character = null) {
@@ -46,6 +46,7 @@ export function patchGlobalScripts(settings, tree) {
 export function scriptSupport(script) {
     const text = String(script.content || '');
     if (scriptModuleUrls(text)) return { supported: true, adapter: 'remote-module', reason: '加载原始 MVU 模块，通过独立助手接口提供变量更新和脚本设置。' };
+    if (fallbackModuleUrls(text, true) && text.includes('export const Schema = z.object(') && text.includes('registerMvuSchema(Schema)')) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
     if (/^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*['"]https:\/\/[^'"]+\/mvu_zod\.js['"]/m.test(text) && text.includes('export const Schema = z.object(')) return { supported: true, adapter: 'mvu-schema', reason: '使用本地 Zod 校验变量结构、默认值和转换，不加载远程模块。' };
     if (text.includes('逐梦演艺圈_头像库') && text.includes('  function 开库() {') && text.includes('  function 规范名(')) return { supported: true, adapter: 'role-avatar', reason: '头像库使用按角色隔离的本地持久存储，支持本地图片与导入导出。' };
     if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('updateVariablesWith')) return { supported: true, adapter: 'mvu-status', reason: '支持角色状态栏及变量编辑器。' };

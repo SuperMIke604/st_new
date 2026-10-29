@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { MVU_MODULE_URL, scriptModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from '../script-modules.js';
+import { MVU_MODULE_URL, scriptModuleUrls, fallbackModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from '../script-modules.js';
 import { scriptSupport } from '../scripts.js';
 import { scriptDocument, ScriptRuntime } from '../script-runtime.js';
 import { scriptBridge } from '../script-bridge.js';
@@ -12,6 +12,29 @@ test('requested side-effect import accepts ordinary comments, quotes and semicol
         assert.equal(scriptSupport({ content: source }).adapter, 'remote-module');
     }
     for (const source of ['', '/* import missing */', `import '${MVU_MODULE_URL}'; alert(1)`, `import '${MVU_MODULE_URL}?next=other'`, `import '${MVU_MODULE_URL.replace('testingcf.', 'evil.')}'`, `import '${MVU_MODULE_URL.replace('https:', 'http:')}'`, `import '${MVU_MODULE_URL.replace('https://', 'https://user:pass@')}'`, `import '${MVU_MODULE_URL}'; import 'https://other.invalid/a.js'`]) assert.equal(scriptModuleUrls(source), null, source);
+});
+
+test('pinned two-source modules fall back only after failure and keep the same revision', async () => {
+    const primary = MVU_MODULE_URL.replace('@beta', '@' + 'a'.repeat(40)), backup = primary.replace('testingcf.', 'cdn.');
+    const source = `// pinned module\ntry { await import('${primary}'); } catch (e) { console.warn('retry', e); await import('${backup}'); }`;
+    assert.deepEqual(scriptModuleUrls(source), [primary, backup]);
+    assert.equal(scriptModuleUrls(source.replace(backup, backup.replace('a'.repeat(40), 'b'.repeat(40)))), null);
+    assert.equal(scriptModuleUrls(source.replace('https://cdn.', 'https://evil.')), null);
+    const calls = [];
+    await loadScriptModules([primary, backup], async url => { calls.push(url); if (url === primary) throw Error('offline'); }, true);
+    assert.deepEqual(calls, [primary, backup]);
+    calls.length = 0;
+    await loadScriptModules([primary, backup], async url => calls.push(url), true);
+    assert.deepEqual(calls, [primary]);
+    await assert.rejects(loadScriptModules([primary, backup], async () => { throw Error('offline'); }, true), /远程模块加载失败/);
+    const schemaUrl = primary.replace('MagicalAstrogy/MagVarUpdate', 'StageDog/tavern_resource').replace('/artifact/bundle.js', '/dist/util/mvu_zod.js');
+    const schema = `let registerMvuSchema; try { ({registerMvuSchema} = await import('${schemaUrl}')); } catch (e) { ({registerMvuSchema} = await import('${schemaUrl.replace('testingcf.', 'cdn.')}')); } export const Schema = z.object({}); $(()=>registerMvuSchema(Schema));`;
+    assert.ok(fallbackModuleUrls(schema, true));
+    assert.equal(scriptSupport({ content: schema }).adapter, 'remote-schema');
+    const html = scriptDocument([{ content: source }, { content: schema }], { chat: [] }, '');
+    assert.match(html, /https:\/\/cdn\.jsdelivr\.net/);
+    assert.match(html, /await Promise.all\(window.__helperSchemas/);
+    for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(code));
 });
 
 test('enabled character and global modules share the loader while disabled modules cannot open CDN access', () => {

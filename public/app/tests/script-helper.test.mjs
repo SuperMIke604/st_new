@@ -42,6 +42,17 @@ test('native-style host saves variables and exposes only the compatibility paren
     f.context.SillyTavern.chat[0].variables[1].score = 7; await f.context.SillyTavern.saveChat();
     assert.equal(f.records()[1].variables[1].score, 7);
 });
+
+test('ordinary helper scripts wait for a real namespace and merge variables without exposing references', async () => {
+    const f = fixture();
+    f.context.Mvu = { original: true };
+    await f.context.waitGlobalInitialized('Mvu');
+    const variables = f.context.getAllVariables();
+    assert.equal(variables.score, 2);
+    variables.score = 99;
+    assert.equal(f.context.getAllVariables().score, 2);
+    assert.equal(f.context.Mvu.original, true);
+});
 test('concurrent async updaters are serialized and retain both changes', async () => {
     const f = fixture();
     await Promise.all(Array.from({ length: 3 }, () => f.context.updateVariablesWith(async value => { await Promise.resolve(); value.count++; return value; }, { type: 'chat' })));

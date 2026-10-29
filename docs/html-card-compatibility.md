@@ -10,6 +10,10 @@
 
 组件仍运行于不含 `allow-same-origin` 的 iframe；不开放网络请求或父页面访问权限。消息文本在嵌入时转义，避免内容提前关闭上下文脚本。
 
+消息状态栏也支持 `errorCatched`、`waitGlobalInitialized('Mvu')`、`getVariables/getAllVariables` 和变量更新事件。这里只提供所属消息当前回复分支的变量副本及只读 MVU 视图，不暴露其他楼层或完整 MVU 运行模块。需要这些接口的 HTML 在本地 jQuery 就绪后初始化，宿主变量刷新会更新视图；消息内的变量写入接口尚未接入，卡片自己的错误提示仍会显示。普通美化继续使用轻量 ready 接口。
+
+无语言标记的 `<body>` 代码块也会识别为 HTML。对于独立的 `<body><script>$('body').load('…')</script></body>` 加载器，宿主支持读取 jsDelivr testingcf/cdn 上以发布版本或提交 SHA 固定的 GitHub HTML 页面，限制大小、超时、重定向并省略凭据；加载失败显示明确错误。远程页继续运行于不带同源权限的 iframe，仅允许对应 CDN 的脚本、样式、字体和图片，fetch 及表单提交仍禁止。编译为 Vue external 的页面使用真实 Vue 库；顶层窗口的主题回退探测转到预览页自身。localStorage 只在该预览生命周期内保留，不读取浏览器存储。不等同于完整 jQuery `.load`、任意远程页面或开局按钮所需的全部助手 API；外部字体源未列入允许范围时使用后备字体。
+
 ## 验收
 
 使用卡片原始正则及原始替换代码走消息正则、Markdown、HTML 预览完整链路：微博、QQ、通告单分别渲染，未重复使用第一块数据。另在本地真实聊天验证 QQ 美化。

@@ -1,7 +1,7 @@
 // Serialized into the opaque script iframe. This implements host APIs, not MVU
 // parsing or update rules. Every persistent operation is checked by the app.
 // Add supported script APIs here so every script scope receives the same bindings.
-export const SCRIPT_API_NAMES = 'SillyTavern,getScriptId,getTavernHelperVersion,getVariables,replaceVariables,updateVariablesWith,insertOrAssignVariables,getChatMessages,setChatMessages,getWorldbookNames,getCharWorldbookNames,getCharLorebooks,getCurrentCharPrimaryLorebook,getLorebookEntries,getLorebookSettings,setLorebookSettings,substitudeMacros,substituteMacros,eventOn,eventOnce,eventEmit,eventWaitOnce,getButtonEvent,getScriptButtons,appendInexistentScriptButtons,replaceScriptButtons,getWorldbook,replaceWorldbook,createChatMessages,triggerSlash,__avatarStore'.split(',');
+export const SCRIPT_API_NAMES = 'waitGlobalInitialized,errorCatched,getAllVariables,SillyTavern,getScriptId,getTavernHelperVersion,getVariables,replaceVariables,updateVariablesWith,insertOrAssignVariables,getChatMessages,setChatMessages,getWorldbookNames,getCharWorldbookNames,getCharLorebooks,getCurrentCharPrimaryLorebook,getLorebookEntries,getLorebookSettings,setLorebookSettings,substitudeMacros,substituteMacros,eventOn,eventOnce,eventEmit,eventWaitOnce,getButtonEvent,getScriptButtons,appendInexistentScriptButtons,replaceScriptButtons,getWorldbook,replaceWorldbook,createChatMessages,triggerSlash,__avatarStore'.split(',');
 export function scriptHelper(initial, { request, emit, on, update, scriptId, buttons: configuredButtons = [], expose = true }) {
     const theme = document.createElement('style');
     theme.textContent = `:root{--SmartThemeBodyColor:#403a33;--SmartThemeEmColor:#806b56;--SmartThemeQuoteColor:#805b40;--SmartThemeBlurTintColor:#faf7f0;--SmartThemeChatTintColor:#f3eee4;--SmartThemeBorderColor:#ded4c6;--SmartThemeShadowColor:#0002}#extensions_settings2{color:var(--SmartThemeBodyColor);font:400 14px/1.6 system-ui}#extensions_settings2 [hidden]{display:none!important}#extensions_settings2 .inline-drawer-content{display:flex;flex-direction:column;gap:12px}#extensions_settings2 .inline-drawer-toggle{cursor:pointer}#extensions_settings2 .checkbox_label{display:flex;align-items:center;gap:8px}#extensions_settings2 .flex-container{display:flex;gap:8px;flex-wrap:wrap}#extensions_settings2 .flexFlowColumn{flex-direction:column}#extensions_settings2 .flex1{flex:1}#extensions_settings2 :is(button,.menu_button,select,input.text_pole){box-sizing:border-box;min-height:42px;border:1px solid var(--SmartThemeBorderColor);border-radius:10px;background:var(--SmartThemeBlurTintColor);color:inherit;padding:7px 12px;font:inherit}#extensions_settings2 .menu_button{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}#extensions_settings2 input[type=checkbox]{accent-color:var(--SmartThemeQuoteColor)}#extensions_settings2 label{line-height:1.6}`;
@@ -107,6 +107,18 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
     };
     const eventOnce = (event, fn) => { const stop = eventOn(event, (...args) => { stop(); return fn(...args); }); return stop; };
     const api = {
+        waitGlobalInitialized: async name => {
+            const deadline = Date.now() + 40000;
+            while (window[name] === undefined) {
+                if (Date.now() >= deadline) throw Error(`全局变量 ${name} 初始化超时。`);
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+        },
+        errorCatched: fn => function (...args) {
+            try { return Promise.resolve(fn.apply(this, args)).catch(error => { window.toastr.error(error.message); console.error(error); }); }
+            catch (error) { window.toastr.error(error.message); console.error(error); }
+        },
+        getAllVariables: (options = {}) => clone({ ...globals, ...snapshot.characterVariables, ...st.chatMetadata, ...variables({ type: 'message', ...options }) }),
         getScriptId: () => scriptId,
         // Our independent helper's version. Never claim the installed native
         // TavernHelper version or silently pass a minimum-version check.

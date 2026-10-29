@@ -29,7 +29,7 @@ import { installPromptDrag } from './prompt-drag.js';
 import { autosizePrompt } from './prompt-autosize.js';
 import { worldDraft, renderWorldEntries } from './world-editor.js';
 import { renderGlobalWorldSelect } from './world-select.js';
-import { decorateCodeBlocks } from './code-blocks.js';
+import { decorateCodeBlocks, refreshHtmlVariables } from './code-blocks.js';
 import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
@@ -400,6 +400,7 @@ function renderMessage(message, index, existing) {
         }
         const previewAvatar = state.character?.avatar; let previewAvatars;
         decorateCodeBlocks(body, { icon, notify, messageId: index, message: message.mes, name: message.name, role: message.is_user ? 'user' : 'assistant', personaName: persona().name,
+            variables: message.variables?.[message.swipe_id || 0] || {},
             getAvatars: previewAvatar ? () => previewAvatars ||= roleAvatars.run(previewAvatar, { operation: 'list' }) : undefined,
             edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
@@ -408,6 +409,7 @@ function renderMessage(message, index, existing) {
         node._preset = state.preset; node._depth = depth;
         node._userName = names.user; node._charName = names.char;
     }
+    refreshHtmlVariables(node, message.variables?.[message.swipe_id || 0]);
     return node;
 }
 const list = new VirtualChat($('message-list'), renderMessage, range => {

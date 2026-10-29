@@ -1,4 +1,5 @@
 import { cardContextScript } from './html-card-context.js';
+import { remoteHtmlUrl, fetchRemoteHtml, remoteHtmlDocument } from './html-card-loader.js';
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
 export function isHtmlPreview(source, language = '') {
@@ -7,7 +8,7 @@ export function isHtmlPreview(source, language = '') {
     // Detect the document itself without treating arbitrary tagged code
     // fragments in explicitly named programming languages as HTML cards.
     const document = /^\s*(?:<!doctype\s+html\b[^>]*>\s*)?<html\b[^>]*>[\s\S]*<\/(?:html)\s*>\s*$/i.test(source);
-    return language === 'html' || document || (!language && /^\s*(?:<!doctype html|<html|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)/i.test(source));
+    return language === 'html' || document || (!language && /^\s*(?:<!doctype html|<html|<body\b|<style|<div|<details|<section|<form|<button|<input|<article|<main|<script)/i.test(source));
 }
 export function codeTokens(source, language) {
     const html = language === 'html';
@@ -27,6 +28,14 @@ export function codeTokens(source, language) {
 // Message scripts run in an opaque-origin sandbox, never in the host document.
 const previewFrames = new Map();
 let previewListenerInstalled = false;
+let previewJquery;
+export function refreshHtmlVariables(container, variables = {}) {
+    for (const frame of container.querySelectorAll('iframe.html-message')) {
+        if (!frame._helper || frame._variables === variables) continue;
+        frame._variables = variables;
+        frame.contentWindow?.postMessage({ type: 'tavern-html-variables', variables }, '*');
+    }
+}
 function registerPreview(frame, loaded = false) {
     if (!previewListenerInstalled) {
         window.addEventListener('message', event => {
@@ -51,6 +60,17 @@ function registerPreview(frame, loaded = false) {
     }
     if (frame.contentWindow) {
         previewFrames.set(frame.contentWindow, frame);
+        if (loaded && frame._helper && !frame._helperRequested) {
+            frame._helperRequested = true;
+            previewJquery ||= fetch('./vendor/jquery.min.js').then(async response => {
+                if (!response.ok) throw Error('HTML 助手运行库读取失败。');
+                const text = await response.text();
+                if (!text.includes('jQuery v')) throw Error('HTML 助手运行库内容异常。');
+                return text;
+            }).catch(error => { previewJquery = null; throw error; });
+            previewJquery.then(jquery => { if (frame.isConnected) frame.contentWindow?.postMessage({ type: 'tavern-html-helper', jquery, variables: frame._variables }, '*'); })
+                .catch(error => frame.contentWindow?.postMessage({ type: 'tavern-html-helper', error: error.message }, '*'));
+        }
         if (loaded && frame._avatars && !frame._avatarsRequested) {
             frame._avatarsRequested = true;
             Promise.resolve().then(() => frame._avatars()).then(records => {
@@ -62,8 +82,9 @@ function registerPreview(frame, loaded = false) {
         frame.contentWindow.postMessage({ type: 'tavern-html-measure' }, '*');
     }
 }
-export function previewDocument(source, context = {}) {
-    const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'none'; form-action 'none'; base-uri 'none'";
+export function previewDocument(source, context = {}, remote = false) {
+    const cdn = remote ? ' https://testingcf.jsdelivr.net https://cdn.jsdelivr.net' : '';
+    const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob:${cdn}; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
     const bridge = `<script>(()=>{
         window.alert=text=>parent.postMessage({type:'tavern-html-alert',text:String(text)},'*');
         window.triggerSlash=command=>{const match=String(command).match(/^\\/send\\s+([\\s\\S]*?)\\|\\/trigger\\s*$/);if(!match)throw Error('仅支持 /send 内容|/trigger');parent.postMessage({type:'tavern-html-send',text:match[1]},'*');};
@@ -82,7 +103,7 @@ export function previewDocument(source, context = {}) {
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}${cardContextScript(snapshot)}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', getAvatars } = {}) {
+export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', variables = {}, getAvatars } = {}) {
     let fateIndex = 0;
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
@@ -92,13 +113,26 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify; frame._edit = edit;
+            frame._helper = /\b(?:errorCatched|waitGlobalInitialized|getAllVariables)\b/.test(source);
+            frame._variables = variables;
             frame._avatars = source.includes('头像库') ? getAvatars : null;
             // Form submit handlers need allow-forms even when they prevent the
             // default submission. CSP form-action 'none' still blocks navigation.
             frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
             frame.addEventListener('load', () => registerPreview(frame, true));
             const blockIndices = /data-fate-marker\s*=/.test(source) ? { fate_ui: fateIndex++ } : {};
-            frame.srcdoc = previewDocument(source, { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices }); pre.replaceWith(frame); registerPreview(frame); continue;
+            const context = { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices, variables, helper: frame._helper };
+            const remote = remoteHtmlUrl(source);
+            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : source, context);
+            pre.replaceWith(frame); registerPreview(frame);
+            if (remote) void fetchRemoteHtml(remote).then(html => {
+                if (frame.isConnected) frame.srcdoc = previewDocument(remoteHtmlDocument(html), context, true);
+            }).catch(error => {
+                if (!frame.isConnected) return;
+                frame.srcdoc = previewDocument('<p role="alert">远程 HTML 页面加载失败，请检查网络后重新打开聊天。</p>', context);
+                notify?.(error.message, true);
+            });
+            continue;
         }
         const wrapper = document.createElement('section'); wrapper.className = 'code-block';
         const bar = document.createElement('div'); bar.className = 'code-toolbar';

@@ -1,7 +1,7 @@
 import { scriptSupport } from './scripts.js';
 import { scriptBridge } from './script-bridge.js';
 import { roleScriptContent } from './role-script-adapters.js';
-import { scriptModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from './script-modules.js';
+import { scriptModuleUrls, fallbackModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from './script-modules.js';
 import { scriptHelper, helperStartup, SCRIPT_API_NAMES } from './script-helper.js';
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 export function scriptClip(rects, width, height) {
@@ -21,18 +21,20 @@ export function scriptDocument(scripts, snapshot, jquery) {
     const remoteId = defaultScript ? `${defaultScript.scope || 'script'}-${defaultScript.id || scripts.indexOf(defaultScript)}` : '';
     // The requested bundle imports its npm dependencies from this same CDN.
     // Module fetching uses script-src; no arbitrary fetch/model endpoints are opened.
-    const policy = `default-src 'none'; script-src 'unsafe-inline'${remote ? ' https://testingcf.jsdelivr.net' : ''}; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'`;
+    const fallback = scripts.some(script => script.enabled !== false && (scriptModuleUrls(script.content)?.some(url => url.startsWith('https://cdn.jsdelivr.net/')) || scriptSupport(script).adapter === 'remote-schema'));
+    const policy = `default-src 'none'; script-src 'unsafe-inline'${remote ? ' https://testingcf.jsdelivr.net' + (fallback ? ' https://cdn.jsdelivr.net' : '') : ''}; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'`;
     const tag = code => `<script>${code.replace(/<\/script/gi, '<\\/script')}<\/script>`;
     const runs = scripts.flatMap((script, index) => {
         const support = scriptSupport(script);
         if (script.enabled === false || !support.supported) return [];
         const id = `${script.scope || 'script'}-${script.id || index}`;
         const urls = support.adapter === 'remote-module' ? scriptModuleUrls(script.content) : null;
-        const content = urls ? `(${requireMvuHost.toString()})(); await (${loadScriptModules.toString()})(['MVU公共运行库'],()=>(${loadMvuLibraries.toString()})()); await (${loadScriptModules.toString()})(${json(urls)}); await window.__helperWaitForStartup(); window.__scriptReport({type:'helper-ready',id:${json(id)}});` : roleScriptContent(script, support.adapter);
+        const content = urls ? `(${requireMvuHost.toString()})(); await window.__mvuLibrariesReady; await Promise.all(window.__helperSchemas || []); await (${loadScriptModules.toString()})(${json(urls)},undefined,${!!fallbackModuleUrls(script.content)}); await window.__helperWaitForStartup(); window.__scriptReport({type:'helper-ready',id:${json(id)}});` : support.adapter === 'remote-schema' ? `await window.__mvuLibrariesReady;\n${script.content.replace(/\bexport\s+const\s+Schema\b/, 'const Schema')}` : roleScriptContent(script, support.adapter);
         const bindings = SCRIPT_API_NAMES.join(',');
-        return [tag(`(async()=>{const {${bindings}}=window.__scriptScope(${json(id)},${json(script.button?.buttons || [])});try{\n${content}\nwindow.__scriptReport({type:'executed',id:${json(id)}});}catch(error){window.__scriptReport({type:'failed',id:${json(id)},text:${json(script.name || '脚本')}+': '+error.message,error:true});}})();`)];
+        const run = `(async()=>{const {${bindings}}=window.__scriptScope(${json(id)},${json(script.button?.buttons || [])});try{\n${content}\nwindow.__scriptReport({type:'executed',id:${json(id)}});}catch(error){window.__scriptReport({type:'failed',id:${json(id)},text:${json(script.name || '脚本')}+': '+error.message,error:true});${support.adapter === 'remote-schema' ? 'throw error;' : ''}}})()`;
+        return [tag(support.adapter === 'remote-schema' ? `(window.__helperSchemas ||= []).push(${run}); window.__helperSchemas.at(-1).catch(()=>{});` : `${run};`)];
     });
-    return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0;width:100%;height:100%;font:14px system-ui;background:#f5f0e7}#script-empty{margin:20px;padding:16px;border:1px solid #c9bcaa;border-radius:12px;line-height:1.8;color:#66594c}#script-actions{position:fixed;bottom:8px;left:8px;z-index:10000;display:flex;gap:5px;flex-wrap:wrap}#script-actions button{padding:7px;border:1px solid #bba78e;background:#fff7e8;border-radius:8px}</style><div id="script-empty" role="status">正在启动角色卡脚本…</div><div id="script-actions"></div>${tag(`(${scriptBridge.toString()})(${json(snapshot)},${json({ externalMvu: remote, scriptId: remoteId, scriptButtons: defaultScript?.button?.buttons || [] })},${scriptHelper.toString()});`)}${tag(jquery)}${remote ? tag(`(${helperStartup.toString()})();`) : ''}${runs.join('')}`;
+    return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0;width:100%;height:100%;font:14px system-ui;background:#f5f0e7}#script-empty{margin:20px;padding:16px;border:1px solid #c9bcaa;border-radius:12px;line-height:1.8;color:#66594c}#script-actions{position:fixed;bottom:8px;left:8px;z-index:10000;display:flex;gap:5px;flex-wrap:wrap}#script-actions button{padding:7px;border:1px solid #bba78e;background:#fff7e8;border-radius:8px}</style><div id="script-empty" role="status">正在启动角色卡脚本…</div><div id="script-actions"></div>${tag(`(${scriptBridge.toString()})(${json(snapshot)},${json({ externalMvu: remote, scriptId: remoteId, scriptButtons: defaultScript?.button?.buttons || [] })},${scriptHelper.toString()});`)}${tag(jquery)}${remote ? tag(`(${helperStartup.toString()})(); window.__mvuLibrariesReady = (${loadScriptModules.toString()})(['MVU公共运行库'],()=>(${loadMvuLibraries.toString()})()); window.__mvuLibrariesReady.catch(()=>{});`) : ''}${runs.join('')}`;
 }
 export class ScriptRuntime {
     constructor({ notify, applyVariables, worldbook, roleAction, helperAction, onRetry }) { Object.assign(this, { notify, applyVariables, worldbook, roleAction, helperAction, onRetry }); this.dialog = null; this.frame = null; this.identity = ''; this.epoch = 0; this.jquery = null; this.statusRows = new Map(); this.buttons = new Map(); this.helperReady = false; this.helperError = ''; this.helperWaiters = new Set(); this.pendingEvents = new Map(); this.eventSequence = 0; this.processing = false; this.listener = event => void this.receive(event); }

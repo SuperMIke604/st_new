@@ -1,7 +1,22 @@
-// Only the user-requested MVU entry point is enabled for now. Importing runs the original
+// Only the recognized MVU entry paths are enabled. Importing runs the original
 // module; this layer must never substitute an implementation of its features.
 export const MVU_MODULE_URL = 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artifact/bundle.js';
+export function approvedModuleUrl(value, schema = false) {
+    const project = schema ? 'StageDog/tavern_resource' : 'MagicalAstrogy/MagVarUpdate';
+    const path = schema ? '/dist/util/mvu_zod.js' : '/artifact/bundle.js';
+    return new RegExp('^https://(?:testingcf|cdn)\\.jsdelivr\\.net/gh/' + project + '@' + (schema ? '[a-f0-9]{40}' : '(?:beta|[a-f0-9]{40})') + path.replaceAll('.', '\\.') + '$').test(value);
+}
+export function fallbackModuleUrls(content, schema = false) {
+    const text = String(content || '').replace(/\/\*[\s\S]*?\*\/|^\s*\/\/[^\r\n]*/gm, '').trim();
+    const imports = [...text.matchAll(/\bimport\s*\(\s*(['"])(https:\/\/[^'"\s]+)\1\s*\)/g)].map(match => match[2]);
+    if (imports.length !== 2 || !imports.every(url => approvedModuleUrl(url, schema))) return null;
+    if (new URL(imports[0]).pathname !== new URL(imports[1]).pathname) return null;
+    if (!schema && !/^try\s*\{\s*await import\([\s\S]*\}\s*catch\s*\(\w+\)\s*\{[\s\S]*await import\([^;]+\);?\s*\}\s*$/.test(text)) return null;
+    return imports;
+}
 export function scriptModuleUrls(content) {
+    const fallback = fallbackModuleUrls(content);
+    if (fallback) return fallback;
     let rest = String(content || ''), urls = [];
     const trivia = /^(?:\s+|\/\/[^\r\n]*(?:\r?\n|$)|\/\*[\s\S]*?\*\/)+/;
     while (rest) {
@@ -11,7 +26,7 @@ export function scriptModuleUrls(content) {
         if (!match) return null;
         try {
             const url = new URL(match[2]);
-            if (url.href !== MVU_MODULE_URL || match[2] !== MVU_MODULE_URL) return null;
+            if (url.href !== match[2] || !approvedModuleUrl(match[2])) return null;
         } catch { return null; }
         urls.push(match[2]);
         if (urls.length > 20) return null;
@@ -22,15 +37,19 @@ export function scriptModuleUrls(content) {
 
 // Serialized into the isolated script iframe. An imported module completing is
 // not proof that its asynchronous startup or application-specific features work.
-export async function loadScriptModules(urls, importer = url => import(url)) {
+export async function loadScriptModules(urls, importer = url => import(url), fallback = false) {
     for (const url of urls) {
-        let timer;
+        let timer, timedOut = false;
         try {
             await Promise.race([
                 importer(url),
-                new Promise((_, reject) => { timer = setTimeout(() => reject(Error('远程模块加载超时')), 30000); }),
+                new Promise((_, reject) => { timer = setTimeout(() => { timedOut = true; reject(Error('远程模块加载超时')); }, 30000); }),
             ]);
+            if (fallback) return;
         } catch (error) {
+            // import() cannot be cancelled: a slow primary could still execute.
+            // Only a rejected import is safe to retry on the alternate origin.
+            if (fallback && !timedOut && url !== urls.at(-1)) continue;
             throw Error(`远程模块加载失败（${url}）：${error?.message || error}。请检查网络、跨域响应及脚本所需接口。`, { cause: error });
         } finally { clearTimeout(timer); }
     }
