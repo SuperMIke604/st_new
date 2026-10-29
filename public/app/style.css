@@ -457,3 +457,6 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 [data-palette=mist] .message:not(.from-user){background:#f2eee5}
 [data-palette=mist] .message:not(.from-user) .message-content{color:#68280f}
 [data-palette=mist] .message:not(.from-user) .message-content :is(em,blockquote){color:#68280f}
+
+.custom-folders{min-width:0}.custom-folders .prompt-drag-handle{min-width:16px;flex-shrink:0}
+@media(max-width:700px){.custom-folders{display:flex;flex-direction:column;gap:5px;flex:0 0 100%;max-width:100%}}

@@ -1546,7 +1546,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     let library = timing ? timing.measureSync('角色卡 · 整理分类数据', 'data', () => libraryState(state.own.characterLibrary)) : libraryState(state.own.characterLibrary);
     await loadCharacterCatalog(force, timing);
     if (revision !== panelRevision) return;
-    let folder = 'all'; let mode = 'grid'; let page = 0;
+    let folder = 'unfiled'; let mode = 'grid'; let page = 0;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
@@ -1595,22 +1595,23 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         });
         state.own = state.settings.independent_frontend;
         if (revision !== panelRevision) return;
-        library = libraryState(state.own.characterLibrary); if (!['all', 'unfiled'].includes(folder) && !library.folders.some(item => item.id === folder)) folder = 'all'; renderFolders(); renderCards();
+        library = libraryState(state.own.characterLibrary); if (!['all', 'unfiled'].includes(folder) && !library.folders.some(item => item.id === folder)) folder = 'unfiled'; renderFolders(); renderCards();
     }
     function folderForm(id = null) {
         editingFolder = id; formTitle.textContent = id ? '重命名分类' : '新建分类';
         folderName.value = id ? library.folders.find(item => item.id === id).name : '';
         const targetRow = id ? [...sidebar.querySelectorAll('[data-folder-id]')].find(row => row.dataset.folderId === id) : null;
-        if (targetRow) targetRow.append(form); else { const first = sidebar.querySelector('[data-folder-id]'); if (first) sidebar.insertBefore(form, first); else sidebar.append(form); }
+        if (targetRow) targetRow.append(form); else { const first = sidebar.querySelector('[data-folder-id]'); if (first) sidebar.insertBefore(form, first.parentElement); else sidebar.append(form); }
         form.hidden = false; form.scrollIntoView({ block: 'nearest' }); folderName.focus();
     }
     function chooseFolder(id) { folder = id; page = 0; selected.clear(); renderFolders(); renderCards(); }
-    let folderDragEvents;
+    let disposeFolderDrag;
     function renderFolders() {
-        folderDragEvents?.abort(); folderDragEvents = new AbortController();
+        disposeFolderDrag?.();
         if (sidebar.contains(form)) body.prepend(form); sidebar.replaceChildren();
         const heading = el('div', 'folder-heading'); heading.append(el('h2', '', '分类'), action('新建分类', () => folderForm(), 'plus'));
         sidebar.append(heading);
+        const customFolders = el('div', 'custom-folders');
         const append = (id, label) => {
             const row = el('div', 'folder-row');
             const button = action(label, () => chooseFolder(id), 'folder', 'folder-button'); button.draggable = false;
@@ -1635,21 +1636,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     event.preventDefault(); event.stopPropagation(); menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
                 });
                 row.dataset.folderId = id;
-                let timer, dragging = false, pointer, blockClick = false, startX, startY;
-                row.addEventListener('pointerdown', event => {
-                    if (event.button !== 0 || !event.target.closest('.folder-button')) return;
-                    event.preventDefault(); pointer = event.pointerId; startX = event.clientX; startY = event.clientY;
-                    timer = setTimeout(() => { dragging = true; blockClick = true; row.classList.add('prompt-dragging'); }, 420);
-                });
-                window.addEventListener('pointermove', event => {
-                    if (pointer !== event.pointerId) return;
-                    if (!dragging) { if (Math.abs(event.clientX-startX)>8 || Math.abs(event.clientY-startY)>8) clearTimeout(timer); return; }
-                    const next = [...sidebar.querySelectorAll('[data-folder-id]')].filter(item => item !== row).find(item => { const rect = item.getBoundingClientRect(); return event.clientY < rect.top + rect.height / 2; });
-                    if (next) sidebar.insertBefore(row, next); else sidebar.append(row);
-                }, { signal: folderDragEvents.signal });
-                const finish = event => { if (pointer !== event.pointerId) return; clearTimeout(timer); if (!dragging) { if (row.hasPointerCapture(pointer)) row.releasePointerCapture(pointer); return; } dragging = false; row.classList.remove('prompt-dragging'); if (row.hasPointerCapture(pointer)) row.releasePointerCapture(pointer); if (event.type === 'pointercancel') { renderFolders(); return; } const order = [...sidebar.querySelectorAll('[data-folder-id]')].map(item => item.dataset.folderId); void run(() => persist(raw => { const next = libraryState(raw); next.folders.sort((a,b) => order.indexOf(a.id)-order.indexOf(b.id)); return next; })); };
-                window.addEventListener('pointerup', finish, { signal: folderDragEvents.signal }); window.addEventListener('pointercancel', finish, { signal: folderDragEvents.signal });
-                row.addEventListener('click', event => { if (blockClick) { blockClick = false; event.preventDefault(); event.stopPropagation(); } }, true);
+                button.title = '拖动排序；触屏长按排序';
                 row.addEventListener('dragover', event => { event.preventDefault(); row.classList.add('drop-target'); });
                 row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
                 row.addEventListener('drop', event => {
@@ -1659,10 +1646,21 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     void run(async () => { await persist(raw => moveCards(raw, values, id)); selected.clear(); renderCards(); notify('角色已移动'); });
                 });
             }
-            sidebar.append(row);
+            (id === 'unfiled' ? sidebar : customFolders).append(row);
         };
-        append('all', '全部角色'); append('unfiled', '未分类');
+        append('unfiled', '未分类');
         for (const item of library.folders) append(item.id, item.name);
+        sidebar.append(customFolders);
+        disposeFolderDrag = installPromptDrag(customFolders, body, order => {
+            void run(async () => {
+                try { await persist(raw => {
+                    const next = libraryState(raw);
+                    const rank = new Map(order.map((id, index) => [id, index]));
+                    next.folders.sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length));
+                    return next;
+                }); } catch (error) { renderFolders(); throw error; }
+            });
+        }, { summarySelector: '.folder-button', idKey: 'folderId', allowButton: true });
         const value = destination.value;
         destination.replaceChildren();
         for (const [id, label] of [['', '未分类'], ...library.folders.map(item => [item.id, item.name])]) { const option = el('option', '', label); option.value = id; destination.append(option); }
@@ -1674,7 +1672,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         const found = timing ? timing.measureSync('角色卡 · 筛选与排序', 'data', filter, value => ({ metrics: { totalItems: (state.characters || []).length, renderedItems: value.length } })) : filter();
         const pages = Math.max(1, Math.ceil(found.length / 60)); page = Math.min(page, pages - 1);
         const visible = found.slice(page * 60, (page + 1) * 60);
-        path.textContent = `角色卡 / ${folder === 'all' ? '全部角色' : folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
+        path.textContent = `角色卡 / ${folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
         cards.classList.toggle('list-view', mode === 'list');
         grid.setAttribute('aria-pressed', String(mode === 'grid')); listView.setAttribute('aria-pressed', String(mode === 'list'));
         cards.replaceChildren();

@@ -1,7 +1,7 @@
 // Pointer capture keeps long-press sorting consistent for mouse and touch.
-export function installPromptDrag(rows, scroller, commit) {
+export function installPromptDrag(rows, scroller, commit, { summarySelector = '.prompt-summary', idKey = 'promptId', allowButton = false } = {}) {
     for (const row of rows.children) {
-        const summary = row.querySelector?.('.prompt-summary');
+        const summary = row.querySelector?.(summarySelector);
         if (!summary || summary.querySelector('.prompt-drag-handle')) continue;
         const handle = document.createElement('span'); handle.className = 'prompt-drag-handle'; handle.textContent = '⠿'; handle.title = '长按拖动排序'; handle.setAttribute('aria-label', '长按拖动排序'); summary.prepend(handle);
     }
@@ -16,7 +16,7 @@ export function installPromptDrag(rows, scroller, commit) {
         if (current.capture.hasPointerCapture(current.pointer)) current.capture.releasePointerCapture(current.pointer);
         if (current.active) {
             suppressClick = true;
-            if (!cancelled) commit([...rows.children].map(row => row.dataset.promptId));
+            if (!cancelled) commit([...rows.children].map(row => row.dataset[idKey]));
             else current.original.forEach(row => rows.append(row));
         }
     };
@@ -34,8 +34,8 @@ export function installPromptDrag(rows, scroller, commit) {
         gesture.frame = requestAnimationFrame(tick);
     };
     rows.addEventListener('pointerdown', event => {
-        if (event.button !== 0 || gesture || event.target.closest('input,button')) return;
-        const summary = event.target.closest('.prompt-summary');
+        if (event.button !== 0 || gesture || event.target.closest(allowButton ? 'input' : 'input,button')) return;
+        const summary = event.target.closest(summarySelector);
         if (!summary) return;
         suppressClick = false;
         const row = summary.parentElement;
