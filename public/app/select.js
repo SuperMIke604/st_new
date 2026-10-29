@@ -36,9 +36,16 @@ export function enhanceSelect(select) {
             menu.classList.add('searchable-select-menu');
             menu.removeAttribute('role');
             filterInput = document.createElement('input'); filterInput.type = 'search'; filterInput.className = 'select-search'; filterInput.placeholder = select.dataset.searchPlaceholder || '搜索或输入模型 ID…'; filterInput.setAttribute('aria-label', select.dataset.searchLabel || '搜索模型');
+            // Keep this search out of the unowned credential fields in the API
+            // panel, so mobile password managers do not treat it as a login.
+            const searchForm = document.createElement('form'); searchForm.id = `${menu.id}-search`; searchForm.autocomplete = 'off';
+            searchForm.hidden = true;
+            searchForm.addEventListener('submit', event => event.preventDefault());
+            filterInput.setAttribute('form', searchForm.id); filterInput.autocomplete = 'off';
+            filterInput.name = 'select-search'; filterInput.autocapitalize = 'none'; filterInput.spellcheck = false;
             root = document.createElement('div'); root.setAttribute('role', 'listbox'); root.id = `${menu.id}-options`; root.setAttribute('aria-label', button.getAttribute('aria-label')); button.setAttribute('aria-controls', root.id);
             root.className = 'select-options-scroll';
-            menu.append(filterInput, root);
+            menu.append(searchForm, filterInput, root);
         }
         items = [...select.options].map((option, index) => {
             const item = document.createElement('div'); item.className = 'select-option'; item.id = `${menu.id}-${index}`;
