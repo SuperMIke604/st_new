@@ -187,5 +187,5 @@ export async function* readEvents(response) {
         if (buffer.startsWith('data:')) data.push(buffer.slice(5).trim());
         const last = parse(data);
         if (last && !last.done) yield last;
-    } finally { reader.releaseLock(); }
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }

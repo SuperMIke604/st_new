@@ -13,7 +13,7 @@ function fixture({ native = false } = {}) {
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     let requests = 0; const mvuCalls = [], helperEvents = [], saved = [];
-    const scriptRuntime = { helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
+    const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(body, signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
         helperEvents.push(event);
         if (native && event === 'message_received') {
             const message = state.chat[args[0]];

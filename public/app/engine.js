@@ -1,3 +1,4 @@
+import { nativeGenerationParameters } from './generation-parameters.js';
 import { applyRegex, activeRegexes } from './regex.js';
 import { historyRegexCache } from './history-regex-cache.js';
 import { MESSAGE_VARIABLES, messageVariableContext, resolveMessageVariableMacro } from './variable-macros.js';
@@ -266,24 +267,13 @@ export function generationBody(connection, preset, messages) {
     }
     if (preset.custom_include_body || preset.custom_include_headers || preset.custom_exclude_body) throw new CompatibilityError('首版尚未支持预设里的自定义请求体或请求头，请在使用前清空这些字段。');
     if (![-1, 0, 1, 2].includes(Number(preset.names_behavior ?? 0))) throw new CompatibilityError('预设的 names_behavior 值无效，应为 -1、0、1 或 2。');
-    const samplers = {};
-    for (const [key, fallback] of [['min_p', 0], ['repetition_penalty', 1]]) {
-        const value = Number(preset[key] ?? fallback);
-        if (!Number.isFinite(value) || (key === 'repetition_penalty' ? value <= 0 : value < 0 || value > 1)) throw new Error(`预设参数 ${key} 的数值无效。`);
-        if (value !== fallback) samplers[key] = value;
-    }
-    return {
+    return nativeGenerationParameters({
         chat_completion_source: connection.source, model: connection.model.trim(), custom_url: connection.url,
         messages: clone(messages), stream: connection.stream !== false,
         custom_prompt_post_processing: connection.postProcessing ?? 'merge', temperature: Number(preset.temperature ?? 1),
         top_p: Number(preset.top_p ?? 1), max_tokens: Number(preset.openai_max_tokens || 512),
         frequency_penalty: Number(preset.frequency_penalty || 0), presence_penalty: Number(preset.presence_penalty || 0),
-        ...(Number(preset.top_k) > 0 ? { top_k: Number(preset.top_k) } : {}),
         ...(Number(preset.seed) >= 0 ? { seed: Number(preset.seed) } : {}),
-        ...(preset.reasoning_effort ? { reasoning_effort: preset.reasoning_effort } : {}),
         ...(connection.secretId ? { secret_id: connection.secretId } : {}),
-        // The native CUSTOM route only forwards these extra sampler fields via
-        // custom_include_body. JSON is valid YAML for its existing merge helper.
-        ...(connection.source === 'custom' && Object.keys(samplers).length ? { custom_include_body: JSON.stringify(samplers) } : {}),
-    };
+    }, preset);
 }

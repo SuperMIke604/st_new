@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { buildPrompt, expand, activateWorlds, fitPrompt, generationBody, CompatibilityError } from '../engine.js';
 import { readEvents, TavernAPI } from '../api.js';
-let mergeObjectWithYaml;
-try { ({ mergeObjectWithYaml } = await import('../../../src/util.js')); } catch (error) { if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error; }
 
 const defaultPreset = JSON.parse(await fs.readFile(new URL('./fixtures/Default.json', import.meta.url), 'utf8'));
 function input() {
@@ -12,23 +10,14 @@ function input() {
         preset: structuredClone(defaultPreset), chat: [{ name: '林', is_user: false, mes: '你好' }, { name: '旅人', is_user: true, mes: '我想找一本书' }], settings: {}, books: [] };
 }
 
-test('custom chat-completion samplers reach the native backend merge without text completion', { skip: !mergeObjectWithYaml && 'Requires SillyTavern backend sources' }, () => {
-    const args = input(); Object.assign(args.preset, { top_a: .2, min_p: .05, repetition_penalty: 1.12 });
-    const original = JSON.stringify(args.preset);
-    const messages = buildPrompt(args).messages;
-    const body = generationBody({ source: 'custom', url: 'https://relay.example/v1', model: 'test' }, args.preset, messages);
-    const upstream = { messages: body.messages }; mergeObjectWithYaml(upstream, body.custom_include_body);
-    assert.equal(upstream.top_a, undefined); assert.equal(upstream.min_p, .05); assert.equal(upstream.repetition_penalty, 1.12);
-    assert.ok(Array.isArray(upstream.messages)); assert.equal(body.prompt, undefined);
-    assert.equal(JSON.stringify(args.preset), original);
-});
-
-test('default samplers do not add extra fields and invalid samplers fail locally', () => {
-    const preset = { top_a: 0, min_p: 0, repetition_penalty: 1 };
-    const connection = { source: 'custom', url: 'https://relay.example/v1', model: 'test' };
-    assert.equal(generationBody(connection, preset, []).custom_include_body, undefined);
-    assert.throws(() => generationBody(connection, { min_p: 'invalid' }, []), /min_p/);
-    assert.throws(() => generationBody(connection, { repetition_penalty: 0 }, []), /repetition_penalty/);
+test('OpenAI and custom sources omit provider-specific samplers without modifying presets', () => {
+    for (const source of ['openai', 'custom']) {
+        const preset = { top_k: 50, top_a: .2, min_p: .05, repetition_penalty: 1.12 };
+        const before = structuredClone(preset);
+        const body = generationBody({ source, url: 'https://relay.example/v1', model: 'test' }, preset, []);
+        for (const key of ['top_k', 'top_a', 'min_p', 'repetition_penalty', 'custom_include_body']) assert.equal(Object.hasOwn(body, key), false, key);
+        assert.deepEqual(preset, before);
+    }
 });
 
 test('inactive Claude prefill fields do not block OpenAI-compatible prompts or enter messages', () => {

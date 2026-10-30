@@ -22,16 +22,20 @@ test('ordinary global and character scripts load the entire API without MVU and 
     const html = scriptDocument([
         { scope: 'global', id: 'tool', content: content('globalApi'), button: { buttons: [{ name: 'Configured', visible: true }] } },
         { scope: 'character', id: 'tool', content: content('characterApi') },
+        { scope: 'preset', id: 'tool', content: content('presetApi') },
         { scope: 'character', id: 'off', enabled: false, content: 'window.offRan=true;' },
     ], snapshot, '');
     for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) vm.runInContext(code, context);
     assert.equal(context.globalApi.getScriptId(), 'global-tool');
     assert.equal(context.characterApi.getScriptId(), 'character-tool');
-    for (const api of [context.globalApi, context.characterApi]) {
+    assert.equal(context.presetApi.getScriptId(), 'preset-tool');
+    for (const api of [context.globalApi, context.characterApi, context.presetApi]) {
         for (const name of SCRIPT_API_NAMES) assert.notEqual(api[name], undefined, name);
+        assert.equal(typeof api.registerGenerationInterceptor(() => {}), 'function');
         assert.equal(api.SillyTavern.extensionSettings.legacy, undefined);
         assert.deepEqual(Array.from(await api.getWorldbookNames()), ['Role', 'Global']);
     }
+    assert.deepEqual(reports.filter(item => item.type === 'generation-interceptor').map(item => item.id), ['global-tool', 'character-tool', 'preset-tool']);
     context.globalApi.appendInexistentScriptButtons([{ name: 'Global', visible: true }]);
     context.characterApi.appendInexistentScriptButtons([{ name: 'Character', visible: true }]);
     assert.deepEqual(Array.from(context.globalApi.getScriptButtons(), item => item.name), ['Configured', 'Global']);

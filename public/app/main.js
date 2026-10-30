@@ -2,7 +2,7 @@ import { RecentCharacters } from './home-data.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
-import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, patchGlobalScripts } from './scripts.js';
+import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, savePresetScripts, patchGlobalScripts } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
 import { patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
@@ -280,7 +280,11 @@ function presets() {
 }
 function selectPreset() {
     const selected = presets().find(p => p.name === presetSelection.name);
-    state.preset = copy(selected?.data || {});
+    const next = copy(selected?.data || {});
+    if (JSON.stringify(scriptTrees({}, null, state.preset).preset) !== JSON.stringify(scriptTrees({}, null, next).preset)) {
+        scriptRuntime.dispose(); scriptSchema.dispose(); scriptAutoIdentity = '';
+    }
+    state.preset = next;
     state.presetMissing = !selected;
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
@@ -291,7 +295,7 @@ function synchronize() {
     if (!state.character) scriptAutoIdentity = '';
     if (state.ready && state.character && !state.loading && !state.busy && !state.historySaving && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
         scriptAutoIdentity = scriptIdentity();
-        if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+        if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)) {
             void openScriptWorkspace(false).catch(error => notify(`角色脚本启动失败：${error.message}`, true));
         }
     }
@@ -1041,8 +1045,10 @@ async function renderPresetPanel(body, revision) {
         if (panelDirty && !confirm('放弃修改并导入其他预设？')) return;
         const file = await pickFile('.json'); if (!file) return;
         const data = JSON.parse(await file.text());
+        if (data?.extensions?.tavern_helper?.scripts !== undefined) validateScriptTree(data.extensions.tavern_helper.scripts);
         beginDraft(data, file.name.replace(/\.json$/i, ''));
-        notify('预设已载入，保存后生效');
+        const count = scriptRows(scriptTrees({}, null, data).preset).length;
+        notify(count ? `预设及 ${count} 个预设脚本已载入，保存后生效` : '预设已载入，保存后生效');
     }, 'import');
     toolbarButton('导出预设', () => {
         const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' });
@@ -1092,13 +1098,13 @@ async function renderPresetPanel(body, revision) {
 }
 
 async function regexPanel(scope = 'global', target = '') {
-    if (!['global', 'preset', 'character', 'global-script', 'character-script'].includes(scope)) scope = 'global';
+    if (!['global', 'preset', 'character', 'global-script', 'preset-script', 'character-script'].includes(scope)) scope = 'global';
     const reuse = $('panel').open && $('panel').classList.contains('regex-panel');
     let host;
     if (reuse) {
         if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
-    } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
+    } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 预设脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
     return loadPanelContent(host, '正则与脚本', (body, revision, timing) => renderRegexPanel(body, revision, scope, target, timing), () => regexPanel(scope, target), { retainContent: reuse });
 }
 async function renderRegexPanel(body, revision, scope, target, timing) {
@@ -1107,14 +1113,14 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
     const available = presetCatalog(fresh.bundle);
     const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则与脚本分类');
-    for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['character-script', '角色卡脚本']]) {
-        const button = action(label, () => { if (scope !== id) return regexPanel(id); }, id === 'global' ? 'regex' : id === 'preset' ? 'tools' : 'card');
+    for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['preset-script', '预设脚本'], ['character-script', '角色卡脚本']]) {
+        const button = action(label, () => { if (scope !== id) return regexPanel(id); }, id === 'global' ? 'regex' : id === 'preset' || id === 'preset-script' ? 'tools' : 'card');
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
     body.append(tabs);
     if (scope.endsWith('-script')) {
         const manager = el('div', 'script-manager'); body.append(manager);
-        finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : 5 } }); await renderScriptManager(manager, revision, scope, target, timing); return;
+        finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : scope === 'preset-script' ? 6 : 5 } }); await renderScriptManager(manager, revision, scope, target, timing); return;
     }
     let entity = null; let rules = []; let selected = target;
     const chooseTarget = (label, options, value) => {
@@ -1184,7 +1190,7 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     }, 'edit', 'primary')); body.append(footer); render();
 }
 
-function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}`; }
+function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}/${encodeURIComponent(state.own.preset || '')}`; }
 async function helperHostAction(operation, payload, identity) {
     const owner = scriptRuntime.frame, epoch = scriptRuntime.epoch;
     const check = () => {
@@ -1224,7 +1230,7 @@ async function helperHostAction(operation, payload, identity) {
             list.setMessages(state.chat, { latest: list.follow });
         } else if (['save-settings', 'save-globals', 'save-lore-settings', 'save-buttons'].includes(operation)) {
             const value = operation === 'save-buttons' ? validateVariables({ buttons: payload?.value }) : validateVariables(operation === 'save-lore-settings' ? payload?.settings : payload?.value);
-            const plan = nativeScriptPlan(state.settings, state.character);
+            const plan = nativeScriptPlan(state.settings, state.character, state.preset);
             const caller = plan.find((script, index) => `${script.scope}-${script.id || index}` === payload?.scriptId && script.enabled !== false);
             if (payload?.scriptId && !caller || operation === 'save-buttons' && !caller) throw Error('脚本目标无效或已停用。');
             const legacySettings = !payload?.scriptId || scriptSupport(caller).adapter === 'remote-module';
@@ -1332,8 +1338,8 @@ async function openScriptWorkspace(diagnostics = true) {
         catch (error) { preparation = `变量准备未完成：${error.message}`; }
     }
     if (identity !== scriptIdentity()) return;
-    const scripts = nativeScriptPlan(state.settings, state.character), snapshot = scriptSnapshot(state);
-    if (!preparation) preparation = !scripts.length ? '当前没有全局或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用原生助手接口。' : '原生助手接口已提供；当前聊天还没有 MVU 变量。';
+    const scripts = nativeScriptPlan(state.settings, state.character, state.preset), snapshot = scriptSnapshot(state);
+    if (!preparation) preparation = !scripts.length ? '当前没有全局、预设或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用原生助手接口。' : '原生助手接口已提供；当前聊天还没有 MVU 变量。';
     if (diagnostics && $('panel').open && !closePanel()) return;
     await scriptRuntime.show({ scripts, snapshot, identity, preparation, diagnostics, actions: $('quick-replies') });
 }
@@ -1419,7 +1425,7 @@ async function prepareRoleMvu(generation = false, rawReply = null) {
     });
 }
 async function renderScriptManager(body, revision, scope, target, timing) {
-    const kind = scope === 'global-script' ? 'global' : 'character';
+    const kind = scope === 'global-script' ? 'global' : scope === 'preset-script' ? 'preset' : 'character';
     let entity = null, selected = target;
     if (kind === 'character') {
         const cards = await loadManagerCharacters(target, timing); if (revision !== panelRevision) return;
@@ -1428,7 +1434,19 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         if (!selected) { note(body, '没有可管理的角色卡。'); return; }
         entity = await api.post('/api/characters/get', { avatar_url: selected }, { timing }); if (revision !== panelRevision) return;
     }
-    const prepareTree = () => copy(scriptTrees(state.settings, entity)[kind]);
+    if (kind === 'preset') {
+        const available = presets();
+        selected = available.some(item => item.name === selected) ? selected : available.find(item => item.name === state.own.preset)?.name || available[0]?.name;
+        entity = available.find(item => item.name === selected);
+        if (!entity) { note(body, '没有可管理的预设，请先创建或导入。'); return; }
+        const select = field(body, '管理的预设', selected, { options: available.map(item => [item.name, item.name]) });
+        select.addEventListener('change', () => run(async () => {
+            if (panelDirty && !confirm('放弃当前未保存的脚本修改？')) { select.value = selected; return; }
+            panelDirty = false; await regexPanel(scope, select.value);
+        }));
+        note(body, '脚本随所属预设保存，仅在使用该预设的聊天中运行。导入预设时会一并载入其中的脚本。');
+    }
+    const prepareTree = () => copy(scriptTrees(state.settings, kind === 'character' ? entity : null, kind === 'preset' ? entity.data : null)[kind]);
     let tree = timing ? timing.measureSync('正则与脚本 · 准备脚本数据', 'data', prepareTree, value => ({ metrics: { scriptCount: scriptRows(value).length } })) : prepareTree();
     const dirty = () => { panelDirty = true; };
     const toolbar = el('div', 'regex-toolbar'), rows = el('div', 'regex-list'); body.append(toolbar, rows);
@@ -1459,7 +1477,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
     const render = () => timing ? timing.measureSync('正则与脚本 · 构建脚本列表', 'data', renderList, () => ({ metrics: { scriptCount: scriptRows(tree).length } })) : renderList();
     toolbar.append(action('新建脚本', () => { tree.push({ type: 'script', id: uuid(), name: '新脚本', enabled: false, content: '', info: '', button: { enabled: false, buttons: [] }, data: {} }); dirty(); render(); rows.lastElementChild.open = true; }, 'plus'), action('导入脚本', async () => {
         const file = await pickFile('.json'); if (!file) return; const value = JSON.parse(await file.text());
-        const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.data?.extensions?.tavern_helper?.scripts;
+        const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.extensions?.tavern_helper?.scripts ?? value.data?.extensions?.tavern_helper?.scripts;
         validateScriptTree(imported);
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
     }, 'folder'), action('导出脚本', () => {
@@ -1470,6 +1488,9 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         validateScriptTree(tree);
         if (kind === 'global') {
             state.settings = await api.patchSettings(settings => patchGlobalScripts(settings, tree)); state.own = settingsOwn(state.settings);
+        } else if (kind === 'preset') {
+            await savePresetScripts(api, selected, tree);
+            await reloadResources();
         } else {
             const savedCard = await saveCharacterScripts(api, selected, tree);
             if (state.character?.avatar === selected) state.character = savedCard; characterCatalog.invalidate();
@@ -2309,7 +2330,7 @@ async function generate(mode = false) {
     let reply = null; let replyIndex = -1; let pendingUser = false; let completed = false;
     let finishFirstText, finishModelResponse;
     try {
-        if (nativeScriptPlan(state.settings, state.character).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+        if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)) {
             if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await loadTimings.measure('初始化助手脚本环境', 'generation', () => openScriptWorkspace(false));
             await loadTimings.measure('助手事件 generation_started', 'generation', () => scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity()));
         }
@@ -2337,7 +2358,7 @@ async function generate(mode = false) {
         preview = prepared;
         finishFirstText = loadTimings.start('模型请求至首段文本（含思考）', 'generation');
         finishModelResponse = loadTimings.start('模型请求至回复接收完成', 'generation');
-        const response = await loadTimings.measure('模型请求至响应头', 'generation', () => api.response('/api/backends/chat-completions/generate', body, { signal: state.controller.signal }));
+        const response = await loadTimings.measure('模型请求至响应头', 'generation', () => scriptRuntime.generate(body, { signal: state.controller.signal, identity: scriptIdentity(), fetch: (request, signal) => api.response('/api/backends/chat-completions/generate', request, { signal }) }));
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
             const result = await response.json();
             if (result.error) throw new Error(typeof result.error === 'string' ? result.error : result.error.message || '模型请求失败');

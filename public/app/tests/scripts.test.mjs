@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scriptTrees, scriptRows, activeScripts, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchGlobalScripts, characterScriptPlan, nativeScriptPlan, usesMvuCompat } from '../scripts.js';
+import { scriptTrees, scriptRows, activeScripts, scriptSupport, scriptSnapshot, latestMvuData, validateScriptTree, saveCharacterScripts, patchGlobalScripts, patchPresetScripts, savePresetScripts, characterScriptPlan, nativeScriptPlan, usesMvuCompat } from '../scripts.js';
 import { scriptDocument } from '../script-runtime.js';
 
 test('global and character scripts remain separate and disabled folders suppress children', () => {
@@ -119,4 +119,41 @@ test('role plan loads the original MVU module while enabled global scripts use t
 test('role status bar fallback probes of parent DOM do not block its working local MVU adapter', () => {
     const content = '/* fate-phone-container getMvuDataSafe initFatePhone */ try { const p=window.parent; p.document; } catch {}';
     assert.equal(scriptSupport({ content }).adapter, 'mvu-status'); assert.equal(scriptSupport({ content }).supported, true);
+});
+
+
+test('preset import/export retains script trees, toggles and unknown fields without leaking across presets', async () => {
+    const { presetDraft, validatePreset } = await import('../preset-editor.js');
+    const source = { temperature: 1, top_p: 1, openai_max_context: 8192, openai_max_tokens: 512, prompts: [], prompt_order: [], extensions: { keep: 42, tavern_helper: { variables: { keep: true }, scripts: [
+        { type: 'script', id: 'on', enabled: true, content: 'window.presetRan = true', data: { custom: 1 } },
+        { type: 'script', id: 'off', enabled: false, content: 'void 0' },
+        { type: 'folder', enabled: false, scripts: [{ id: 'nested', content: 'void 0' }] },
+    ] } } };
+    const imported = JSON.parse(JSON.stringify(validatePreset(presetDraft(source))));
+    assert.deepEqual(scriptTrees({}, null, imported).preset, source.extensions.tavern_helper.scripts);
+    assert.deepEqual(nativeScriptPlan({}, null, imported).map(s => [s.id, s.enabled, s.scope]), [['on', true, 'preset'], ['off', false, 'preset'], ['nested', false, 'preset']]);
+    assert.deepEqual(activeScripts({}, null, imported).map(s => s.id), ['on']);
+    assert.deepEqual(nativeScriptPlan({}, null, {}), []);
+    assert.ok(scriptDocument(nativeScriptPlan({}, null, imported), { chat: [] }, '').includes('window.presetRan = true'));
+    patchPresetScripts(imported, []);
+    assert.deepEqual(imported.extensions.tavern_helper.variables, { keep: true });
+    assert.equal(imported.extensions.keep, 42);
+    assert.equal(source.extensions.tavern_helper.scripts.length, 3);
+});
+
+test('preset script saves read latest data and verify persistence, retaining other extensions', async () => {
+    const tree = [{ id: 'p', content: 'void 0', enabled: false }];
+    let preset = { prompts: [{ identifier: 'main', content: 'latest' }], extensions: { regex_scripts: [{ id: 'regex' }], tavern_helper: { scripts: [], variables: { keep: 42 } } }, custom: true };
+    const before = structuredClone(preset);
+    const api = { settings: async () => ({ bundle: { openai_setting_names: ['selected'], openai_settings: [JSON.stringify(preset)] } }), post: async (path, body) => {
+        assert.equal(path, '/api/presets/save'); assert.equal(body.name, 'selected'); preset = body.preset; return { name: 'selected' };
+    } };
+    await savePresetScripts(api, 'selected', tree);
+    assert.deepEqual(preset, { ...before, extensions: { ...before.extensions, tavern_helper: { ...before.extensions.tavern_helper, scripts: tree } } });
+    await assert.rejects(savePresetScripts(api, 'missing', tree), /已不存在/);
+    api.post = async () => ({ name: 'selected' });
+    await assert.rejects(savePresetScripts(api, 'selected', []), /核验失败/);
+    api.post = async () => ({});
+    await assert.rejects(savePresetScripts(api, 'selected', []), /保存失败/);
+    await assert.rejects(savePresetScripts(api, 'selected', [{ content: 3 }]), /必须是文字/);
 });

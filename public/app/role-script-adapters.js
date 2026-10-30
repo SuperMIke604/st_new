@@ -1,5 +1,11 @@
+import { isGenerationFetchScript } from './scripts.js';
 export function roleScriptContent(script, adapter) {
     let content = script.content || '';
+    if (adapter === 'generation-fetch') {
+        if (!isGenerationFetchScript(content)) throw Error('生成脚本结构已变化，请重新检查兼容性。');
+        content = content.replace(/function resolvePenetratedWindow\(\) \{[\s\S]*?\n    \}/, 'function resolvePenetratedWindow() { return window; }');
+        return content.replace('engine.install(targetWin);', `engine.disposeGenerationInterceptor = registerGenerationInterceptor((url, init, next) => engine.isEnabled ? engine.intercept(next, null, [url, init]) : next(url, init));`).replace('engine.dispose();', 'engine.disposeGenerationInterceptor?.(); engine.dispose();').replace('$(onMount);', 'onMount();');
+    }
     if (['mvu', 'mvu-schema'].includes(adapter)) return '';
     if (['role-avatar', 'role-archive'].includes(adapter)) {
         content = content.replaceAll("$('<div></div>').text(文案).css(常态)", "$('<div role=\"button\" tabindex=\"0\"></div>').text(文案).css(常态)").replaceAll('<div class="mxav-link"></div>', '<div class="mxav-link" role="button" tabindex="0"></div>');

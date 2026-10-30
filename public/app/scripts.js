@@ -1,12 +1,13 @@
 import { scriptModuleUrls, fallbackModuleUrls } from './script-modules.js';
 import { helperMessageRevision } from './helper-state.js';
 
-export function scriptTrees(settings = {}, character = null) {
+export function scriptTrees(settings = {}, character = null, preset = null) {
     const helper = settings.extension_settings?.tavern_helper;
     const legacy = settings.extension_settings?.TavernHelper;
     const globals = helper?.script?.scripts ?? legacy?.scriptsRepository;
     return {
         global: Array.isArray(globals) ? globals : [],
+        preset: Array.isArray(preset?.extensions?.tavern_helper?.scripts) ? preset.extensions.tavern_helper.scripts : [],
         character: Array.isArray((character?.data || character)?.extensions?.tavern_helper?.scripts) ? (character?.data || character).extensions.tavern_helper.scripts : [],
     };
 }
@@ -43,8 +44,35 @@ export function patchGlobalScripts(settings, tree) {
     const scripts = helper.script ||= {};
     scripts.scripts = structuredClone(tree);
 }
+export function patchPresetScripts(preset, tree) {
+    validateScriptTree(tree);
+    const helper = (preset.extensions ||= {}).tavern_helper ||= {};
+    helper.scripts = structuredClone(tree);
+}
+export async function savePresetScripts(api, name, tree) {
+    validateScriptTree(tree);
+    api.readCache?.clear();
+    const latest = await api.settings();
+    const index = latest.bundle.openai_setting_names.indexOf(name);
+    if (index < 0) throw Error('此预设已不存在，请重新选择。');
+    const raw = latest.bundle.openai_settings[index];
+    const data = typeof raw === 'string' ? JSON.parse(raw) : structuredClone(raw);
+    patchPresetScripts(data, tree);
+    const result = await api.post('/api/presets/save', { apiId: 'openai', name, preset: data });
+    if (!result?.name) throw Error('预设脚本保存失败。');
+    const saved = await api.settings();
+    const savedIndex = saved.bundle.openai_setting_names.indexOf(result.name);
+    const savedRaw = saved.bundle.openai_settings[savedIndex];
+    const preset = typeof savedRaw === 'string' ? JSON.parse(savedRaw) : savedRaw;
+    if (savedIndex < 0 || JSON.stringify(scriptTrees({}, null, preset).preset) !== JSON.stringify(tree)) throw Error('预设脚本保存核验失败，请重试。');
+    return preset;
+}
+export function isGenerationFetchScript(text) {
+    return typeof text === 'string' && text.includes("Symbol.for('__ATE_FETCH_HOOK__')") && text.includes('class AntiTruncationEngine') && text.includes('function resolvePenetratedWindow()') && text.includes('engine.install(targetWin);') && text.includes('async intercept(original, thisArg, args)') && text.includes('engine.dispose();');
+}
 export function scriptSupport(script) {
     const text = String(script.content || '');
+    if (isGenerationFetchScript(text)) return { supported: true, adapter: 'generation-fetch', reason: '通过隔离的生成处理器运行原始请求改写及响应还原逻辑；不访问宿主页面或连接密钥。' };
     if (scriptModuleUrls(text)) return { supported: true, adapter: 'remote-module', reason: '加载原始 MVU 模块，通过独立助手接口提供变量更新和脚本设置。' };
     if (fallbackModuleUrls(text, true) && text.includes('export const Schema = z.object(') && text.includes('registerMvuSchema(Schema)')) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
     if (/^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*['"]https:\/\/[^'"]+\/mvu_zod\.js['"]/m.test(text) && text.includes('export const Schema = z.object(')) return { supported: true, adapter: 'mvu-schema', reason: '使用本地 Zod 校验变量结构、默认值和转换，不加载远程模块。' };
@@ -63,15 +91,15 @@ export function scriptSupport(script) {
 export function characterScriptPlan(settings, character) {
     return scriptRows(scriptTrees(settings, character).character).map(row => ({ ...row.script, scope: 'character', enabled: row.enabled }));
 }
-export function nativeScriptPlan(settings, character) {
-    return [...scriptRows(scriptTrees(settings, character).global).map(row => ({ ...row.script, scope: 'global', enabled: row.enabled })), ...characterScriptPlan(settings, character)];
+export function nativeScriptPlan(settings, character, preset) {
+    return [...scriptRows(scriptTrees(settings, character, preset).preset).map(row => ({ ...row.script, scope: 'preset', enabled: row.enabled })), ...scriptRows(scriptTrees(settings, character).global).map(row => ({ ...row.script, scope: 'global', enabled: row.enabled })), ...characterScriptPlan(settings, character)];
 }
 export function usesMvuCompat(settings, character) { return characterScriptPlan(settings, character).some(script => script.enabled && scriptSupport(script).adapter === 'mvu'); }
-export function activeScripts(settings, character) {
-    const trees = scriptTrees(settings, character);
-    return ['global', 'character'].flatMap(scope => scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })));
+export function activeScripts(settings, character, preset) {
+    const trees = scriptTrees(settings, character, preset);
+    return ['preset', 'global', 'character'].flatMap(scope => scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })));
 }
-export function scriptSnapshot({ chat = [], header, character, settings = {}, own = {}, file = '' }) {
+export function scriptSnapshot({ chat = [], header, character, preset, settings = {}, own = {}, file = '' }) {
     const recent = Math.max(0, chat.length - 40);
     const latest = chat.findLastIndex(message => message.variables?.[message.swipe_id || 0]?.stat_data);
     let budget = 2000000;
@@ -98,7 +126,7 @@ export function scriptSnapshot({ chat = [], header, character, settings = {}, ow
         chatId: file || header?.chat_metadata?.integrity || header?.chat_metadata?.chat_id || '',
         helperSettings: structuredClone(settings.extension_settings?.independentHelper?.mvu || {}),
         helperScriptSettings: structuredClone(settings.extension_settings?.independentHelper?.scriptSettings || {}),
-        helperLegacyScriptId: (() => { const plan = nativeScriptPlan(settings, character), index = plan.findIndex(script => script.enabled && scriptSupport(script).adapter === 'remote-module'); return index < 0 ? '' : `${plan[index].scope}-${plan[index].id || index}`; })(),
+        helperLegacyScriptId: (() => { const plan = nativeScriptPlan(settings, character, preset), index = plan.findIndex(script => script.enabled && scriptSupport(script).adapter === 'remote-module'); return index < 0 ? '' : `${plan[index].scope}-${plan[index].id || index}`; })(),
         helperButtons: structuredClone(settings.extension_settings?.independentHelper?.scriptButtons || {}),
         helperGlobals: structuredClone(settings.extension_settings?.variables?.global || {}),
         lorebookSettings: { ...(settings.extension_settings?.independentHelper?.loreSettings || {}), selected_global_lorebooks: structuredClone(settings.world_info_settings?.world_info?.globalSelect || []), scan_depth: settings.world_info_settings?.world_info_depth ?? 2, context_percentage: settings.world_info_settings?.world_info_budget ?? 25, budget_cap: settings.world_info_settings?.world_info_budget_cap ?? 0, max_recursion_steps: settings.world_info_settings?.world_info_max_recursion_steps ?? 0, recursive: settings.world_info_settings?.world_info_recursive !== false, case_sensitive: !!settings.world_info_settings?.world_info_case_sensitive, match_whole_words: !!settings.world_info_settings?.world_info_match_whole_words },

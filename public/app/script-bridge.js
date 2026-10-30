@@ -1,6 +1,6 @@
 // This function is serialized into an opaque-origin iframe, never executed in
 // the app window. All mutation requests are checked again by the host.
-export function scriptBridge(initial, { externalMvu = false, scriptId = '', scriptButtons = [] } = {}, installHelper) {
+export function scriptBridge(initial, { externalMvu = false, scriptId = '', scriptButtons = [] } = {}, installHelper, installTransport) {
     const applicationParent = window.parent;
     let helper;
     const helpers = new Map();
@@ -8,6 +8,7 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
     const events = new Map(), pending = new Map(), memory = new Map();
     const clone = value => structuredClone(value);
     const post = data => applicationParent.postMessage({ channel: 'st-new-scripts', ...data }, '*');
+    if (installTransport) window.__registerGenerationInterceptor = installTransport(applicationParent, post);
     const emit = async (event, ...args) => { for (const fn of [...events.get(event) || []]) await fn(...args); };
     const rpc = (action, payload, timeout = 20000) => new Promise((resolve, reject) => {
         const id = ++sequence;
