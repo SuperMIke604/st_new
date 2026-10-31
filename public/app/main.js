@@ -2,9 +2,11 @@ import { RecentCharacters } from './home-data.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
-import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, latestMvuData, scriptSnapshot, validateScriptTree, saveCharacterScripts, savePresetScripts, patchGlobalScripts } from './scripts.js';
+import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, inlineScriptMessage, latestMvuData, scriptSnapshot as baseScriptSnapshot, validateScriptTree, saveCharacterScripts, savePresetScripts, patchGlobalScripts } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
-import { patchHelperVariables, patchHelperMessages } from './helper-state.js';
+import { validateExtensionPrompt } from './script-prompts.js';
+import { parseScriptCommands, patchScriptWorldFields } from './script-commands.js';
+import { helperMessageRevision, patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
 import { ScriptSchema } from './script-schema.js';
 import { RoleAvatarStore } from './role-avatar-store.js';
@@ -398,6 +400,18 @@ function renderMessage(message, index, existing) {
         waiting = loadingIndicator(state.generation.regenerate ? '正在重新生成，等待回复…' : '正在等待回复…', '', true);
         waiting.classList.add('message-waiting'); node.querySelector('.message-content').after(waiting);
     } else if (!pending) waiting?.remove();
+    const companionMessage = inlineScriptMessage(state.settings, state.character, state.preset, state.chat);
+    if (!inlineEdit && index === companionMessage && !pending) {
+        const body = node.querySelector('.message-content');
+        let anchor = body.querySelector('.script-chat-anchor');
+        if (!anchor) {
+            anchor = el('section', 'script-chat-anchor'); anchor.dataset.messageId = String(index);
+            anchor.setAttribute('aria-label', '酒馆伴侣交互卡片'); anchor.textContent = '正在连接酒馆伴侣…';
+            body.replaceChildren(anchor); node._text = null;
+        }
+        queueMicrotask(() => { if (anchor.isConnected) scriptRuntime.bindChat(anchor, index); });
+        return node;
+    }
     const depth = state.chat.length - index - 1;
     if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth || node._userName !== names.user || node._charName !== names.char) {
         const body = node.querySelector('.message-content');
@@ -410,9 +424,20 @@ function renderMessage(message, index, existing) {
             while ((match = pattern.exec(value))) { fragment.append(document.createTextNode(value.slice(start, match.index))); const span = el('span', 'dialogue-quote', match[0]); fragment.append(span); start = pattern.lastIndex; }
             if (start) { fragment.append(document.createTextNode(value.slice(start))); text.replaceWith(fragment); }
         }
-        const previewAvatar = state.character?.avatar; let previewAvatars;
+        const previewAvatar = state.character?.avatar, previewIdentity = scriptIdentity(), previewRevision = helperMessageRevision(message); let previewAvatars;
+        const previewCheck = () => {
+            if (scriptIdentity() !== previewIdentity || state.chat[index] !== message || helperMessageRevision(message) !== previewRevision) throw Error('消息界面已失效，请使用当前页面。');
+        };
         decorateCodeBlocks(body, { icon, notify, messageId: index, message: message.mes, name: message.name, role: message.is_user ? 'user' : 'assistant', personaName: persona().name,
             variables: message.variables?.[message.swipe_id || 0] || {},
+            swipes: index === 0 && message.mes === (state.character?.data || state.character)?.first_mes && !message.swipes?.length ? [(state.character?.data || state.character).first_mes, ...((state.character?.data || state.character).alternate_greetings || [])] : message.swipes,
+            scriptAction: async (operation, payload) => {
+                previewCheck();
+                if (operation === 'slash') return (await roleScriptAction('slash', payload, previewIdentity, previewCheck))?.value;
+                if (operation !== 'set-messages' || !Array.isArray(payload?.messages) || payload.messages.length !== 1 || payload.messages[0].message_id !== index) throw Error('消息界面只能修改所属楼层。');
+                const patches = payload.messages.map(patch => ({ ...patch, revision: previewRevision, base: copy(message.variables || {}) }));
+                return (await helperHostAction('set-messages', { messages: patches }, previewIdentity, previewCheck))?.value;
+            },
             getAvatars: previewAvatar ? () => previewAvatars ||= roleAvatars.run(previewAvatar, { operation: 'list' }) : undefined,
             edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
@@ -1190,15 +1215,88 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     }, 'edit', 'primary')); body.append(footer); render();
 }
 
+function scriptSnapshot(value) {
+    const snapshot = baseScriptSnapshot(value);
+    if (nativeScriptPlan(value.settings, value.character, value.preset).some(script => script.enabled !== false && ['role-chat', 'role-engine'].includes(scriptSupport(script).adapter))) {
+        const cache = scriptSnapshot.views ||= new Map();
+        snapshot.scriptMessageViews = snapshot.chat.flatMap((message, id) => {
+            if (!message.textAvailable || message.is_user || (id !== 0 && id < snapshot.chat.length - 6)) return [];
+            const text = displayNameMacros(regexText(message.mes, 2, { phase: 'display', depth: snapshot.chat.length - id - 1 }), { char: snapshot.characterName, user: snapshot.userName });
+            let html = cache.get(text);
+            if (html === undefined) {
+                html = globalThis.DOMPurify.sanitize(text.replace(/^\s*```(?:html)?\s*$/gm, ''), { FORCE_BODY: true, ADD_TAGS: ['style'], FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'base'], FORBID_ATTR: ['srcdoc'], ALLOW_DATA_ATTR: true });
+                if (cache.size >= 12) cache.delete(cache.keys().next().value);
+                cache.set(text, html);
+            }
+            return [{ id, html }];
+        });
+    }
+    return snapshot;
+}
 function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}/${encodeURIComponent(state.own.preset || '')}`; }
-async function helperHostAction(operation, payload, identity) {
+async function helperHostAction(operation, payload, identity, externalCheck = null) {
     const owner = scriptRuntime.frame, epoch = scriptRuntime.epoch;
     const check = () => {
-        if (scriptRuntime.frame !== owner || scriptRuntime.epoch !== epoch) throw Error('脚本环境已关闭或重新启动，结果未写入。');
+        if (externalCheck) externalCheck();
+        else {
+            if (scriptRuntime.frame !== owner || scriptRuntime.epoch !== epoch) throw Error('脚本环境已关闭或重新启动，结果未写入。');
+            if (scriptRuntime.statusRows && scriptRuntime.statusRows.get(payload?.scriptId)?.dataset?.active !== 'true') throw Error('调用脚本已停用或失效。');
+        }
         if (!state.character || identity !== scriptIdentity() || state.loading) throw Error('聊天已切换，脚本结果未写入。');
-        if (state.busy && !scriptRuntime.processing || state.dirty || inlineEdit || panelDirty) throw Error('当前正在生成、编辑或尚未保存，请稍后重试。');
+        if (state.busy && (externalCheck || !scriptRuntime.processing) || state.dirty || inlineEdit || panelDirty) throw Error('当前正在生成、编辑或尚未保存，请稍后重试。');
     };
     check();
+    if (operation === 'set-extension-prompt') {
+        const prompt = validateExtensionPrompt(payload), key = payload.scriptId + ':' + prompt.name;
+        if (!prompt.content) scriptRuntime.extensionPrompts.delete(key);
+        else {
+            if (!scriptRuntime.extensionPrompts.has(key) && scriptRuntime.extensionPrompts.size >= 100) throw Error('脚本提示词数量过多。');
+            scriptRuntime.extensionPrompts.set(key, prompt);
+        }
+        return { value: true };
+    }
+    if (operation === 'set-draft') {
+        if (state.busy || typeof payload?.text !== 'string' || !payload.text.trim() || payload.text.length > 100000) throw Error('当前不能填入内容，或内容为空、过大。');
+        if ($('message-input').value.trim() && $('message-input').value !== payload.text && (typeof payload.base !== 'string' || $('message-input').value !== payload.base)) throw Error('聊天输入框已有草稿，请先发送或清空。');
+        $('message-input').value = payload.text; resizeInput(); $('message-input').focus();
+        return { value: true };
+    }
+    if (operation === 'refresh-message') {
+        if (!Number.isSafeInteger(payload?.message_id) || !state.chat[payload.message_id]) throw Error('消息楼层不存在。');
+        list.setMessages(state.chat, { reset: true });
+        return { value: true, snapshot: scriptSnapshot(state) };
+    }
+    if (operation === 'generate-raw') {
+        const options = payload?.options;
+        if (!options || typeof options.prompt !== 'string' || !options.prompt.trim() || options.prompt.length > 500000 || (options.systemPrompt !== undefined && (typeof options.systemPrompt !== 'string' || options.systemPrompt.length > 100000)) || Object.keys(options).some(key => !['prompt', 'systemPrompt', 'quietToLoud'].includes(key))) throw Error('原始生成参数无效；使用当前连接，仅接受 prompt、systemPrompt 和 quietToLoud。');
+        const controller = new AbortController(), target = state.chat.at(-1), length = state.chat.length, revision = target ? helperMessageRevision(target) : '';
+        controller.scriptId = payload.scriptId;
+        if (scriptRuntime.auxiliaryControllers.size) throw Error('已有脚本解析请求进行中，请稍候。');
+        scriptRuntime.auxiliaryControllers.add(controller);
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(120000), ...(state.controller ? [state.controller.signal] : [])]);
+        try {
+            const messages = [...(options.systemPrompt ? [{ role: 'system', content: options.systemPrompt }] : []), { role: 'user', content: options.prompt }];
+            const body = generationBody({ ...connection(), stream: false }, state.preset, messages);
+            const response = await api.response('/api/backends/chat-completions/generate', body, { signal });
+            let text = '';
+            if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
+                for await (const event of readEvents(response)) {
+                    if (event.error) throw Error('脚本解析模型返回错误。');
+                    text += event.choices?.[0]?.delta?.content || event.choices?.[0]?.text || '';
+                    if (text.length > 500000) throw Error('脚本解析结果过大。');
+                }
+            } else {
+                const result = await response.json();
+                if (result.error) throw Error('脚本解析模型返回错误。');
+                text = result.choices?.[0]?.message?.content || result.choices?.[0]?.text || '';
+            }
+            check();
+            if (state.chat.length !== length || state.chat.at(-1) !== target || (target && helperMessageRevision(target) !== revision)) throw Error('解析期间消息或回复分支已变化，结果未应用。');
+            if (signal.aborted) throw Error('脚本解析已停止。');
+            if (typeof text !== 'string' || !text.trim() || text.length > 500000) throw Error('脚本解析结果为空或过大。');
+            return { value: text };
+        } finally { scriptRuntime.auxiliaryControllers.delete(controller); }
+    }
     if (operation === 'read-worldbook') {
         const permitted = new Set([state.character.data?.extensions?.world, state.character.extensions?.world, ...(state.settings.world_info_settings?.world_info?.globalSelect || [])]);
         if (typeof payload?.name !== 'string' || !permitted.has(payload.name)) throw Error('只允许读取当前角色关联或已启用的世界书。');
@@ -1214,7 +1312,7 @@ async function helperHostAction(operation, payload, identity) {
             // A new chat stays in memory until its first write, including MVU initialization.
             // Only that session may seed an absent file; never recreate a missing saved chat.
             const records = state.chatUnpersisted && Array.isArray(fresh) && !fresh.length ? [copy(state.header), ...copy(state.chat)] : fresh;
-            const next = operation === 'save-variables' ? patchHelperVariables(records, payload?.changes) : operation === 'save-chat' ? patchHelperMessages(patchHelperVariables(records, payload?.changes), payload?.messages) : patchHelperMessages(records, payload?.messages);
+            const next = operation === 'save-variables' ? patchHelperVariables(records, payload?.changes) : operation === 'save-chat' ? patchHelperMessages(patchHelperVariables(records, payload?.changes), payload?.messages) : patchHelperMessages(records, payload?.messages, { greetings: [(state.character.data || state.character).first_mes, ...((state.character.data || state.character).alternate_greetings || [])].filter(value => typeof value === 'string') });
             await api.saveChat(avatar, file, next[0], next.slice(1));
             check(); state.chatUnpersisted = false;
             const verified = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
@@ -1264,7 +1362,7 @@ async function helperHostAction(operation, payload, identity) {
             const saved = operation === 'save-buttons' ? { buttons: verified.settings.extension_settings?.independentHelper?.scriptButtons?.[payload.scriptId] } : operation === 'save-settings' ? (legacySettings ? verified.settings.extension_settings?.independentHelper?.mvu : verified.settings.extension_settings?.independentHelper?.scriptSettings?.[payload.scriptId]) : operation === 'save-globals' ? verified.settings.extension_settings?.variables?.global : verified.settings.extension_settings?.independentHelper?.loreSettings;
             if (Object.entries(value).some(([key, item]) => JSON.stringify(saved?.[key]) !== JSON.stringify(item))) throw Error('脚本设置保存核验失败。');
             state.settings = verified.settings; state.own = settingsOwn(state.settings);
-        } else throw Error('此酒馆助手接口尚未接入。');
+        } else throw Error('此酒馆伴侣接口尚未接入。');
         generationPreload.invalidate();
         return { value: true, snapshot: scriptSnapshot(state) };
     } finally { variablesSaving = false; }
@@ -1339,9 +1437,11 @@ async function openScriptWorkspace(diagnostics = true) {
     }
     if (identity !== scriptIdentity()) return;
     const scripts = nativeScriptPlan(state.settings, state.character, state.preset), snapshot = scriptSnapshot(state);
-    if (!preparation) preparation = !scripts.length ? '当前没有全局、预设或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用原生助手接口。' : '原生助手接口已提供；当前聊天还没有 MVU 变量。';
+    if (!preparation) preparation = !scripts.length ? '当前没有全局、预设或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用酒馆伴侣接口。' : '酒馆伴侣接口已提供；当前聊天还没有 MVU 变量。';
     if (diagnostics && $('panel').open && !closePanel()) return;
     await scriptRuntime.show({ scripts, snapshot, identity, preparation, diagnostics, actions: $('quick-replies') });
+    const anchor = document.querySelector('.script-chat-anchor');
+    if (anchor?.isConnected) scriptRuntime.bindChat(anchor, Number(anchor.dataset.messageId));
 }
 async function roleWorldbook(name, identity) {
     const current = () => identity === scriptIdentity() && name && name === (state.character?.data || state.character)?.extensions?.world;
@@ -1363,9 +1463,51 @@ async function scriptWorldbook(action, payload, identity) {
     if (Object.entries(updated.entries).some(([key, entry]) => verified.entries?.[key]?.disable !== entry.disable)) throw Error('世界书开关保存核验失败，请重新读取。');
     return true;
 }
-async function roleScriptAction(action, payload, identity) {
-    const check = () => { assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，请重新打开脚本。'); };
+async function roleScriptAction(action, payload, identity, externalCheck = null) {
+    if (typeof externalCheck !== 'function') externalCheck = null;
+    const check = () => { externalCheck?.(); assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，请重新打开脚本。'); };
     check();
+    if (action === 'slash' && !/^\/(?:trigger(?:\s+await=true)?|hide\s+\d+)$/.test(payload?.command?.trim() || '')) {
+        const commands = parseScriptCommands(payload?.command), macro = text => String(text).replace(/\{\{\s*(user|char)\s*\}\}/gi, (_, key) => key.toLowerCase() === 'user' ? persona().name : state.character.name);
+        if (['getvar', 'setvar'].includes(commands[0].type)) {
+            const command = commands[0], base = copy(state.header?.chat_metadata?.variables || {});
+            if (command.type === 'getvar') return { value: typeof base[command.key] === 'string' ? base[command.key] : JSON.stringify(base[command.key] ?? '') };
+            return helperHostAction('save-variables', { scriptId: payload.scriptId, changes: [{ type: 'chat', base, value: { ...base, [command.key]: command.value } }] }, identity, externalCheck);
+        }
+        if (commands[0].type.endsWith('entryfield')) {
+            const run = async () => {
+                check();
+                const name = commands[0].name, book = await roleWorldbook(name, identity); check();
+                const updated = patchScriptWorldFields(book, commands);
+                if (commands.some(command => command.type === 'setentryfield')) {
+                    const latest = await roleWorldbook(name, identity); check();
+                    if (JSON.stringify(latest) !== JSON.stringify(book)) throw Error('世界书已被其他操作修改，请重新读取。');
+                    await api.post('/api/worldinfo/edit', { name, data: updated }); check();
+                    const verified = await roleWorldbook(name, identity); check();
+                    if (JSON.stringify(verified.entries) !== JSON.stringify(updated.entries)) throw Error('世界书字段保存核验失败。');
+                    api.readCache.clear(); generationPreload.invalidate();
+                }
+                const last = commands.at(-1), entry = Object.entries(updated.entries).find(([key, entry]) => String(entry.uid ?? key) === String(last.uid))?.[1];
+                return { value: last.type === 'getentryfield' ? (Array.isArray(entry[last.field]) ? JSON.stringify(entry[last.field]) : String(entry[last.field] ?? '')) : '', worldbook: { name, entries: updated.entries } };
+            };
+            const pending = (roleScriptAction.worldFields || Promise.resolve()).catch(() => {}).then(run);
+            roleScriptAction.worldFields = pending;
+            return pending;
+        }
+        let result = { value: '' };
+        for (const command of commands) {
+            check();
+            if (command.type === 'echo') { notify(macro(command.text).slice(0, 1000), command.kind); continue; }
+            if (command.type === 'send') result = await roleScriptAction('create-messages', { messages: [{ role: 'user', message: macro(command.text) }] }, identity, externalCheck);
+            if (command.type === 'trigger') result = await roleScriptAction('slash', { command: '/trigger' }, identity, externalCheck);
+            if (command.type === 'sendas') {
+                if (macro(command.name) !== state.character.name || $('message-input').value.trim()) throw Error('只允许当前角色的显示消息，且输入框须为空。');
+                state.chat.push({ name: state.character.name, is_user: false, is_system: false, mes: macro(command.text), send_date: new Date().toISOString(), extra: { independentRoleScript: true } });
+                await saveChat(); list.setMessages(state.chat, { latest: true }); result = { value: '', snapshot: scriptSnapshot(state) };
+            }
+        }
+        return result;
+    }
     if (action === 'avatars') return { value: await roleAvatars.run(state.character.avatar, payload) };
     if (action === 'replace-worldbook') {
         const book = await roleWorldbook(payload?.name, identity); check();
@@ -2292,7 +2434,7 @@ async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = loadTimings.measureSync('准备资料库文本与表格宏', 'generation', () => generationPreload.get(chat, state.header, state.own.database));
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details) };
+    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, extensionPrompts: [...scriptRuntime.extensionPrompts.values()], mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details) };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const key = model + '\n' + JSON.stringify(messages);
@@ -2586,7 +2728,7 @@ $('panel').addEventListener('cancel', event => { event.preventDefault(); closePa
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
-composerTools.append(action('脚本面板', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
+composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('scroll', raiseNotification);

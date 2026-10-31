@@ -1,4 +1,4 @@
-import { scriptModuleUrls, fallbackModuleUrls } from './script-modules.js';
+import { scriptModuleUrls, fallbackModuleUrls, staticSchemaModule } from './script-modules.js';
 import { helperMessageRevision } from './helper-state.js';
 
 export function scriptTrees(settings = {}, character = null, preset = null) {
@@ -72,9 +72,13 @@ export function isGenerationFetchScript(text) {
 }
 export function scriptSupport(script) {
     const text = String(script.content || '');
+    if ((text.includes("'st-map-float-widget'") && text.includes('initMapWidget')) || (text.includes("'st-wb-manager-widget'") && text.includes('getLocalWorldInfo'))) return { supported: true, adapter: 'native-widget', reason: '在隔离兼容文档运行原悬浮界面，使用统一的草稿和关联世界书接口。' };
+    if (text.includes('eventOnButton(') && /\bprompt\(/.test(text)) return { supported: true, adapter: 'button-input', reason: '保留原按钮菜单，文本输入使用兼容弹窗。' };
+    if (text.includes('MEIMAN_ONBOARDING_BLOCK') && text.includes('__mmFormHook') && text.includes('send_textarea')) return { supported: true, adapter: 'role-chat', reason: '通过酒馆伴侣角色界面运行原开局表单；支持填入聊天输入框。' };
+    if (text.includes('mmDicePool') && text.includes('function 发骰池()') && text.includes('function 解析本楼(')) return { supported: true, adapter: 'role-engine', reason: '通过酒馆伴侣运行原引擎、变量记账、世界书开关和提示注入；二次解析使用当前连接。' };
     if (isGenerationFetchScript(text)) return { supported: true, adapter: 'generation-fetch', reason: '通过隔离的生成处理器运行原始请求改写及响应还原逻辑；不访问宿主页面或连接密钥。' };
-    if (scriptModuleUrls(text)) return { supported: true, adapter: 'remote-module', reason: '加载原始 MVU 模块，通过独立助手接口提供变量更新和脚本设置。' };
-    if (fallbackModuleUrls(text, true) && text.includes('export const Schema = z.object(') && text.includes('registerMvuSchema(Schema)')) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
+    if (scriptModuleUrls(text)) return { supported: true, adapter: 'remote-module', reason: '加载原始 MVU 模块，通过酒馆伴侣接口提供变量更新和脚本设置。' };
+    if ((staticSchemaModule(text) || fallbackModuleUrls(text, true)) && text.includes('export const Schema = z.object(') && text.includes('registerMvuSchema(Schema)')) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
     if (/^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*['"]https:\/\/[^'"]+\/mvu_zod\.js['"]/m.test(text) && text.includes('export const Schema = z.object(')) return { supported: true, adapter: 'mvu-schema', reason: '使用本地 Zod 校验变量结构、默认值和转换，不加载远程模块。' };
     if (text.includes('逐梦演艺圈_头像库') && text.includes('  function 开库() {') && text.includes('  function 规范名(')) return { supported: true, adapter: 'role-avatar', reason: '头像库使用按角色隔离的本地持久存储，支持本地图片与导入导出。' };
     if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('updateVariablesWith')) return { supported: true, adapter: 'mvu-status', reason: '支持角色状态栏及变量编辑器。' };
@@ -95,6 +99,10 @@ export function nativeScriptPlan(settings, character, preset) {
     return [...scriptRows(scriptTrees(settings, character, preset).preset).map(row => ({ ...row.script, scope: 'preset', enabled: row.enabled })), ...scriptRows(scriptTrees(settings, character).global).map(row => ({ ...row.script, scope: 'global', enabled: row.enabled })), ...characterScriptPlan(settings, character)];
 }
 export function usesMvuCompat(settings, character) { return characterScriptPlan(settings, character).some(script => script.enabled && scriptSupport(script).adapter === 'mvu'); }
+export function inlineScriptMessage(settings, character, preset, chat = []) {
+    if (!nativeScriptPlan(settings, character, preset).some(script => script.enabled !== false && ['role-chat', 'role-engine'].includes(scriptSupport(script).adapter))) return -1;
+    return chat.findLastIndex(message => !message.is_user && /MEIMAN_ONBOARDING_BLOCK|<(?:状态栏|StatusPlaceHolderImpl)\s*\/>/.test(message.mes || ''));
+}
 export function activeScripts(settings, character, preset) {
     const trees = scriptTrees(settings, character, preset);
     return ['preset', 'global', 'character'].flatMap(scope => scriptRows(trees[scope]).filter(row => row.enabled).map(({ script }) => ({ ...script, scope })));

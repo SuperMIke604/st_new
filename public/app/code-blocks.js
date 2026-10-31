@@ -44,6 +44,15 @@ function registerPreview(frame, loaded = false) {
             }
             const target = previewFrames.get(event.source);
             if (!target) return;
+            if (event.data?.type === 'tavern-html-request' && Number.isSafeInteger(event.data.id)) {
+                const source = event.source, { id, operation, payload } = event.data;
+                Promise.resolve().then(() => {
+                    if (!target.isConnected || !target._scriptAction) throw Error('此消息接口未接入或页面已关闭。');
+                    return target._scriptAction(operation, payload);
+                }).then(value => { if (target.isConnected) source.postMessage({ type: 'tavern-html-response', id, value }, '*'); }, error => {
+                    if (target.isConnected) source.postMessage({ type: 'tavern-html-response', id, error: error.message }, '*');
+                }); return;
+            }
             if (event.data?.type === 'tavern-html-edit') { target._edit?.(); return; }
             if (event.data?.type === 'tavern-html-send' && typeof event.data.text === 'string' && event.data.text.length <= 100000) {
                 if (confirm('发送此卡片生成的内容并请求回复？\n\n' + event.data.text.slice(0, 300))) target._send?.(event.data.text);
@@ -103,7 +112,7 @@ export function previewDocument(source, context = {}, remote = false) {
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}${cardContextScript(snapshot)}</head><body>${source}</body></html>`;
 }
 
-export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', variables = {}, getAvatars } = {}) {
+export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', variables = {}, getAvatars, scriptAction, swipes } = {}) {
     let fateIndex = 0;
     for (const code of container.querySelectorAll('pre > code')) {
         const pre = code.parentElement, source = code.textContent;
@@ -113,6 +122,7 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify; frame._edit = edit;
+            frame._scriptAction = scriptAction;
             frame._helper = /\b(?:errorCatched|waitGlobalInitialized|getAllVariables)\b/.test(source);
             frame._variables = variables;
             frame._avatars = source.includes('头像库') ? getAvatars : null;
@@ -121,7 +131,7 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             frame.setAttribute('sandbox', 'allow-scripts allow-forms'); frame.referrerPolicy = 'no-referrer';
             frame.addEventListener('load', () => registerPreview(frame, true));
             const blockIndices = /data-fate-marker\s*=/.test(source) ? { fate_ui: fateIndex++ } : {};
-            const context = { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices, variables, helper: frame._helper };
+            const context = { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices, variables, helper: frame._helper, scriptActions: !!scriptAction, swipes: Array.isArray(swipes) && JSON.stringify(swipes).length <= 500000 ? swipes : undefined };
             const remote = remoteHtmlUrl(source);
             frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : source, context);
             pre.replaceWith(frame); registerPreview(frame);

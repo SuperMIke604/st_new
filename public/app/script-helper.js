@@ -1,7 +1,7 @@
 // Serialized into the opaque script iframe. This implements host APIs, not MVU
 // parsing or update rules. Every persistent operation is checked by the app.
 // Add supported script APIs here so every script scope receives the same bindings.
-export const SCRIPT_API_NAMES = 'registerGenerationInterceptor,waitGlobalInitialized,errorCatched,getAllVariables,SillyTavern,getScriptId,getTavernHelperVersion,getVariables,replaceVariables,updateVariablesWith,insertOrAssignVariables,getChatMessages,setChatMessages,getWorldbookNames,getCharWorldbookNames,getCharLorebooks,getCurrentCharPrimaryLorebook,getLorebookEntries,getLorebookSettings,setLorebookSettings,substitudeMacros,substituteMacros,eventOn,eventOnce,eventEmit,eventWaitOnce,getButtonEvent,getScriptButtons,appendInexistentScriptButtons,replaceScriptButtons,getWorldbook,replaceWorldbook,createChatMessages,triggerSlash,__avatarStore'.split(',');
+export const SCRIPT_API_NAMES = 'eventOnButton,generateRaw,setExtensionPrompt,refreshOneMessage,setChatDraft,openScriptChat,updateWorldbookWith,registerGenerationInterceptor,waitGlobalInitialized,errorCatched,getAllVariables,SillyTavern,getScriptId,getTavernHelperVersion,getVariables,replaceVariables,updateVariablesWith,insertOrAssignVariables,getChatMessages,setChatMessages,getWorldbookNames,getCharWorldbookNames,getCharLorebooks,getCurrentCharPrimaryLorebook,getLorebookEntries,getLorebookSettings,setLorebookSettings,substitudeMacros,substituteMacros,eventOn,eventOnce,eventEmit,eventWaitOnce,getButtonEvent,getScriptButtons,appendInexistentScriptButtons,replaceScriptButtons,getWorldbook,replaceWorldbook,createChatMessages,triggerSlash,__avatarStore'.split(',');
 export function scriptHelper(initial, { request, emit, on, update, scriptId, buttons: configuredButtons = [], expose = true }) {
     const theme = document.createElement('style');
     theme.textContent = `:root{--SmartThemeBodyColor:#403a33;--SmartThemeEmColor:#806b56;--SmartThemeQuoteColor:#805b40;--SmartThemeBlurTintColor:#faf7f0;--SmartThemeChatTintColor:#f3eee4;--SmartThemeBorderColor:#ded4c6;--SmartThemeShadowColor:#0002}#extensions_settings2{color:var(--SmartThemeBodyColor);font:400 14px/1.6 system-ui}#extensions_settings2 [hidden]{display:none!important}#extensions_settings2 .inline-drawer-content{display:flex;flex-direction:column;gap:12px}#extensions_settings2 .inline-drawer-toggle{cursor:pointer}#extensions_settings2 .checkbox_label{display:flex;align-items:center;gap:8px}#extensions_settings2 .flex-container{display:flex;gap:8px;flex-wrap:wrap}#extensions_settings2 .flexFlowColumn{flex-direction:column}#extensions_settings2 .flex1{flex:1}#extensions_settings2 :is(button,.menu_button,select,input.text_pole){box-sizing:border-box;min-height:42px;border:1px solid var(--SmartThemeBorderColor);border-radius:10px;background:var(--SmartThemeBlurTintColor);color:inherit;padding:7px 12px;font:inherit}#extensions_settings2 .menu_button{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}#extensions_settings2 input[type=checkbox]{accent-color:var(--SmartThemeQuoteColor)}#extensions_settings2 label{line-height:1.6}`;
@@ -25,7 +25,7 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
     };
     const transact = operation => { const task = queue.catch(() => {}).then(operation); queue = task; return task; };
     const call = async (operation, payload) => {
-        const result = await request('helper', { scriptId, operation, payload });
+        const result = await request('helper', { scriptId, operation, payload }, operation === 'generate-raw' ? 180000 : 20000);
         if (result?.snapshot) update(result.snapshot);
         return result?.value;
     };
@@ -93,7 +93,7 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
         if (!Array.isArray(messages) || messages.length > 100) throw Error('消息修改批次无效。');
         const patches = messages.map(item => {
             const id = index(item.message_id), previous = base.chat[id];
-            if (Object.keys(item).some(key => !['message_id', 'message', 'data', 'swipes_data'].includes(key))) throw Error('此消息修改字段尚未接入。');
+            if (Object.keys(item).some(key => !['message_id', 'message', 'data', 'swipes_data', 'swipe_id'].includes(key))) throw Error('此消息修改字段尚未接入。');
             return { ...clone(item), message_id: id, revision: previous.revision, base: clone(previous.variables || {}) };
         });
         return call('set-messages', { messages: patches, refresh: options.refresh || 'affected' });
@@ -106,7 +106,15 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
         const stop = on(event, fn); stop.stop = stop; return stop;
     };
     const eventOnce = (event, fn) => { const stop = eventOn(event, (...args) => { stop(); return fn(...args); }); return stop; };
+    const generateRaw = options => call('generate-raw', { options });
+    const setExtensionPrompt = (name, value, position = 1, depth = 0, scan = false, role = 0) => transact(() => call('set-extension-prompt', { name, value, position, depth, scan, role }));
     const api = {
+        eventOnButton: (name, fn) => eventOn(scriptId + ':' + name, fn),
+        generateRaw, setExtensionPrompt,
+        setChatDraft: (text, options = {}) => call('set-draft', { text, base: options.base }),
+        refreshOneMessage: message_id => call('refresh-message', { message_id }),
+        openScriptChat: () => emit('script-chat-open'),
+        updateWorldbookWith: () => { throw Error('世界书写入宿主未接入。'); },
         registerGenerationInterceptor: handler => { if (!window.__registerGenerationInterceptor) throw Error('生成处理器接口未接入。'); return window.__registerGenerationInterceptor(scriptId, handler); },
         waitGlobalInitialized: async name => {
             const deadline = Date.now() + 40000;
@@ -146,8 +154,10 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
             void transact(() => call('save-buttons', { scriptId, value: clone(buttons) })).catch(error => window.toastr.error(error.message));
         },
     };
+    publishButtons();
     if (expose) Object.assign(window, api);
     Object.assign(st, {
+        generateRaw, setExtensionPrompt,
         saveChat, getCurrentChatId: () => snapshot.chatId || '',
         getContext: () => st,
         saveSettingsDebounced: () => { const value = clone(st.extensionSettings); void transact(() => call('save-settings', { base: clone(settingsValue(base)), value })).catch(error => window.toastr.error(error.message)); },
@@ -168,7 +178,7 @@ export function scriptHelper(initial, { request, emit, on, update, scriptId, but
             dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); }); document.body.append(dialog); dialog.showModal();
         }),
     });
-    Object.assign(window.tavern_events, Object.fromEntries(['CHAT_CHANGED', 'GENERATION_STARTED', 'GENERATION_ENDED', 'MESSAGE_SENT', 'MESSAGE_RECEIVED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'WORLDINFO_UPDATED', 'CHAT_COMPLETION_SETTINGS_READY', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED'].map(name => [name, name.toLowerCase()])));
+    Object.assign(window.tavern_events, Object.fromEntries(['CHAT_CHANGED', 'GENERATION_STARTED', 'GENERATION_ENDED', 'MESSAGE_SENT', 'MESSAGE_RECEIVED', 'MESSAGE_UPDATED', 'MESSAGE_EDITED', 'VARIABLE_UPDATE_ENDED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'WORLDINFO_UPDATED', 'CHAT_COMPLETION_SETTINGS_READY', 'CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED'].map(name => [name, name.toLowerCase()])));
     // window.parent is replaceable. Redirect only this iframe's view of parent
     // to its compatibility document; window.top stays cross-origin and blocked.
     if (expose) Object.defineProperty(window, 'parent', { value: window, configurable: false });
@@ -220,9 +230,12 @@ export function helperStartup() {
             task.catch(() => {});
         });
     };
-    window.__helperWaitForStartup = async () => {
+    window.__helperWaitForCallbacks = async () => {
         await new Promise(resolve => ready.call(window.jQuery(document), () => setTimeout(resolve, 0)));
         await Promise.all([...pending]);
+    };
+    window.__helperWaitForStartup = async () => {
+        await window.__helperWaitForCallbacks();
         if (!window.Mvu || typeof window.Mvu.parseMessage !== 'function') throw Error('原始 MVU 模块尚未完成初始化。');
     };
 }

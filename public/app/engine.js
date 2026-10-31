@@ -115,7 +115,7 @@ export function parseExamples(text, variables, namesBehavior = 0) {
     return messages;
 }
 
-export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, mvuSeed = null, measureBuild = (_label, task) => task() }) {
+export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, mvuSeed = null, extensionPrompts = [], measureBuild = (_label, task) => task() }) {
     const card = character.data || character;
     const variables = {
         [MESSAGE_VARIABLES]: messageVariableContext(chat, mvuSeed),
@@ -172,7 +172,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
     const defaultOrder = ['main', 'worldInfoBefore', 'personaDescription', 'charDescription', 'charPersonality', 'scenario', 'worldInfoAfter', 'dialogueExamples', 'chatHistory', 'jailbreak'];
     const order = preset.prompt_order?.find(item => Number(item.character_id) === 100001)?.order || preset.prompt_order?.[0]?.order || defaultOrder.map(identifier => ({ identifier, enabled: true }));
     const result = [];
-    const injections = worlds.filter(entry => entry.position === 4);
+    const injections = [...worlds.filter(entry => entry.position === 4), ...extensionPrompts.filter(entry => entry.position === 1).map(entry => ({ ...entry, order: 100 }))];
     let hasHistory = false;
     let historyStart = 0;
     let historyEnd = 0;
@@ -207,6 +207,7 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         const offset = Math.max(historyStart, historyEnd - entry.depth);
         result.splice(offset, 0, { role: entry.role, content: entry.content });
     }
+    result.unshift(...extensionPrompts.filter(entry => entry.position === 0).map(({ role, content }) => ({ role, content })));
     // Like the native OpenAI/custom path, ignore Claude-only prefill settings.
     // Retain them in the preset so switching back to Claude does not lose data.
     databaseMacroUsed ||= result.some(message => [...databaseValues.keys()].some(token => message.content.includes(token)));

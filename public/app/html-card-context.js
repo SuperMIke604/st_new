@@ -10,6 +10,15 @@ export function htmlCardContext(snapshot) {
         key: index => [...memory.keys()][index] ?? null, get length() { return memory.size; },
     } }); } catch {}
     const clone = value => JSON.parse(JSON.stringify(value));
+    let requestId = 0; const pendingRequests = new Map();
+    const request = (operation, payload) => new Promise((resolve, reject) => {
+        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : 20000);
+        pendingRequests.set(id, { resolve, reject, timer }); parent.postMessage({ type: 'tavern-html-request', id, operation, payload }, '*');
+    });
+    if (snapshot.scriptActions) {
+        window.triggerSlash = command => request('slash', { command });
+        window.setChatMessages = messages => request('set-messages', { messages });
+    }
     const helperReady = [];
     let helperLoaded = !snapshot.helper;
     const ready = callback => {
@@ -18,7 +27,7 @@ export function htmlCardContext(snapshot) {
     };
     window.getCurrentMessageId = () => snapshot.messageId;
     window.getChatMessages = id => Number(id) === snapshot.messageId ? [{
-        message_id: snapshot.messageId, message: snapshot.message, name: snapshot.name, role: snapshot.role,
+        message_id: snapshot.messageId, message: snapshot.message, name: snapshot.name, role: snapshot.role, swipes: clone(snapshot.swipes || [snapshot.message]),
     }] : [];
     window.getCurrentBlockIndex = tag => snapshot.blockIndices?.[tag] ?? 0;
     window.getVariables = window.getAllVariables = () => clone(snapshot.variables || {});
@@ -55,6 +64,11 @@ export function htmlCardContext(snapshot) {
     };
     window['头像库'] = Object.freeze({ '取图': image, '取主角图': () => image(snapshot.personaName) || image('主角') });
     addEventListener('message', event => {
+        if (event.source === parent && event.data?.type === 'tavern-html-response' && pendingRequests.has(event.data.id)) {
+            const task = pendingRequests.get(event.data.id); pendingRequests.delete(event.data.id); clearTimeout(task.timer);
+            if (event.data.error) task.reject(Error(event.data.error)); else task.resolve(event.data.value);
+            return;
+        }
         if (event.source === parent && event.data?.type === 'tavern-html-variables' && snapshot.helper) {
             snapshot.variables = event.data.variables || {};
             for (const fn of events.get('mvu_update') || []) window.errorCatched(fn)();

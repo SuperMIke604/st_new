@@ -1,8 +1,8 @@
 // This function is serialized into an opaque-origin iframe, never executed in
 // the app window. All mutation requests are checked again by the host.
-export function scriptBridge(initial, { externalMvu = false, scriptId = '', scriptButtons = [] } = {}, installHelper, installTransport) {
+export function scriptBridge(initial, { externalMvu = false, scriptId = '', scriptButtons = [] } = {}, installHelper, installTransport, installChat, collectLayout) {
     const applicationParent = window.parent;
-    let helper;
+    let helper, chatView;
     const helpers = new Map();
     let snapshot = initial, sequence = 0;
     const events = new Map(), pending = new Map(), memory = new Map();
@@ -37,7 +37,7 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
     const localStorage = { getItem: key => memory.get(String(key)) ?? null, setItem: (key, value) => memory.set(String(key), String(value)), removeItem: key => memory.delete(String(key)), clear: () => memory.clear() };
     try { Object.defineProperty(window, 'localStorage', { value: localStorage }); } catch {}
     const context = { chat: snapshot.chat, chatMetadata: snapshot.chatVariables, name1: snapshot.userName, name2: snapshot.characterName };
-    const updateSnapshot = value => { snapshot = value; context.chat = value.chat; context.chatMetadata = value.chatVariables; window.SillyTavern.chat = value.chat; window.SillyTavern.chatMetadata = value.chatVariables; for (const item of helpers.values()) item.refresh(value); };
+    const updateSnapshot = value => { snapshot = value; context.chat = value.chat; context.chatMetadata = value.chatVariables; window.SillyTavern.chat = value.chat; window.SillyTavern.chatMetadata = value.chatVariables; for (const item of helpers.values()) item.refresh(value); chatView?.refresh(value); };
     Object.assign(window, {
         _: { get, uniq: values => [...new Set(values)], cloneDeep: clone },
         SillyTavern: { ...context, getContext: () => context },
@@ -49,7 +49,7 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
         getLastMessageId: () => snapshot.chat.length - 1,
         getChatMessages: target => { const index = target === 'latest' ? snapshot.chat.length - 1 : Number(target); if (!Number.isInteger(index)) throw Error('暂不支持此消息范围格式'); const offset = index < 0 ? snapshot.chat.length + index : index; const message = snapshot.chat[offset]; return message ? [{ ...clone(message), message: message.mes, role: message.is_user ? 'user' : 'assistant', is_hidden: !!message.is_system, data: clone(message.variables?.[message.swipe_id || 0] || {}) }] : []; },
         createChatMessages: () => { throw Error('此调用必须来自已适配的角色脚本。'); }, triggerSlash: () => { throw Error('此调用必须来自已适配的角色脚本。'); },
-        __roleCall: async (scriptId, action, payload) => { const result = await rpc('role-action', { scriptId, action, payload }, action === 'slash' ? 600000 : 20000); if (result?.snapshot) updateSnapshot(result.snapshot); return result?.value; },
+        __roleCall: async (scriptId, action, payload) => { const result = await rpc('role-action', { scriptId, action, payload }, action === 'slash' ? 600000 : 20000); if (result?.snapshot) updateSnapshot(result.snapshot); if (result?.worldbook) (window.world_info_data ||= {})[result.worldbook.name] = { entries: result.worldbook.entries }; return result?.value; },
         eventOn: (event, callback) => { if (!events.has(event)) events.set(event, new Set()); events.get(event).add(callback); return () => events.get(event)?.delete(callback); },
         eventRemoveListener: (event, callback) => events.get(event)?.delete(callback), eventEmit: emit,
         tavern_events: { MESSAGE_RECEIVED: 'message_received', CHAT_ID_CHANGED: 'chat_changed' },
@@ -73,6 +73,14 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
                 replaceWorldbook: (name, entries) => role('replace-worldbook', { name, entries }),
                 createChatMessages: (messages, options) => role('create-messages', { messages, options }),
                 triggerSlash: command => role('slash', { command }),
+                updateWorldbookWith: async (name, updater) => {
+                    if (typeof updater !== 'function') throw Error('世界书更新器必须是函数。');
+                    const entries = await helpers.get(id).api.SillyTavern.loadWorldInfo(name).then(book => Object.values(book.entries)), previous = JSON.stringify(entries);
+                    const next = await updater(entries);
+                    if (JSON.stringify(next) !== previous) await role('replace-worldbook', { name, entries: next });
+                    return next;
+                },
+                openScriptChat: () => chatView?.open(),
                 __avatarStore: (operation, args = {}) => role('avatars', { operation, ...args }),
             };
         };
@@ -82,10 +90,28 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
             window.Mvu.updateVariablesWith = (fn, options = {}) => window.updateVariablesWith(fn, { type: 'message', ...options });
         }
     }
+    if (installChat) {
+        chatView = installChat(initial, (_operation, payload) => helper.api.setChatDraft(payload.text), window.eventOn, post);
+        if (initial.scriptMessageViews) {
+            helper.api.appendInexistentScriptButtons([{ name: '角色界面', visible: true }]);
+            window.eventOn(helper.api.getButtonEvent('角色界面'), chatView.open);
+        }
+    }
+    if (installHelper && !initial.scriptMessageViews) {
+        const input = document.createElement('textarea'); input.id = 'send_textarea'; input.hidden = true;
+        let base = '';
+        input.addEventListener('input', () => {
+            const text = input.value;
+            void helper.api.setChatDraft(text, { base }).then(() => { base = text; }).catch(error => window.toastr.error(error.message));
+        });
+        document.body.append(input);
+    }
     addEventListener('message', async event => {
         if (event.source !== applicationParent || event.data?.channel !== 'st-new-scripts') return;
         const data = event.data;
-        if (data.type === 'snapshot') {
+        if (data.type === 'chat-mount' && Number.isSafeInteger(data.messageId)) {
+            chatView?.mount(data.messageId);
+        } else if (data.type === 'snapshot') {
             updateSnapshot(data.snapshot);
             if (!helper && !externalMvu) { try { await emit('message_received'); await emit('mvu_update'); } catch (error) { post({ type: 'notice', text: error.message, error: true }); } }
         } else if (data.type === 'button' && typeof data.event === 'string') {
@@ -113,9 +139,10 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
         if (initial.pageDisplay) {
             const style = document.createElement('style'); style.textContent = 'html,body{background:transparent!important;overflow:hidden}#script-empty{display:none!important}'; document.head.append(style);
             let scheduled = false, lastLayout = '';
+            const elements = () => collectLayout ? collectLayout(document, getComputedStyle) : { nodes: [...document.body.children, ...document.documentElement.children].filter(node => node !== placeholder && !['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)), shadows: [] };
             const measure = () => {
                 scheduled = false;
-                const roots = [...document.body.children, ...document.documentElement.children].filter(node => node !== placeholder && !['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName));
+                const roots = elements().nodes;
                 const rects = roots.flatMap(node => {
                     const style = getComputedStyle(node), rect = node.getBoundingClientRect();
                     return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0 ? [[rect.x, rect.y, rect.width, rect.height]] : [];
@@ -126,11 +153,18 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
             // allow the first asynchronously-created floating widget to appear.
             const schedule = () => { if (!scheduled) { scheduled = true; setTimeout(measure, 16); } };
             const resize = new ResizeObserver(schedule);
+            const observedShadows = new WeakSet();
             const observe = () => {
                 for (const node of document.querySelectorAll('[data-edit]:not([role])')) { node.setAttribute('role', 'button'); node.setAttribute('tabindex', '0'); node.setAttribute('aria-label', '编辑' + (node.getAttribute('data-edit-label') || node.getAttribute('data-edit'))); }
-                resize.disconnect(); for (const node of [...document.body.children, ...document.documentElement.children]) if (!['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)) resize.observe(node); schedule();
+                const layout = elements();
+                for (const shadow of layout.shadows) if (!observedShadows.has(shadow)) {
+                    observedShadows.add(shadow); new MutationObserver(observe).observe(shadow, { childList: true, subtree: true, attributes: true });
+                    shadow.addEventListener('transitionend', schedule, true); shadow.addEventListener('animationend', schedule, true);
+                }
+                resize.disconnect(); for (const node of layout.nodes) resize.observe(node); schedule();
             };
             new MutationObserver(observe).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+            document.addEventListener('transitionend', schedule, true); document.addEventListener('animationend', schedule, true);
             addEventListener('resize', schedule); addEventListener('scroll', schedule, true); observe();
         }
         const started = Date.now();

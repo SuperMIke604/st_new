@@ -1,6 +1,17 @@
 // Only the recognized MVU entry paths are enabled. Importing runs the original
 // module; this layer must never substitute an implementation of its features.
 export const MVU_MODULE_URL = 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artifact/bundle.js';
+export const SCHEMA_MODULE_REVISION = 'a796a5da2cc5993182d2ed44ddefac156e11af1c';
+export function staticSchemaModule(content) {
+    const match = /^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*(['"])(https:\/\/(?:testingcf|cdn)\.jsdelivr\.net\/gh\/StageDog\/tavern_resource(?:@[a-f0-9]{40})?\/dist\/util\/mvu_zod\.js)\1\s*;?/m.exec(content);
+    if (!match) return null;
+    const url = match[2].includes('tavern_resource@') ? match[2] : match[2].replace('tavern_resource/', 'tavern_resource@' + SCHEMA_MODULE_REVISION + '/');
+    return { source: match[0], url };
+}
+export function remoteSchemaContent(content) {
+    const entry = staticSchemaModule(content);
+    return (entry ? content.replace(entry.source, `const {registerMvuSchema} = await import(${JSON.stringify(entry.url)});`) : content).replace(/\bexport\s+const\s+Schema\b/, 'const Schema');
+}
 export function approvedModuleUrl(value, schema = false) {
     const project = schema ? 'StageDog/tavern_resource' : 'MagicalAstrogy/MagVarUpdate';
     const path = schema ? '/dist/util/mvu_zod.js' : '/artifact/bundle.js';

@@ -36,7 +36,7 @@ export function patchHelperVariables(records, changes) {
     }
     return next;
 }
-export function patchHelperMessages(records, patches) {
+export function patchHelperMessages(records, patches, { greetings = [] } = {}) {
     if (!Array.isArray(records) || !records[0] || Object.hasOwn(records[0], 'mes')) throw Error('聊天文件格式无效。');
     if (!Array.isArray(patches) || patches.length > 100 || JSON.stringify(patches).length > 4000000) throw Error('消息修改批次无效。');
     let next = structuredClone(records); const seen = new Set();
@@ -45,7 +45,17 @@ export function patchHelperMessages(records, patches) {
         seen.add(patch.message_id);
         const message = next[patch.message_id + 1];
         if (!message || helperMessageRevision(message) !== patch.revision) throw Error('消息或回复分支已变化，修改未写入。');
-        if (Object.keys(patch).some(key => !['message_id', 'revision', 'base', 'message', 'data', 'swipes_data'].includes(key))) throw Error('此消息修改字段尚未接入。');
+        if (Object.keys(patch).some(key => !['message_id', 'revision', 'base', 'message', 'data', 'swipes_data', 'swipe_id'].includes(key))) throw Error('此消息修改字段尚未接入。');
+        if (patch.swipe_id !== undefined) {
+            if (patch.message !== undefined || patch.data !== undefined || patch.swipes_data !== undefined || message.is_user) throw Error('切换回复不能同时改写正文或变量。');
+            const target = next[patch.message_id + 1];
+            if (!target.swipes?.length && patch.message_id === 0 && greetings.length && target.mes === greetings[0]) {
+                target.swipes = structuredClone(greetings); target.swipe_info ||= [{ extra: structuredClone(target.extra || {}) }];
+            }
+            if (!Number.isSafeInteger(patch.swipe_id) || patch.swipe_id < 0 || patch.swipe_id >= (target.swipes?.length || 1)) throw Error('回复分支不存在。');
+            target.swipe_id = patch.swipe_id; target.mes = target.swipes?.[patch.swipe_id] ?? target.mes;
+            if (target.swipe_info?.[patch.swipe_id]) Object.assign(target, structuredClone(target.swipe_info[patch.swipe_id]));
+        }
         if (patch.data !== undefined && patch.swipes_data !== undefined) throw Error('不可同时修改 data 和 swipes_data。');
         let variables = structuredClone(message.variables || {});
         if (patch.data !== undefined) variables[message.swipe_id || 0] = validateVariables(patch.data);
