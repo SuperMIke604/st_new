@@ -39,13 +39,13 @@ export function enhanceSelect(select) {
             // Keep this search out of the unowned credential fields in the API
             // panel, so mobile password managers do not treat it as a login.
             const searchForm = document.createElement('form'); searchForm.id = `${menu.id}-search`; searchForm.autocomplete = 'off';
-            searchForm.hidden = true;
+            searchForm.className = 'select-search-form';
             searchForm.addEventListener('submit', event => event.preventDefault());
             filterInput.setAttribute('form', searchForm.id); filterInput.autocomplete = 'off';
             filterInput.name = 'select-search'; filterInput.autocapitalize = 'none'; filterInput.spellcheck = false;
             root = document.createElement('div'); root.setAttribute('role', 'listbox'); root.id = `${menu.id}-options`; root.setAttribute('aria-label', button.getAttribute('aria-label')); button.setAttribute('aria-controls', root.id);
             root.className = 'select-options-scroll';
-            menu.append(searchForm, filterInput, root);
+            searchForm.append(filterInput); menu.append(searchForm, root);
         }
         items = [...select.options].map((option, index) => {
             const item = document.createElement('div'); item.className = 'select-option'; item.id = `${menu.id}-${index}`;

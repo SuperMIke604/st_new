@@ -476,13 +476,27 @@ function welcome() {
     document.body.classList.add('home-view');
     const recentRequest = state.homeReady ? (homeRecentRequest || loadRecentCharacters()) : null;
     if (state.homeReady) homeRecentRequest = null;
+    const search = el('input', 'home-character-search'); search.type = 'search'; search.placeholder = '搜索角色卡…'; search.setAttribute('aria-label', '搜索角色卡');
+    let recentChats = [];
+    let searchRevision = 0;
+    search.addEventListener('input', () => {
+        const revision = ++searchRevision;
+        drawRecent(recentChats);
+        if (!search.value.trim()) return;
+        void loadCharacterCatalog().then(() => {
+            if (revision === searchRevision) drawRecent(recentChats);
+        }).catch(error => { if (revision === searchRevision && recent.isConnected) notify(error.message, true); });
+    });
     const drawRecent = chats => {
         if (!recent.isConnected || !Array.isArray(chats)) return;
-        recent.replaceChildren(el('h2', '', '最近使用的角色'));
-        if (!chats.some(chat => chat.avatar)) recent.append(el('p', 'note', '暂无最近使用的角色，可在下方选择角色。'));
+        recentChats = chats;
+        if (!recent.contains(search)) recent.replaceChildren(search);
+        for (const child of [...recent.children]) if (child !== search) child.remove();
+        const query = search.value.trim().toLocaleLowerCase();
+        if (!query && !chats.some(chat => chat.avatar)) recent.append(el('p', 'note', '暂无最近使用的角色，可在下方选择角色。'));
         const grid = el('div', 'home-character-grid'); recent.append(grid);
         const seen = new Set();
-        for (const chat of chats) {
+        for (const chat of query ? state.characters.filter(card => card.name?.toLocaleLowerCase().includes(query)) : chats) {
             if (!chat.avatar || seen.has(chat.avatar)) continue;
             seen.add(chat.avatar);
             const character = state.characters.find(item => item.avatar === chat.avatar);
@@ -495,8 +509,9 @@ function welcome() {
             portrait.addEventListener('error', () => { portrait.hidden = true; cover.classList.add('portrait-missing'); }, { once: true }); cover.append(portrait);
             const info = el('div', 'card-info'); info.append(el('h3', '', name));
             card.append(cover, info); grid.append(card);
-            if (seen.size === 6) break;
+            if (!query && seen.size === 6) break;
         }
+        if (query && !seen.size) grid.append(el('p', 'note', '没有找到匹配的角色卡。'));
     };
     let cached = null; try { cached = JSON.parse(sessionStorage.getItem(`home-recent:${state.settings.username || 'default'}`) || 'null'); } catch {}
     if (Array.isArray(cached)) drawRecent(cached);
@@ -825,6 +840,10 @@ async function connectionPanel(profileId = '', draft = null) {
     const postProcessing = field(body, '提示词后处理', current.postProcessing ?? 'merge', { options: [['merge', '合并相同角色的连续发言'], ['', '不处理']] });
     let savedKey = typeof current.proxyPassword === 'string' ? current.proxyPassword : sessionKeys.get(current.secretId) || '';
     const key = field(body, 'API Key', savedKey, { type: 'password' }); key.autocomplete = 'new-password';
+    const keyForm = el('form'); keyForm.id = `api-secret-${uuid()}`; keyForm.autocomplete = 'off';
+    keyForm.addEventListener('submit', event => event.preventDefault());
+    const keyField = key.closest('.field'); keyField.before(keyForm); keyForm.append(keyField);
+    key.setAttribute('form', keyForm.id); key.name = 'api-secret';
     let masked = false;
     key.addEventListener('focus', () => { if (masked) { key.select(); } });
     key.addEventListener('beforeinput', () => { if (masked) { masked = false; key.value = ''; } });
@@ -1823,7 +1842,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     return next;
                 }); } catch (error) { renderFolders(); throw error; }
             });
-        }, { summarySelector: '.folder-button', idKey: 'folderId', allowButton: true });
+        }, { summarySelector: '.folder-button', idKey: 'folderId', allowButton: true, showHandle: false });
         const value = destination.value;
         destination.replaceChildren();
         for (const [id, label] of [['', '未分类'], ...library.folders.map(item => [item.id, item.name])]) { const option = el('option', '', label); option.value = id; destination.append(option); }
@@ -1831,11 +1850,12 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     }
     function renderCards() { return timing ? timing.measureSync('角色卡 · 构建卡片列表', 'data', renderCardsContent, () => ({ metrics: { renderedItems: cards.children.length } })) : renderCardsContent(); }
     function renderCardsContent() {
-        const filter = () => filterCards(state.characters || [], library, folder, search.value, sort.value);
+        const searching = !!search.value.trim();
+        const filter = () => filterCards(state.characters || [], library, searching ? 'all' : folder, search.value, sort.value);
         const found = timing ? timing.measureSync('角色卡 · 筛选与排序', 'data', filter, value => ({ metrics: { totalItems: (state.characters || []).length, renderedItems: value.length } })) : filter();
         const pages = Math.max(1, Math.ceil(found.length / 60)); page = Math.min(page, pages - 1);
         const visible = found.slice(page * 60, (page + 1) * 60);
-        path.textContent = `角色卡 / ${folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
+        path.textContent = `角色卡 / ${searching ? '全部分类搜索' : folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
         cards.classList.toggle('list-view', mode === 'list');
         grid.setAttribute('aria-pressed', String(mode === 'grid')); listView.setAttribute('aria-pressed', String(mode === 'list'));
         cards.replaceChildren();

@@ -1,6 +1,6 @@
 // Pointer capture keeps long-press sorting consistent for mouse and touch.
-export function installPromptDrag(rows, scroller, commit, { summarySelector = '.prompt-summary', idKey = 'promptId', allowButton = false } = {}) {
-    for (const row of rows.children) {
+export function installPromptDrag(rows, scroller, commit, { summarySelector = '.prompt-summary', idKey = 'promptId', allowButton = false, showHandle = true } = {}) {
+    for (const row of showHandle ? rows.children : []) {
         const summary = row.querySelector?.(summarySelector);
         if (!summary || summary.querySelector('.prompt-drag-handle')) continue;
         const handle = document.createElement('span'); handle.className = 'prompt-drag-handle'; handle.textContent = '⠿'; handle.title = '长按拖动排序'; handle.setAttribute('aria-label', '长按拖动排序'); summary.prepend(handle);
