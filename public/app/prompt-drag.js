@@ -1,5 +1,5 @@
 // Pointer capture keeps long-press sorting consistent for mouse and touch.
-export function installPromptDrag(rows, scroller, commit, { summarySelector = '.prompt-summary', idKey = 'promptId', allowButton = false, showHandle = true } = {}) {
+export function installPromptDrag(rows, scroller, commit, { summarySelector = '.prompt-summary', idKey = 'promptId', allowButton = false, showHandle = false } = {}) {
     for (const row of showHandle ? rows.children : []) {
         const summary = row.querySelector?.(summarySelector);
         if (!summary || summary.querySelector('.prompt-drag-handle')) continue;

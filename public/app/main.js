@@ -618,7 +618,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     disposePanelWork();
     panelDirty = false; panelRevision++;
-    $('panel-title').textContent = title; $('panel-kicker').textContent = kicker;
+    $('panel-title').textContent = title; $('panel-kicker').textContent = kicker; $('panel-kicker').hidden = !kicker;
     $('panel').className = className; $('panel-body').replaceChildren(); $('panel-body').removeAttribute('aria-busy');
     if (!$('panel').open) { (matchMedia('(max-width:700px)').matches ? $('panel').show() : $('panel').showModal()); history.pushState({ appPanel: true }, ''); }
     raiseNotification();
@@ -802,7 +802,7 @@ async function persistProfiles(next) {
 }
 async function connectionPanel(profileId = '', draft = null) {
     if (state.connectionPending) await connectionInitialization.catch(() => {});
-    const body = showPanel('连接与模型', 'API'); if (!body) return;
+    const body = showPanel('连接与模型', ''); if (!body) return;
     if (!state.ready) { note(body, '正在读取保存的连接，请稍候再打开。'); return; }
     const revision = panelRevision;
     let current = draft || profileStore.profiles.find(item => item.id === profileId) || connection();
@@ -904,7 +904,7 @@ async function connectionPanel(profileId = '', draft = null) {
 }
 
 async function presetPanel() {
-    const host = showPanel('生成预设', '提示词与生成参数', 'preset-panel'); if (!host) return;
+    const host = showPanel('生成预设', '', 'preset-panel'); if (!host) return;
     return loadPanelContent(host, '预设', (body, revision) => renderPresetPanel(body, revision), () => presetPanel());
 }
 async function renderPresetPanel(body, revision) {
@@ -1148,7 +1148,7 @@ async function regexPanel(scope = 'global', target = '') {
     if (reuse) {
         if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
-    } else { host = showPanel('正则与脚本', '正则规则 · 全局脚本 · 预设脚本 · 角色卡脚本', 'regex-panel'); if (!host) return; }
+    } else { host = showPanel('正则与脚本', '', 'regex-panel'); if (!host) return; }
     return loadPanelContent(host, '正则与脚本', (body, revision, timing) => renderRegexPanel(body, revision, scope, target, timing), () => regexPanel(scope, target), { retainContent: reuse });
 }
 async function renderRegexPanel(body, revision, scope, target, timing) {
@@ -1721,7 +1721,7 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
 }
 
 async function characterPanel(force = false) {
-    const host = showPanel('角色卡', '角色资料库', 'library-panel'); if (!host) return;
+    const host = showPanel('角色卡', '', 'library-panel'); if (!host) return;
     return loadPanelContent(host, '角色卡', (body, revision, timing) => renderCharacterPanel(body, revision, force, timing), () => characterPanel(true));
 }
 async function renderCharacterPanel(body, revision, force = false, timing) {
@@ -2030,7 +2030,7 @@ function themeDefaultAvatar(img, name) {
     });
 }
 async function personasPanel() {
-    const host = showPanel('用户设定', '你在故事中的身份', 'personas-panel'); if (!host) return;
+    const host = showPanel('用户设定', '', 'personas-panel'); if (!host) return;
     return loadPanelContent(host, '用户设定', (body, revision) => renderPersonasPanel(body, revision), () => personasPanel());
 }
 async function renderPersonasPanel(body, revision) {
@@ -2116,7 +2116,7 @@ async function openCharacterWorld(avatar) {
     await worldsPanel(card.extensions?.world || '', null, character);
 }
 async function worldsPanel(target = '', initial = null, character = state.character) {
-    const host = showPanel('世界书', '背景与记忆'); if (!host) return;
+    const host = showPanel('世界书', ''); if (!host) return;
     return loadPanelContent(host, '世界书', (body, revision, timing) => renderWorldPanel(body, revision, target, initial, character, timing), () => worldsPanel(target, initial, character));
 }
 async function renderWorldPanel(body, revision, target, initial, character, timing) {
