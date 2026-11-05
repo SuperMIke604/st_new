@@ -21,6 +21,32 @@ function fixture(post, failSettings = false) {
     return { state, input, writes, patches, rendered, loading, stages, preloads, cancellations, run: code => vm.runInContext(code, context) };
 }
 const card = { avatar: 'B.png', name: 'B', data: { first_mes: '**欢迎**' } };
+test('alternate greetings initialize native branches and preserve saved selections', async () => {
+    const f = fixture(async () => []);
+    f.state.character = { ...card, data: { first_mes: 'default', alternate_greetings: ['second', 'third'] } };
+    await f.run('loadChat(null)');
+    assert.deepEqual(Array.from(f.state.chat[0].swipes), ['default', 'second', 'third']);
+    await f.run("state.chat[0].swipe_id = 2; state.chat[0].mes = state.chat[0].swipes[2]; saveChat()");
+    assert.equal(f.writes[0][3][0].mes, 'third');
+    assert.equal(f.writes[0][3][0].swipe_id, 2);
+    assert.equal(f.writes[0][3][0].swipe_info.length, 3);
+});
+
+test('empty default uses the first alternative; legacy and edited greetings remain safe', async () => {
+    const f = fixture(async () => []);
+    f.state.character = { ...card, data: { first_mes: '', alternate_greetings: ['alternative'] } };
+    await f.run('loadChat(null)');
+    assert.equal(f.state.chat[0].mes, 'alternative');
+    assert.equal(f.state.chat[0].swipes.length, 1);
+    for (const text of ['default', 'edited']) {
+        const g = fixture(async () => [{ mes: text, extra: { preserved: true } }]);
+        g.state.character = { ...card, data: { first_mes: 'default', alternate_greetings: ['alternative'] } };
+        await g.run("loadChat('legacy')");
+        assert.equal(g.state.chat[0].mes, text);
+        assert.equal(g.state.chat[0].extra.preserved, true);
+        assert.equal(g.state.chat[0].swipes?.length, text === 'default' ? 2 : undefined);
+    }
+});
 const chatData = [{ chat_metadata: { integrity: 'B-integrity' } }, { mes: 'B message' }];
 function postWithChat(load) {
     return async path => path === '/api/characters/get' ? card : path === '/api/characters/chats' ? [{file_name:'B-chat.jsonl', last_mes:1}] : load();

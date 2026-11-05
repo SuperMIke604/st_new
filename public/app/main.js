@@ -345,7 +345,7 @@ function renderMessage(message, index, existing) {
             const bottom = el('div', 'message-jumps message-jumps-bottom'); bottom.append(action('回到本条顶部', () => node.scrollIntoView({block:'start',behavior:'instant'}), 'up')); node.append(top, bottom);
             let touch;
             node.addEventListener('touchstart', event => { if (event.target.closest('button,input,textarea,pre,iframe')) return; const t=event.touches[0]; touch={x:t.clientX,y:t.clientY}; }, {passive:true});
-            node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy) return; void run(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
+            node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy) return; void run(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0 && index !== 0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
         }
         const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop);
         node.prepend(header);
@@ -355,8 +355,13 @@ function renderMessage(message, index, existing) {
     let switches = node.querySelector('.message-swipe-buttons');
     if (!message.is_user && index === state.chat.length - 1) {
         if (!switches) { switches = el('div','message-swipe-buttons');
-            for (const [delta,label,glyph] of [[-1,'上一条回复','left'],[1,'下一条回复或重新生成','right']]) switches.append(action(label, async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const current=state.chat[index]; const next=(Number(current.swipe_id)||0)+delta; if(next<0)return; if(next>=(current.swipes?.length||1)) {await generate(true);return;} current.swipe_id=next;current.mes=current.swipes[next];if(current.swipe_info?.[next])Object.assign(current,copy(current.swipe_info[next]));invalidateDatabases(state.chat,index);list.update(index);await saveChat(); }, glyph)); const bottom=node.querySelector('.message-jumps-bottom'); bottom.append(switches); }
-        switches.children[0].disabled = state.busy || state.loading || !(Number(message.swipe_id)>0); switches.children[1].disabled=state.busy || state.loading;
+            for (const [delta,label,glyph] of [[-1,'上一条回复','left'],[1,'下一条回复或重新生成','right']]) switches.append(action(label, async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const current=state.chat[index]; const next=(Number(current.swipe_id)||0)+delta; if(next<0)return; if(next>=(current.swipes?.length||1)) {if(index !== 0) await generate(true);return;} current.swipe_id=next;current.mes=current.swipes[next];if(current.swipe_info?.[next])Object.assign(current,copy(current.swipe_info[next]));invalidateDatabases(state.chat,index);list.update(index);await saveChat(); }, glyph)); const bottom=node.querySelector('.message-jumps-bottom'); bottom.append(switches); }
+        for (const [i, label] of (index === 0 ? ['上一条开场白', '下一条开场白'] : ['上一条回复', '下一条回复或重新生成']).entries()) { switches.children[i].setAttribute('aria-label', label); switches.children[i].title = label; }
+        switches.children[0].disabled = state.busy || state.loading || !(Number(message.swipe_id)>0); switches.children[1].disabled=state.busy || state.loading || (index === 0 && (Number(message.swipe_id)||0) >= (message.swipes?.length||1)-1);
+        let count = switches.querySelector('.message-swipe-count');
+        if (!count) { count = el('span', 'message-swipe-count'); count.setAttribute('aria-live', 'polite'); switches.append(count); }
+        count.style.cssText = 'position:absolute;left:48px;align-self:center;font-size:12px;pointer-events:none';
+        count.textContent = `${(Number(message.swipe_id)||0)+1} / ${message.swipes?.length||1}`;
     } else switches?.remove();
     node.querySelector('.message-jumps-bottom')?.classList.toggle('has-swipes', !!node.querySelector('.message-swipe-buttons'));
     let reasoning = node.querySelector('.message-reasoning');
@@ -739,7 +744,26 @@ async function loadChat(file, internal = false, character = state.character) {
     const chat = hasHeader ? data.slice(1) : data.slice();
     const nextFile = file || safeName(`${character.name} - ${new Date().toISOString().replace(/[:.]/g, '-')}-${uuid().slice(0, 6)}`);
     const greeting = character.data?.first_mes ?? character.first_mes;
-    if (!chat.length && greeting) chat.push({ name: character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: greeting, extra: {} });
+    if (!chat.length) {
+        const card = character.data || character;
+        const alternatives = Array.isArray(card.alternate_greetings) ? card.alternate_greetings.filter(value => typeof value === 'string') : [];
+        const greetings = [greeting || '', ...alternatives];
+        if (!greetings[0]) greetings.shift();
+        if (greetings.length) {
+            const message = { name: character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: greetings[0], extra: {} };
+            if (alternatives.length) Object.assign(message, { swipe_id: 0, swipes: greetings, swipe_info: greetings.map(() => ({ send_date: message.send_date, extra: {} })) });
+            chat.push(message);
+        }
+    }
+    // Older independent chats stored only the default greeting. Preserve edited greetings and existing branches.
+    if (chat.length === 1 && !chat[0].is_user && !chat[0].swipes?.length && chat[0].mes === greeting) {
+        const alternatives = (character.data || character).alternate_greetings;
+        if (Array.isArray(alternatives) && alternatives.length) {
+            chat[0].swipe_id = 0;
+            chat[0].swipes = [greeting, ...alternatives.filter(value => typeof value === 'string')];
+            chat[0].swipe_info = chat[0].swipes.map(() => ({ send_date: chat[0].send_date, extra: copy(chat[0].extra || {}) }));
+        }
+    }
     const databaseMetadata = header.chat_metadata.independentDatabase ||= {};
     databaseMetadata.autoStart ??= chat.length;
     // No await between these assignments: character, identity and contents switch together.
@@ -1999,13 +2023,23 @@ async function characterEditor(avatar = state.character?.avatar) {
     const category = field(body, '分类', editing ? folders.assignments[editing.avatar] || '' : '', { options: [['', '未分类'], ...folders.folders.map(folder => [folder.id, folder.name])] });
     const description = field(body, '描述', card.description || '', { multiline: true });
     const first = field(body, '开场白', card.first_mes || '', { multiline: true });
+    const alternatives = el('div', 'alternate-greetings'); body.append(alternatives);
+    const greetingInputs = [];
+    function addGreeting(value = '') {
+        const row = el('div'); alternatives.append(row);
+        const input = field(row, '备用开场白', value, { multiline: true });
+        greetingInputs.push(input);
+        row.append(action('删除此开场白', () => { greetingInputs.splice(greetingInputs.indexOf(input), 1); row.remove(); panelDirty = true; }, 'trash', 'danger'));
+    }
+    for (const value of Array.isArray(card.alternate_greetings) ? card.alternate_greetings : []) addGreeting(value);
+    body.append(action('添加备用开场白', () => { addGreeting(); panelDirty = true; }, 'plus'));
     const footer = el('div', 'persona-editor-actions'); body.append(footer);
     footer.append(action('保存', async () => {
         assertSaved(); if (!name.value.trim()) throw new Error('请输入角色名称。');
-        const data = { name: name.value.trim(), description: description.value, first_mes: first.value };
+        const data = { name: name.value.trim(), description: description.value, first_mes: first.value, alternate_greetings: greetingInputs.map(input => input.value) };
         let savedAvatar;
         if (editing) {
-            await api.post('/api/characters/merge-attributes', { avatar: editing.avatar, data });
+            await api.post('/api/characters/merge-attributes', { avatar: editing.avatar, data: { ...data, data: { alternate_greetings: data.alternate_greetings } } });
             if (avatarFile) { const form = new FormData(); form.append('avatar', avatarFile); form.append('avatar_url', editing.avatar); await api.post('/api/characters/edit-avatar', form, { form: true }); avatarRevisions.set(editing.avatar, Date.now()); }
             editing = await api.post('/api/characters/get', { avatar_url: editing.avatar });
             savedAvatar = editing.avatar;
@@ -2015,6 +2049,7 @@ async function characterEditor(avatar = state.character?.avatar) {
             if (avatarFile) { const form = new FormData(); for (const [key, value] of Object.entries(payload)) form.append(key, value); form.append('avatar', avatarFile); savedAvatar = await api.post('/api/characters/create', form, { form: true }); }
             else savedAvatar = await api.post('/api/characters/create', payload);
             if (typeof savedAvatar !== 'string' || !savedAvatar.endsWith('.png')) throw new Error('创建角色失败。');
+            await api.post('/api/characters/merge-attributes', { avatar: savedAvatar, data: { data: { alternate_greetings: data.alternate_greetings } } });
             editing = await api.post('/api/characters/get', { avatar_url: savedAvatar });
         }
         state.settings = await api.patchSettings(settings => { const own = settingsOwn(settings); own.characterLibrary = moveCards(own.characterLibrary, [savedAvatar], category.value); }); state.own = state.settings.independent_frontend;
