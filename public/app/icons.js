@@ -1,5 +1,8 @@
 // Original inline line drawings. No icon font or external resource dependency.
 const paths = {
+    components: "\n  <path d=\"M3 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M15 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 6l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 18l3 3l3 -3l-3 -3l-3 3\" />\n",
+    parametersCollapse: "\n  <path d=\"M4 18v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2\" />\n  <path d=\"M4 9h16\" />\n  <path d=\"M10 14l2 2l2 -2\" />\n",
+    parametersExpand: "\n  <path d=\"M20 6v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2\" />\n  <path d=\"M20 15h-16\" />\n  <path d=\"M14 10l-2 -2l-2 2\" />\n",
     message: '<path d="M21 11a8 8 0 0 1-8 8H6l-4 3V11a9 9 0 0 1 19 0Z"/><path d="M7 10h10M7 14h6"/>',
     database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 4 18 4 18 0V5M3 12v7c0 4 18 4 18 0v-7"/>',
     image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="2"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',

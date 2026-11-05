@@ -919,7 +919,27 @@ async function renderPresetPanel(body, revision) {
     select.value = state.presetMissing ? '' : state.own.preset;
     const presetTools = el('div', 'connection-profile-tools'); presetBar.append(select, presetTools); body.append(presetBar);
     const name = field(body, '预设名称', select.value);
-    const parameters = el('div', 'parameter-grid'); body.append(parameters);
+    name.setAttribute('aria-label', '预设名称');
+    const parameters = el('div', 'parameter-grid preset-parameters');
+    parameters.id = `preset-parameters-${uuid()}`;
+    let parametersExpanded = true;
+    const parameterToggle = action('收起生成参数', () => {
+        parametersExpanded = !parametersExpanded;
+        parameters.hidden = !parametersExpanded;
+        updateParameterToggle();
+    }, null, 'icon-button preset-parameters-toggle');
+    const updateParameterToggle = () => {
+        const label = parametersExpanded ? '收起生成参数' : '展开生成参数';
+        parameterToggle.replaceChildren(icon('chevron'));
+        parameterToggle.title = label;
+        parameterToggle.setAttribute('aria-label', label);
+        parameterToggle.setAttribute('aria-expanded', String(parametersExpanded));
+    };
+    parameterToggle.setAttribute('aria-controls', parameters.id);
+    updateParameterToggle();
+    const nameRow = el('div', 'preset-name-row');
+    name.parentElement.append(nameRow); nameRow.append(name, parameterToggle);
+    body.append(parameters);
     const controls = new Map();
     for (const [key, label, fallback, step] of [['temperature', 'Temperature', 1, .05], ['top_p', 'Top P', 1, .05], ['openai_max_context', '上下文长度', 8192, 1], ['openai_max_tokens', '最大回复 tokens', 512, 1]]) {
         const input = field(parameters, label, draft[key] ?? fallback, { type: 'number' }); input.step = step;
@@ -956,7 +976,7 @@ async function renderPresetPanel(body, revision) {
             const label = el('span', '', prompt.name || markerLabels[prompt.identifier] || prompt.identifier);
             titleWrap.append(label);
             if (prompt.marker) {
-                const marker = el('span', 'prompt-autofill'); marker.title = '自动填充'; marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '自动填充'); marker.append(icon('autofill')); titleWrap.append(marker);
+                const marker = el('span', 'prompt-autofill'); marker.title = '自动填充'; marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '自动填充'); marker.append(icon('components')); titleWrap.append(marker);
             }
             const roleLabel = () => ['chatHistory', 'dialogueExamples'].includes(prompt.identifier) && !prompt.independent_role_override ? '原消息角色' : ({ system: '系统', user: '用户', assistant: '助手' }[prompt.role || 'system']);
             const kind = el('small', 'prompt-kind', roleLabel());
@@ -993,14 +1013,11 @@ async function renderPresetPanel(body, revision) {
             more.title = '条目操作'; more.setAttribute('aria-label', `${prompt.name || prompt.identifier} 的条目操作`); more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', toolbar.id);
             more.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
             const actionAnchor = el('span', 'prompt-action-anchor'); actionAnchor.append(toolbar, more);
-            summary.append(actionAnchor);
+            if (!prompt.marker) summary.append(actionAnchor);
             summary.addEventListener('keydown', event => {
                 if (event.key !== 'Escape' || toolbar.hidden) return;
                 event.preventDefault(); event.stopPropagation(); toolbar.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
             });
-            const up = action('上移', () => { movePrompt(draft, prompt.identifier, -1); markDirty(); renderRows(); }, 'up'); up.disabled = index === 0;
-            const down = action('下移', () => { movePrompt(draft, prompt.identifier, 1); markDirty(); renderRows(); }, 'down'); down.disabled = index === promptOrder(draft).length - 1;
-            toolbar.append(up, down);
             if (!prompt.marker) {
                 toolbar.append(action('复制条目', () => {
                     const id = uuid(); addPrompt(draft, id);
@@ -1676,9 +1693,7 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
             toolbar.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
             summary.append(enabled, title); row.append(summary);
             const render = () => { onDirty(); renderRegexEditor(parent, rules, onDirty, opened); };
-            const up = action('上移规则', () => { [rules[index - 1], rules[index]] = [rules[index], rules[index - 1]]; render(); }, 'up'); up.disabled = index === 0 || !!rules[index - 1].disabled !== !!rule.disabled;
-            const down = action('下移规则', () => { [rules[index + 1], rules[index]] = [rules[index], rules[index + 1]]; render(); }, 'down'); down.disabled = index === rules.length - 1 || !!rules[index + 1].disabled !== !!rule.disabled;
-            toolbar.append(up, down, action('复制规则', () => { rules.splice(index + 1, 0, { ...copy(rule), id: uuid(), scriptName: `${rule.scriptName || '正则'}（副本）` }); render(); }, 'copy'), action('删除规则', () => {
+            toolbar.append(action('复制规则', () => { rules.splice(index + 1, 0, { ...copy(rule), id: uuid(), scriptName: `${rule.scriptName || '正则'}（副本）` }); render(); }, 'copy'), action('删除规则', () => {
                 if (!confirm('从当前范围删除此规则？保存后生效。')) return; rules.splice(index, 1); render();
             }, 'trash', 'danger'));
             for (const button of toolbar.children) { button.title = button.textContent.trim(); button.setAttribute('aria-label', `${button.textContent.trim()} ${rule.scriptName || index + 1}`); }
@@ -1729,6 +1744,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     await loadCharacterCatalog(force, timing);
     if (revision !== panelRevision) return;
     let folder = 'unfiled'; let mode = 'grid'; let page = 0;
+    let foldersExpanded = false;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
@@ -1793,6 +1809,22 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         if (sidebar.contains(form)) body.prepend(form); sidebar.replaceChildren();
         const heading = el('div', 'folder-heading'); heading.append(el('h2', '', '分类'), action('新建分类', () => folderForm(), 'plus'));
         sidebar.append(heading);
+        const navigation = el('div', 'reference-table-navigation library-folder-navigation');
+        const folderTabs = el('nav', 'db-table-tabs library-folder-tabs');
+        folderTabs.id = `library-folder-tabs-${uuid()}`;
+        folderTabs.setAttribute('aria-label', '分类列表');
+        const folderToggle = action('展开全部分类', () => {
+            foldersExpanded = !foldersExpanded; updateFolderToggle();
+        }, 'chevron', 'icon-button library-folder-toggle');
+        const updateFolderToggle = () => {
+            const label = foldersExpanded ? '收起分类' : '展开全部分类';
+            folderTabs.dataset.expanded = String(foldersExpanded);
+            folderToggle.title = label; folderToggle.setAttribute('aria-label', label);
+            folderToggle.setAttribute('aria-expanded', String(foldersExpanded));
+        };
+        folderToggle.querySelector('span')?.remove();
+        folderToggle.setAttribute('aria-controls', folderTabs.id); updateFolderToggle();
+        navigation.append(folderToggle, folderTabs); sidebar.append(navigation);
         const customFolders = el('div', 'custom-folders');
         const append = (id, label) => {
             const row = el('div', 'folder-row');
@@ -1808,6 +1840,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     const expand = menu.hidden;
                     for (const other of sidebar.querySelectorAll('.folder-inline-menu')) other.hidden = true;
                     for (const other of sidebar.querySelectorAll('.folder-actions-toggle')) other.setAttribute('aria-expanded', 'false');
+                    if (expand && matchMedia('(max-width:700px)').matches) { foldersExpanded = true; updateFolderToggle(); }
                     menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
                 }, 'more', 'folder-edit folder-actions-toggle');
                 more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作';
@@ -1828,11 +1861,11 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     void run(async () => { await persist(raw => moveCards(raw, values, id)); selected.clear(); renderCards(); notify('角色已移动'); });
                 });
             }
-            (id === 'unfiled' ? sidebar : customFolders).append(row);
+            (id === 'unfiled' ? folderTabs : customFolders).append(row);
         };
         append('unfiled', '未分类');
         for (const item of library.folders) append(item.id, item.name);
-        sidebar.append(customFolders);
+        folderTabs.append(customFolders);
         disposeFolderDrag = installPromptDrag(customFolders, body, order => {
             void run(async () => {
                 try { await persist(raw => {
