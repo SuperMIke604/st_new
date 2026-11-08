@@ -6,7 +6,7 @@ import { databaseLogText, databaseLogExport, clearDatabaseLog } from './database
 import { copyDiagnostics, downloadDiagnostics } from './diagnostic-export.js';
 
 export function renderDatabasePanel(body, context) {
-    const { el, field, action, notify, pickFile } = context;
+    const { el, field, apiKeyField, action, notify, pickFile } = context;
     let data = validateDatabase(context.data), settings = databaseSettings(context.settings), tab = context.preview ? 'data' : 'settings', dataDirty = false, settingsDirty = false;
     let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
@@ -296,7 +296,7 @@ export function renderDatabasePanel(body, context) {
             const config=settings.apiConfig ||= {};
             config.useMainApi=false;
             const url=field(content,'API 基础地址',config.url||'',{type:'url'});url.addEventListener('input',()=>{config.url=url.value;dirty('settings');});
-            const key=field(content,'API Key',config.apiKey||'',{type:'password'});key.autocomplete='new-password';key.addEventListener('input',()=>{config.apiKey=key.value;dirty('settings');});
+            const key=apiKeyField(content,config.apiKey||'');key.addEventListener('input',()=>{config.apiKey=key.value;dirty('settings');});
             const keyWrap=el('div','key-input-wrap');key.before(keyWrap);keyWrap.append(key);
             const eye=toolbarButton(keyWrap,'显示密钥','eye',()=>{const visible=key.type==='password';key.type=visible?'text':'password';if(context.icon)eye.replaceChildren(context.icon(visible?'eyeOff':'eye'));eye.title=visible?'隐藏密钥':'显示密钥';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(visible));},'key-toggle');if(context.icon)eye.replaceChildren(context.icon('eye'));else eye.querySelector('span')?.remove();eye.setAttribute('aria-pressed','false');
             const model=field(content,'模型',config.model||'',{options:config.model?[[config.model,config.model]]:[['','读取列表或输入模型 ID']]});model.dataset.searchable='true';model.dataset.allowCustom='true';model.addEventListener('change',()=>{config.model=model.value;dirty('settings');});

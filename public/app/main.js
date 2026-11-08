@@ -698,6 +698,17 @@ function field(parent, label, value = '', { multiline = false, type = 'text', hi
     input.addEventListener('input', () => { panelDirty = true; });
     parent.append(wrap); return input;
 }
+function apiKeyField(parent, value) {
+    // Give the secret its own form so other fields are not grouped with it for autofill.
+    const form = el('form');
+    form.autocomplete = 'off';
+    form.addEventListener('submit', event => event.preventDefault());
+    parent.append(form);
+    const input = field(form, 'API Key', value, { type: 'password' });
+    input.name = 'api-secret';
+    input.autocomplete = 'new-password';
+    return input;
+}
 function note(parent, text, warning = false) { parent.append(el('p', warning ? 'note warning' : 'note', text)); }
 const avatarRevisions = new Map();
 function image(avatar, type = 'avatar', original = false) {
@@ -864,11 +875,8 @@ async function connectionPanel(profileId = '', draft = null) {
     const stream = field(body, '回复方式', current.stream === false ? 'normal' : 'stream', { options: [['stream', '流式 · 边生成边显示'], ['normal', '非流式 · 完整回复后显示']] });
     const postProcessing = field(body, '提示词后处理', current.postProcessing ?? 'merge', { options: [['merge', '合并相同角色的连续发言'], ['', '不处理']] });
     let savedKey = typeof current.proxyPassword === 'string' ? current.proxyPassword : sessionKeys.get(current.secretId) || '';
-    const key = field(body, 'API Key', savedKey, { type: 'password' }); key.autocomplete = 'new-password';
-    const keyForm = el('form'); keyForm.id = `api-secret-${uuid()}`; keyForm.autocomplete = 'off';
-    keyForm.addEventListener('submit', event => event.preventDefault());
-    const keyField = key.closest('.field'); keyField.before(keyForm); keyForm.append(keyField);
-    key.setAttribute('form', keyForm.id); key.name = 'api-secret';
+    const key = apiKeyField(body, savedKey);
+    url.closest('label').after(key.form);
     let masked = false;
     key.addEventListener('focus', () => { if (masked) { key.select(); } });
     key.addEventListener('beforeinput', () => { if (masked) { masked = false; key.value = ''; } });
@@ -890,7 +898,6 @@ async function connectionPanel(profileId = '', draft = null) {
     const hasStoredReference = current.secretId && !current.secretId.startsWith('no-key-');
     if (!savedKey && hasStoredReference) { masked = true; key.value = '********'; }
     const enteredKey = () => masked ? '' : key.value.trim();
-    url.closest('label').after(key.closest('label'));
     postProcessing.closest('label').after(model.closest('label'));
     const getConnection = () => normalizeConnection({ id: current.id, name: profileName.value.trim(), source: 'custom', url: url.value.trim(), model: model.value.trim(), stream: stream.value === 'stream', postProcessing: postProcessing.value, secretId: current.source === 'custom' ? current.secretId : undefined,
         ...((enteredKey() || current.proxyPassword) ? { proxyPassword: enteredKey() || current.proxyPassword } : {}) });
@@ -928,6 +935,10 @@ async function connectionPanel(profileId = '', draft = null) {
     modelRow.append(readModels);
 }
 
+const presetParametersStorageKey = 'independent-preset-parameters-collapsed';
+let presetParametersCollapsed = false;
+try { presetParametersCollapsed = sessionStorage.getItem(presetParametersStorageKey) === 'true'; } catch { /* Keep the preference in memory. */ }
+
 async function presetPanel() {
     const host = showPanel('生成预设', '', 'preset-panel'); if (!host) return;
     return loadPanelContent(host, '预设', (body, revision) => renderPresetPanel(body, revision), () => presetPanel());
@@ -947,13 +958,14 @@ async function renderPresetPanel(body, revision) {
     name.setAttribute('aria-label', '预设名称');
     const parameters = el('div', 'parameter-grid preset-parameters');
     parameters.id = `preset-parameters-${uuid()}`;
-    let parametersExpanded = true;
     const parameterToggle = action('收起生成参数', () => {
-        parametersExpanded = !parametersExpanded;
-        parameters.hidden = !parametersExpanded;
+        presetParametersCollapsed = !presetParametersCollapsed;
+        try { sessionStorage.setItem(presetParametersStorageKey, String(presetParametersCollapsed)); } catch { /* Keep the preference in memory. */ }
         updateParameterToggle();
     }, null, 'icon-button preset-parameters-toggle');
     const updateParameterToggle = () => {
+        const parametersExpanded = !presetParametersCollapsed;
+        parameters.hidden = !parametersExpanded;
         const label = parametersExpanded ? '收起生成参数' : '展开生成参数';
         parameterToggle.replaceChildren(icon('chevron'));
         parameterToggle.title = label;
@@ -2121,8 +2133,8 @@ async function renderPersonasPanel(body, revision) {
     const rows = el('div', 'persona-list'); rows.setAttribute('role', 'radiogroup'); rows.setAttribute('aria-label', '用户设定'); body.append(rows);
     for (const avatar of available) {
         const name = power.personas?.[avatar] || (avatar === state.settings.user_avatar ? state.settings.username : avatar), data = power.persona_descriptions?.[avatar] || {};
-        const row = el('article', 'persona-row'); row.classList.toggle('selected', persona().avatar === avatar);
-        const select = action(`选择 ${name}`, async () => { assertIdle(); const oldPersona = state.own.persona; state.own.persona = avatar; for (const item of rows.querySelectorAll('.persona-row')) { const active = item === row; item.classList.toggle('selected', active); item.querySelector('[role=radio]')?.setAttribute('aria-checked', String(active)); item.querySelector('.prompt-kind')?.remove(); if (active) item.querySelector('h2').append(el('small', 'prompt-kind', '当前')); } try { await saveOwn({ persona: avatar }); } catch (error) { state.own.persona = oldPersona; panelDirty = false; await personasPanel(); throw error; } }, null, 'persona-select');
+        const row = el('article', 'persona-row');
+        const select = action(`选择 ${name}`, async () => { assertIdle(); const oldPersona = state.own.persona; state.own.persona = avatar; for (const item of rows.querySelectorAll('.persona-row')) { const active = item === row; item.querySelector('[role=radio]')?.setAttribute('aria-checked', String(active)); item.querySelector('.prompt-kind')?.remove(); if (active) item.querySelector('h2').append(el('small', 'prompt-kind', '当前')); } try { await saveOwn({ persona: avatar }); } catch (error) { state.own.persona = oldPersona; panelDirty = false; await personasPanel(); throw error; } }, null, 'persona-select');
         select.setAttribute('role', 'radio'); select.setAttribute('aria-checked', String(persona().avatar === avatar)); select.setAttribute('aria-label', name);
         const portrait = el('div', 'persona-portrait'), img = el('img'); img.src = `/thumbnail?type=persona&file=${encodeURIComponent(avatar)}&v=${avatarRevisions.get(avatar) || 0}`; img.alt = ''; img.loading = 'lazy'; themeDefaultAvatar(img, name); portrait.append(img);
         const info = el('div', 'persona-info'), heading = el('h2', '', name); if (persona().avatar === avatar) heading.append(el('small', 'prompt-kind', '当前')); info.append(heading, el('p', '', data.description || '暂无描述'));
@@ -2367,7 +2379,7 @@ async function databasePanel(preview = false) {
     const sameChat = () => { if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity) throw new Error('聊天已切换，请重新打开数据库。'); };
     const content = el('div', 'panel-content'); body.append(content);
     renderDatabasePanel(content, {
-        worlds: databaseWorlds, models: databaseModels, preview, el, field, action, icon, notify, pickFile, characterName: state.character.name, chatName: state.file, chat, seed: header.chat_metadata?.independentDatabase?.seed,
+        worlds: databaseWorlds, models: databaseModels, preview, el, field, apiKeyField, action, icon, notify, pickFile, characterName: state.character.name, chatName: state.file, chat, seed: header.chat_metadata?.independentDatabase?.seed,
         settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
         history: () => header.chat_metadata?.independentDatabase?.history || [],
         getSeed: () => header.chat_metadata?.independentDatabase?.seed,

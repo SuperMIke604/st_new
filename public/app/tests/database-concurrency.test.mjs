@@ -29,7 +29,7 @@ function fixture() {
         notify: (...args) => notices.push(args), list: { setMessages() {} },
         assertViewable() {}, assertIdle() {}, status() {}, synchronize() {}, showPanel: () => { panels.push('open'); return { append() {} }; },
         renderDatabasePanel: (_body, value) => { panelContext = value; },
-        el: () => ({}), field() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {},
+        el: () => ({}), field() {}, apiKeyField() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {},
     });
     vm.runInContext(functions, context);
     vm.runInContext('databaseProgress = () => ({ update() {}, close() {} })', context);
