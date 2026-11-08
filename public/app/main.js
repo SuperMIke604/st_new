@@ -234,7 +234,7 @@ function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
 }
-function assertIdle() { if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertIdle() { if (state.historySaving || state.databaseHistorySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
 function cancelMessageEdit() {
     if (!inlineEdit) return;
     const index = state.chat.indexOf(inlineEdit.message);
@@ -619,7 +619,7 @@ function disposePanelWork() {
 }
 function showPanel(title, kicker = '工作空间', className = '') {
     cancelMessageEdit();
-    if (state.historySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
+    if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
     disposePanelWork();
@@ -631,7 +631,7 @@ function showPanel(title, kicker = '工作空间', className = '') {
     return $('panel-body');
 }
 function closePanel() {
-    if (state.historySaving) { notify('正在保存聊天记录，请稍候', 'info'); return false; }
+    if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return false; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return false; }
     if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
     disposePanelWork();
@@ -2371,11 +2371,26 @@ async function databasePanel(preview = false) {
         settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
         history: () => header.chat_metadata?.independentDatabase?.history || [],
         getSeed: () => header.chat_metadata?.independentDatabase?.seed,
-        deleteHistory: async (id, expected) => {
+        deleteHistory: async (ids, expected) => {
             sameChat(); assertDatabaseWritable();
             if (state.databaseController || state.busy) throw new Error('请等待生成或数据库更新完成后再删除历史总结。');
+            assertIdle();
             state.databaseHistorySaving = true;
-            try { return await deleteDatabaseSummaryHistory(chat, header, id, expected, saveChat); }
+            let saveAttempt;
+            try {
+                return await deleteDatabaseSummaryHistory(chat, header, ids, expected, () => {
+                    const task = saveChat();
+                    saveAttempt = state.saves;
+                    return task;
+                });
+            } catch (error) {
+                if (saveAttempt && saveAttempt === state.saves) {
+                    state.dirty = false;
+                    status('数据概览未保存', true);
+                    synchronize();
+                }
+                throw error;
+            }
             finally { state.databaseHistorySaving = false; }
         },
         dirty: value => { if (revision === panelRevision) panelDirty = value; }, stop: () => state.databaseController?.abort(),
@@ -2888,7 +2903,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') { co
 $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
+window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
 composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 window.addEventListener('resize', raiseNotification);

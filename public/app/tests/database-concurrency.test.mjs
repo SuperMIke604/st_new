@@ -27,7 +27,7 @@ function fixture() {
         databaseUpdateNotice: counts => `updated ${counts.operations}`,
         saveChat: async () => writes.push(structuredClone(state.chat)), rememberChat: async () => {},
         notify: (...args) => notices.push(args), list: { setMessages() {} },
-        assertViewable() {}, showPanel: () => { panels.push('open'); return { append() {} }; },
+        assertViewable() {}, assertIdle() {}, status() {}, synchronize() {}, showPanel: () => { panels.push('open'); return { append() {} }; },
         renderDatabasePanel: (_body, value) => { panelContext = value; },
         el: () => ({}), field() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {},
     });
@@ -254,9 +254,14 @@ test('history deletion persists only the opened chat and restores on save failur
     assert.equal(f.state.databaseHistorySaving, false);
     const g = fixture(); storeDatabase(g.state.chat, g.state.header, defaultDatabase(), 1);
     await g.run('databasePanel()');
-    g.run("saveChat = async () => { throw Error('save failed'); }");
-    await assert.rejects(g.panel().deleteHistory('message-1', databaseSummaryHistory(g.state.chat)), /save failed/);
+    const expectedDeletion = databaseSummaryHistory(g.state.chat);
+    g.run("saveChat = () => { state.dirty = true; return state.saves = Promise.reject(Error('save failed')); }");
+    await assert.rejects(g.panel().deleteHistory(['message-1'], expectedDeletion), /save failed/);
     assert.ok(g.state.chat[1].TavernDB_ACU_Data); assert.equal(g.state.databaseHistorySaving, false);
+    assert.equal(g.state.dirty, false);
+    g.run("saveChat = async () => {}");
+    await g.panel().deleteHistory(['message-1'], expectedDeletion);
+    assert.equal(g.state.chat[1].TavernDB_ACU_Data, undefined);
 });
 
 test('history deletion rejects switched chats, updates and chat generation', async () => {

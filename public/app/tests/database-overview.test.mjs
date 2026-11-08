@@ -75,3 +75,40 @@ test('deletion failure restores exact fields and stale selection rejects without
     await deleteDatabaseSummaryHistory(chat, header, 'archive-0', databaseSummaryHistory(chat, header.chat_metadata.independentDatabase.history, data), async () => {});
     assert.equal(header.chat_metadata.independentDatabase.history.length, 0); assert.ok(chat[0].TavernDB_ACU_Data);
 });
+
+test('saving a database-summary deletion restores the same floor and consumes its message archive', async () => {
+    const data = defaultDatabase(), chat = [{ mes: 'older' }, { mes: 'same floor', extra: { keep: true } }], header = {};
+    storeDatabase(chat, header, { ...data, marker: 'older' }, 0, { kind: 'message', to: 0 });
+    storeDatabase(chat, header, data, 1, { kind: 'message', from: 1, to: 1 });
+    const originalMeta = structuredClone(chat[1].extra.independentDatabase);
+    // A change in summary type must retain the previous version even if table content is identical.
+    storeDatabase(chat, header, data, 1, { kind: 'database', messageSummaryTo: 1 });
+    storeDatabase(chat, header, { ...data, marker: 'compacted' }, 1, { kind: 'database', messageSummaryTo: 1 });
+    const meta = header.chat_metadata.independentDatabase;
+    const expected = databaseSummaryHistory(chat, meta.history);
+    assert.deepEqual(expected.records.map(record => record.kind), ['database', 'database', 'message', 'message']);
+    let saved;
+    const result = await deleteDatabaseSummaryHistory(chat, header, ['message-1', 'archive-1'], expected, async () => {
+        assert.equal(saved, undefined);
+        saved = structuredClone({ chat, header });
+    });
+    assert.equal(result.records[0].kind, 'message');
+    assert.equal(databaseForChat(saved.chat, saved.header).index, 1);
+    assert.deepEqual(saved.chat[1].extra, { keep: true, independentDatabase: originalMeta });
+    assert.equal(saved.header.chat_metadata.independentDatabase.history.length, 0);
+});
+
+test('legacy same-floor restore survives rollback and falls back to the earlier floor when also deleted', async () => {
+    const data = defaultDatabase(), chat = [{ TavernDB_ACU_Data: data },
+        { TavernDB_ACU_Data: { ...data, marker: 'compacted' }, extra: { independentDatabase: { kind: 'database', messageSummaryTo: 1 } } }];
+    const header = { chat_metadata: { independentDatabase: { history: [{ index: 1, data: { ...data, marker: 'before' } }] } } };
+    const meta = header.chat_metadata.independentDatabase;
+    const before = structuredClone({ chat, header }), expected = databaseSummaryHistory(chat, meta.history);
+    await assert.rejects(deleteDatabaseSummaryHistory(chat, header, ['message-1'], expected, async () => { throw Error('offline'); }), /offline/);
+    assert.deepEqual({ chat, header }, before);
+    await deleteDatabaseSummaryHistory(chat, header, ['message-1'], expected, async () => {});
+    assert.equal(databaseForChat(chat, header).data.marker, 'before');
+    assert.equal(chat[1].extra.independentDatabase.to, 1);
+    await deleteDatabaseSummaryHistory(before.chat, before.header, ['message-1', 'archive-0'], expected, async () => {});
+    assert.equal(databaseForChat(before.chat, before.header).index, 0);
+});

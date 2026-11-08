@@ -91,8 +91,11 @@ export function storeDatabase(chat, header, data, index = chat.findLastIndex(mes
     header.chat_metadata ||= {};
     const history = (header.chat_metadata.independentDatabase ||= {}).history ||= [];
     const previous = index >= 0 ? chat[index]?.TavernDB_ACU_Data : header.chat_metadata.independentDatabase.seed;
-    if (previous && JSON.stringify(previous) !== JSON.stringify(value)) {
-        history.push({ data: structuredClone(previous), index, updatedAt: new Date().toISOString() });
+    const previousMeta = index >= 0 ? chat[index]?.extra?.independentDatabase : undefined;
+    const replacesMessageSummary = previousMeta?.kind === 'message' && metadata.kind === 'database';
+    if (previous && (replacesMessageSummary || JSON.stringify(previous) !== JSON.stringify(value))) {
+        history.push({ data: structuredClone(previous), index, updatedAt: new Date().toISOString(),
+            ...(previousMeta && { snapshotMeta: structuredClone(previousMeta) }) });
         while (history.length > 8 || (history.length && JSON.stringify(history).length > 2000000)) history.shift();
     }
     if (index >= 0) {

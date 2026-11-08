@@ -14,7 +14,8 @@ export function renderDatabasePanel(body, context) {
     const statusFields = ['inject','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
-    const hasDraft = () => dataDirty || settingsDirty || statusDirty;
+    const overviewDraft = { pending: new Set() };
+    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0;
     const settingsValue = includeStatus => databaseSettings({ ...settings, ...(includeStatus ? {} : savedStatus) });
     const undo = { data: [], template: [] }, pages = new Map();
     let saveTimer, editVersion=0, saveQueue=Promise.resolve(), disposed=false;
@@ -40,11 +41,15 @@ export function renderDatabasePanel(body, context) {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
         for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
-            const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); tabs.append(control);
+            const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); control.disabled = !!overviewDraft.saving; tabs.append(control);
         }
         content.replaceChildren();
         content.classList.toggle('preset-panel', tab === 'presets');
-        if (tab === 'overview') renderDatabaseOverview(content, context);
+        if (tab === 'overview') renderDatabaseOverview(content, {
+            ...context,
+            dirty: () => context.dirty(hasDraft()),
+            refresh: () => { if (!disposed && tab === 'overview') render(); },
+        }, overviewDraft);
         else if (tab === 'log') renderLog();
         else if (tab === 'data' || tab === 'template') renderTables(tab);
         else if (tab === 'presets') renderPresets(); else if(tab==='api')renderAPI();else if(tab==='world')void renderWorld();else renderSettings();
@@ -119,7 +124,7 @@ export function renderDatabasePanel(body, context) {
             const to = field(fillBar, '结束楼层', context.chat.length - 1, { type: 'number' }); to.min = 0;
             toolbarButton(fillBar, 'AI 更新', 'refresh', async () => {
                 if (dataDirty || settingsDirty) throw new Error('请先保存数据库与设置，再调用 AI。');
-                context.dirty(false); await context.fill(Number(from.value), Number(to.value));
+                context.dirty(hasDraft()); await context.fill(Number(from.value), Number(to.value));
             }, 'primary');
             content.append(fillBar);
             const snapshots = context.chat.map((message, index) => ({ data: message.TavernDB_ACU_Data, label: `#${index} · ${message.extra?.independentDatabase?.stale ? '来源已修改' : message.name || '角色'}` })).filter(item => !!item.data);
