@@ -41,14 +41,16 @@ function fixture() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-test('database summary uses latest snapshot without dialogue and never hides messages', async () => {
+test('database summary applies bare operations to the latest snapshot without dialogue or hiding messages', async () => {
     const f = fixture();
+    f.context.parseUpdate = parseUpdate;
     storeDatabase(f.state.chat, f.state.header, { ...defaultDatabase(), marker: 'latest' }, 1, { kind: 'message', to: 1 });
     f.settings.autoHideMessages = true; // Old settings cannot re-enable removed behavior.
     const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();
     assert.equal(f.requests[0][1].marker, 'latest'); assert.equal(f.requests[0][2].length, 0); assert.equal(f.requests[0][6], 'database');
-    f.finish(); await task;
+    f.finish('{"operations":[{"action":"insert","sheet":"sheet_0","data":{"0":"状态","1":"已总结"}}]}'); await task;
     assert.equal(f.writes.length, 1); assert.equal(f.state.chat[1].extra.independentDatabase.kind, 'database');
+    assert.equal(f.writes[0][1].TavernDB_ACU_Data.sheet_0.content[1][2], '已总结');
     assert.equal(f.state.chat[1].extra.independentDatabase.messageSummaryTo, 1);
     assert.ok(f.state.chat.every(message => message.is_system === undefined));
     assert.equal(f.state.header.chat_metadata.independentDatabase.history.length, 1);

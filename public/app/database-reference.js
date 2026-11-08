@@ -337,10 +337,20 @@ function parseDataUpdate(aiResponse, diagnostics) {
         return false;
     }
 
+    // Accept a complete bare operations object without scanning prose for JSON.
+    const trimmed = aiResponse.trim();
+    if (trimmed.startsWith('{')) {
+        let bare;
+        try { bare = JSON.parse(trimmed); } catch { /* Try the explicit carrier below. */ }
+        if (Array.isArray(bare?.operations) && Object.keys(bare).length === 1) {
+            return applyOperations(bare.operations, diagnostics, '纯 JSON 兼容');
+        }
+    }
+
     // 提取 <dataUpdate> 块
     const match = aiResponse.match(/<dataUpdate>([\s\S]*?)<\/dataUpdate>/);
     if (!match || !match[1]) {
-        if (diagnostics) diagnostics.result = aiResponse.trim() ? '缺少完整的 <dataUpdate> 块，或块为空' : '模型返回空文本';
+        if (diagnostics) diagnostics.result = trimmed ? '缺少完整的 <dataUpdate> 块，或块为空' : '模型返回空文本';
         console.warn('parseDataUpdate: AI 响应中未找到 <dataUpdate> 块');
         return false;
     }
@@ -372,12 +382,7 @@ function parseDataUpdate(aiResponse, diagnostics) {
 
     // 格式 A：operations 数组 — 增量更新
     if (Array.isArray(data.operations)) {
-        const changed = applyOperations(data.operations);
-        if (diagnostics) {
-            diagnostics.result = changed ? `收到 ${data.operations.length} 条操作`
-                : data.operations.length ? `收到 ${data.operations.length} 条操作，均未应用` : 'operations 数组为空';
-        }
-        return changed;
+        return applyOperations(data.operations, diagnostics);
     }
 
     // 格式 B：完整数据替换 — 直接合并/覆盖 sheet_*
@@ -395,7 +400,7 @@ function parseDataUpdate(aiResponse, diagnostics) {
     return false;
 }
 
-function applyOperations(operations) {
+function applyOperations(operations, diagnostics, format) {
     const sheets = Object.keys(currentJsonTableData)
         .filter(k => k.startsWith('sheet_'))
         .map(k => currentJsonTableData[k]);
@@ -513,6 +518,11 @@ function applyOperations(operations) {
 
     if (appliedCount > 0) {
         showToast(`从 AI 响应中成功应用了 ${appliedCount} 个数据库更新`, 'info', { operations: appliedCount });
+    }
+    if (diagnostics) {
+        const result = appliedCount > 0 ? `收到 ${operations.length} 条操作`
+            : operations.length ? `收到 ${operations.length} 条操作，均未应用` : 'operations 数组为空';
+        diagnostics.result = format ? `${format} · ${result}` : result;
     }
     return appliedCount > 0;
 }

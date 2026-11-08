@@ -17,6 +17,32 @@ test('upstream readable format, diff search and pagination',()=>{
 import { databaseSettings, fillMessages, migrateLegacySettings } from '../database.js';
 import { parseUpdate, databaseUpdateNotice } from '../database.js';
 
+test('bare operations use the tagged update path only for a complete JSON object', () => {
+    const original = database();
+    const raw = JSON.stringify({ operations: [
+        { action: 'update', sheet: 'sheet_0', row: 0, data: { 1: '<dataUpdate>表格文字</dataUpdate>' } },
+        { action: 'insert', sheet: 'sheet_0', data: { 0: '乙' } },
+        { action: 'delete', sheet: 'sheet_0', row: 1 },
+    ] });
+    const counts = { operations: 0, tables: 0 };
+    const diagnostics = {};
+    const updated = parseUpdate(` \n${raw}\n `, original, counts, diagnostics);
+    assert.equal(updated.sheet_0.content[1][2], '<dataUpdate>表格文字</dataUpdate>');
+    assert.equal(updated.sheet_0.content.length, 2);
+    assert.equal(original.sheet_0.content[1][2], '正常');
+    assert.deepEqual(counts, { operations: 3, tables: 0 });
+    assert.match(diagnostics.result, /纯 JSON 兼容/);
+
+    const insert = '{"operations":[{"action":"insert","sheet":"sheet_0"}]}';
+    for (const unsupported of [
+        `说明：${insert}`, `${insert}\n完成`, '```json\n' + insert + '\n```',
+        insert.slice(0, -1), insert.slice(0, -1) + ',"note":"说明"}',
+        JSON.stringify({ sheet_0: original.sheet_0 }), '{"operations":[]}',
+    ]) {
+        assert.throws(() => parseUpdate(unsupported, original), /未产生有效/);
+    }
+});
+
 test('update notices count successful upstream operations across batches, separately from replaced tables', () => {
  const counts = { operations: 0, tables: 0 };
  let value = parseUpdate('<dataUpdate>{"operations":[{"action":"insert","sheet":"missing"},{"action":"update","sheet":0,"row":0,"data":{"1":"更新"}},{"action":"insert","sheet":0,"data":{"0":"乙"}}]}</dataUpdate>', database(), counts);
