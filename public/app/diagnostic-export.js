@@ -17,9 +17,9 @@ export async function copyDiagnostics(text, parent, { clipboard = globalThis.nav
     }
 }
 
-export function downloadDiagnostics(text, parent, { document: doc = document, urls = URL, later = setTimeout } = {}) {
+export function downloadDiagnostics(text, parent, { document: doc = document, urls = URL, later = setTimeout, filename = 'loading-timings.json' } = {}) {
     const url = urls.createObjectURL(new Blob([text], { type: 'application/json' }));
-    const link = doc.createElement('a'); link.href = url; link.download = 'loading-timings.json';
+    const link = doc.createElement('a'); link.href = url; link.download = filename;
     link.target = '_blank'; link.rel = 'noopener noreferrer'; parent.append(link);
     try { link.click(); } finally { link.remove(); later(() => urls.revokeObjectURL(url), 60000); }
 }

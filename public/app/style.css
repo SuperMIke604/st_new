@@ -522,7 +522,7 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 /* Rounded controls with no elevation. */
 [data-palette=ivory]{--flat-button-bg:color-mix(in srgb,rgba(245,240,232,.97) 88%,#2c2418)}
 [data-palette=ivory] :is(.button,.icon-button,.send-button,.folder-button,.global-world-toggle,.prompt-actions-toggle,.key-toggle,.select-option,.select-custom,.code-toolbar button){
-  border-radius:6px!important;
+  border-radius:var(--control-radius)!important;
   box-shadow:none!important;
   background-image:none!important;
 }
@@ -535,23 +535,22 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
   border:0!important;
 }
 [data-palette=ivory] .button:not(.danger):not(.primary):not(.persona-select):hover{background-color:color-mix(in srgb,var(--flat-button-bg) 65%,#805b40 35%)}
-[data-palette=ivory] :is(.button,.icon-button).danger{border-radius:6px!important;box-shadow:none!important}
+[data-palette=ivory] :is(.button,.icon-button).danger{border-radius:var(--control-radius)!important;box-shadow:none!important}
 
 /* Filled button surfaces use the reference's pale paper border. */
-[data-palette=ivory]{--ivory-button-border:color(srgb 0.863511 0.842451 0.809143 / 0.972392)}
-[data-palette=ivory] :is(.button,.send-button,.folder-button,.select-control){border:1px solid var(--ivory-button-border)!important;border-radius:6px!important}
+[data-palette=ivory] :is(.button,.send-button,.folder-button,.select-control){border:1px solid var(--line)!important;border-radius:var(--control-radius)!important}
 [data-palette=ivory] :is(.home-character,.card-cover,.persona-select,.persona-avatar-upload,.reference-cell-value){border:0!important}
 /* The menu is inset by 5px: paint the danger surface on that same inset track. */
 [data-palette=ivory] #panel .prompt-inline-actions .button.danger{
   background:transparent!important;
   border:0!important;
-  border-radius:6px!important;
+  border-radius:var(--control-radius)!important;
 }
 [data-palette=ivory] #panel .prompt-inline-actions .button.danger::before{
   background:rgba(100,0,0,.7);
-  border:1px solid var(--ivory-button-border);
+  border:1px solid var(--line);
   box-sizing:border-box;
-  border-radius:6px;
+  border-radius:var(--control-radius);
 }
 [data-palette=ivory] #panel .prompt-inline-actions .button.danger:hover::before{background:rgba(100,0,0,.82)}
 
@@ -572,10 +571,12 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 [data-palette=ivory] svg[data-icon="components"]{--theme-icon:url("data:image/svg+xml;base64,PCEtLQp0YWdzOiBbY29tcG9uZW50cywgY29tcG9uZW50LCBkZXNpZ24tc3lzdGVtLCBmaWdtYSwgdWkta2l0LCBsaWJyYXJ5LCBpbnN0YW5jZSwgc3ltYm9scywgYmxvY2tzXQpjYXRlZ29yeTogRGVzaWduCnZlcnNpb246ICIxLjQ4Igp1bmljb2RlOiAiZWZhNSIKLS0+CjxzdmcKICB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiAgd2lkdGg9IjI0IgogIGhlaWdodD0iMjQiCiAgdmlld0JveD0iMCAwIDI0IDI0IgogIGZpbGw9Im5vbmUiCiAgc3Ryb2tlPSJjdXJyZW50Q29sb3IiCiAgc3Ryb2tlLXdpZHRoPSIyIgogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICBzdHJva2UtbGluZWpvaW49InJvdW5kIgo+CiAgPHBhdGggZD0iTTMgMTJsMyAzbDMgLTNsLTMgLTNsLTMgMyIgLz4KICA8cGF0aCBkPSJNMTUgMTJsMyAzbDMgLTNsLTMgLTNsLTMgMyIgLz4KICA8cGF0aCBkPSJNOSA2bDMgM2wzIC0zbC0zIC0zbC0zIDMiIC8+CiAgPHBhdGggZD0iTTkgMThsMyAzbDMgLTNsLTMgLTNsLTMgMyIgLz4KPC9zdmc+Cg==")}
 [data-palette=ivory] svg[data-icon="parametersCollapse"]{--theme-icon:url("data:image/svg+xml;base64,PCEtLQp0YWdzOiBbbmF2YmFyLCBoZWFkZXIsIHRvcC1iYXIsIGV4cGFuZCwgc2hvdywgbmF2aWdhdGlvbiwgbGF5b3V0LCB1aV0KY2F0ZWdvcnk6IERlc2lnbgp2ZXJzaW9uOiAiMS43OCIKdW5pY29kZTogImYyOGUiCi0tPgo8c3ZnCiAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iY3VycmVudENvbG9yIgogIHN0cm9rZS13aWR0aD0iMiIKICBzdHJva2UtbGluZWNhcD0icm91bmQiCiAgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIKPgogIDxwYXRoIGQ9Ik00IDE4di0xMmEyIDIgMCAwIDEgMiAtMmgxMmEyIDIgMCAwIDEgMiAydjEyYTIgMiAwIDAgMSAtMiAyaC0xMmEyIDIgMCAwIDEgLTIgLTIiIC8+CiAgPHBhdGggZD0iTTQgOWgxNiIgLz4KICA8cGF0aCBkPSJNMTAgMTRsMiAybDIgLTIiIC8+Cjwvc3ZnPgo=")}
 [data-palette=ivory] svg[data-icon="parametersExpand"]{--theme-icon:url("data:image/svg+xml;base64,PCEtLQp0YWdzOiBbYm90dG9tLWJhciwgZm9vdGVyLCBleHBhbmQsIHNob3csIHBhbmVsLCBsYXlvdXQsIHVpLCBib3R0b21iYXJdCmNhdGVnb3J5OiBEZXNpZ24KdmVyc2lvbjogIjEuNzgiCnVuaWNvZGU6ICJmMjhjIgotLT4KPHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9ImN1cnJlbnRDb2xvciIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMjAgNnYxMmEyIDIgMCAwIDEgLTIgMmgtMTJhMiAyIDAgMCAxIC0yIC0ydi0xMmEyIDIgMCAwIDEgMiAtMmgxMmEyIDIgMCAwIDEgMiAyIiAvPgogIDxwYXRoIGQ9Ik0yMCAxNWgtMTYiIC8+CiAgPHBhdGggZD0iTTE0IDEwbC0yIC0ybC0yIDIiIC8+Cjwvc3ZnPgo=")}
-/* Shared radius for ivory form controls and button state surfaces. */
-[data-palette=ivory]{--control-radius:6px}
-[data-palette=ivory] :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea,select,.select-control,.select-search,.select-menu,.select-option,.button,.icon-button,.send-button){border-radius:6px!important}
-[data-palette=ivory] #panel :is(.button,.icon-button,.key-toggle,.global-world-toggle)::before{border-radius:6px}
+/* Shared radius for ivory form controls and entry surfaces. */
+:root[data-palette=ivory]{--control-radius:6px}
+[data-palette=ivory] :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea,select,.select-control,.select-search,.select-menu,.select-option,.button,.icon-button,.send-button){border-radius:var(--control-radius)!important}
+[data-palette=ivory] :is(.preset-panel,.regex-panel) .prompt-kind,
+[data-palette=ivory] #panel .prompt-inline-actions.inset-action-menu::before,
+:root[data-palette=ivory] #panel :is(.button,.icon-button,.key-toggle,.global-world-toggle,.prompt-summary .button)::before{border-radius:var(--control-radius)}
 .preset-name-row{display:flex;align-items:center;gap:8px;min-width:0}
 .preset-name-row>input{flex:1;min-width:0}
 .preset-name-row>.preset-parameters-toggle{flex-shrink:0}
@@ -594,14 +595,20 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
   border:0!important;
 }
 
-/* Ivory contrast: preserve paper surfaces and decorative borders while strengthening
-   readable text, form boundaries and keyboard focus. */
+/* Ivory keeps form boundaries distinct from decorative borders. */
 :root[data-palette=ivory]{
+  --line:#e2dbd1;
   --muted:#6c5c4b;
   --ivory-secondary:#6c5c4b;
   --ivory-button-text:#594633;
-  --ivory-field-border:rgba(139,121,100,.55);
+  --ivory-field-border:rgba(139,121,100,.48);
+  --editor-entry-border:var(--ivory-field-border);
   --ivory-focus:#805b40;
+}
+:root[data-palette=ivory] #composer,
+:root[data-palette=ivory] :is(.inline-editor textarea,.library-bulk select),
+:root[data-palette=ivory] :where(dialog,.composer-tools,.select-menu,.global-world-popup,.character-file,.folder-row,.folder-form,.editor-footer,.prompt-item,.prompt-form,.prompt-kind,.code-block,.code-toolbar,.card-actions){
+  border-color:var(--line);
 }
 [data-palette=ivory] :is(.note,.item-count,.section-heading h2,.folder-heading h2,.folder-count,.card-category,.message-number,.advanced summary,.field small,.global-world-placeholder,.code-language,#save-status,.composer-foot,.prompt-kind,.prompt-autofill,.prompt-chevron,.world-entry-summary:after){color:var(--ivory-secondary)}
 [data-palette=ivory] .prompt-disabled :is(.prompt-title,.prompt-kind){color:var(--ivory-secondary)}

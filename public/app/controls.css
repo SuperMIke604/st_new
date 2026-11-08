@@ -139,7 +139,7 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     border: 0;
     border-radius: var(--control-radius);
     background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--line);
+    box-shadow: inset 0 0 0 1px var(--editor-entry-border, var(--line));
 }
 :is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-disabled { background: var(--soft); opacity: 1; }
 :is(.preset-panel,.regex-panel) .prompt-summary {

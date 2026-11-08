@@ -7,16 +7,18 @@ export function defaultDatabase() {
     return { mate: { type: 'chatSheets' }, sheet_0: { name: '当前状态', content: [[null, '项目', '内容']] }, sheet_1: { name: '人物', content: [[null, '姓名', '关系', '近况']] }, sheet_2: { name: '事件', content: [[null, '时间', '事件', '结果']] } };
 }
 export function sheets(database) { return Object.entries(database).filter(([key]) => /^sheet_[\w-]+$/.test(key)); }
+export class DatabaseFormatError extends Error {}
+
 export function validateDatabase(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('数据库需要为 chatSheets 对象。');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DatabaseFormatError('数据库需要为 chatSheets 对象。');
     const result = structuredClone(value); result.mate ||= { type: 'chatSheets' };
-    if (result.mate.type !== 'chatSheets') throw new Error('数据库格式需为 mate.type = chatSheets。');
+    if (result.mate.type !== 'chatSheets') throw new DatabaseFormatError('数据库格式需为 mate.type = chatSheets。');
     const tables = sheets(result);
     for (const [key, table] of tables) {
-        if (!table || typeof table !== 'object' || !Array.isArray(table.content) || !Array.isArray(table.content[0]) || table.content[0].length < 2) throw new Error(`表格 ${key} 缺少有效表头。`);
+        if (!table || typeof table !== 'object' || !Array.isArray(table.content) || !Array.isArray(table.content[0]) || table.content[0].length < 2) throw new DatabaseFormatError(`表格 ${key} 缺少有效表头。`);
         for (const row of table.content) {
-            if (!Array.isArray(row) || row.length !== table.content[0].length) throw new Error(`表格「${table.name || key}」的列数不一致。`);
-            if (row.some(cell => cell != null && !['string', 'number', 'boolean'].includes(typeof cell))) throw new Error('单元格仅支持文字、数字或布尔值。');
+            if (!Array.isArray(row) || row.length !== table.content[0].length) throw new DatabaseFormatError(`表格「${table.name || key}」的列数不一致。`);
+            if (row.some(cell => cell != null && !['string', 'number', 'boolean'].includes(typeof cell))) throw new DatabaseFormatError('单元格仅支持文字、数字或布尔值。');
         }
     }
     return result;
@@ -111,8 +113,21 @@ export function databaseText(database, includeEmpty = false) {
         return `[${key}] ${table.name || key}\n${lines.join('\n')}`;
     }).join('\n\n');
 }
-export function parseUpdate(text, current, counts) {
-    const result = referenceUpdate(text, current);
+export function parseUpdate(text, current, counts, diagnostics) {
+    const result = referenceUpdate(text, current, diagnostics);
+    if (diagnostics) {
+        diagnostics.issues = {};
+        for (const item of result.feedback) {
+            if (item.type !== 'error') continue;
+            const reason = item.reason || '';
+            const label = reason.endsWith('目标表不存在') ? '目标表不存在'
+                : reason.startsWith('未知 action:') ? '不支持的操作'
+                : reason === 'delete 行索引越界' ? '删除行索引越界'
+                : reason === 'update 缺少 row 索引' ? '更新缺少行索引'
+                : reason === '操作执行异常' ? reason : '';
+            if (label) diagnostics.issues[label] = (diagnostics.issues[label] || 0) + 1;
+        }
+    }
     if (!result.changed) throw new Error(result.feedback.filter(item=>item.type==='error').map(item=>item.reason||item.message).join('；') || 'AI 响应未产生有效的 dataUpdate 更新');
     if (counts) for (const item of result.feedback) {
         counts.operations = (counts.operations || 0) + (item.operations || 0);

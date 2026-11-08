@@ -2,6 +2,8 @@ import { uuid } from './uuid.js';
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
+import { databaseLogText, databaseLogExport, clearDatabaseLog } from './database-log.js';
+import { copyDiagnostics, downloadDiagnostics } from './diagnostic-export.js';
 
 export function renderDatabasePanel(body, context) {
     const { el, field, action, notify, pickFile } = context;
@@ -37,16 +39,42 @@ export function renderDatabasePanel(body, context) {
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板']])) {
+        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); tabs.append(control);
         }
         content.replaceChildren();
         content.classList.toggle('preset-panel', tab === 'presets');
         if (tab === 'overview') renderDatabaseOverview(content, context);
+        else if (tab === 'log') renderLog();
         else if (tab === 'data' || tab === 'template') renderTables(tab);
         else if (tab === 'presets') renderPresets(); else if(tab==='api')renderAPI();else if(tab==='world')void renderWorld();else renderSettings();
     };
     const note = text => { const node = el('p', 'note', text); content.append(node); return node; };
+    function renderLog() {
+        note('记录本页面最近 50 次 AI 更新，刷新浏览器后清空。复制只包含摘要。导出会附带最近一次格式异常的完整原文，分享前请检查其中的私密内容。');
+        const toolbar = el('div', 'db-toolbar');
+        const output = el('textarea', 'timing-copy');
+        output.readOnly = true;
+        output.rows = 12;
+        output.setAttribute('aria-label', '数据库更新日志');
+        const refresh = () => {
+            const text = databaseLogText();
+            output.value = text || '暂无更新日志';
+            copy.disabled = save.disabled = clear.disabled = !text;
+        };
+        toolbarButton(toolbar, '刷新日志', 'refresh', refresh);
+        const copy = toolbarButton(toolbar, '复制日志', 'copy', async () => {
+            await copyDiagnostics(output.value, content);
+            notify('更新日志已复制');
+        });
+        const save = toolbarButton(toolbar, '导出日志', 'export', () => {
+            if (context.isGenerating() || context.isUpdating()) throw new Error('请在生成或更新结束后导出日志。');
+            downloadDiagnostics(JSON.stringify(databaseLogExport(), null, 2), content, { filename: 'database-update-log.json' });
+        });
+        const clear = toolbarButton(toolbar, '清空日志', 'trash', () => { clearDatabaseLog(); refresh(); });
+        content.append(toolbar, output);
+        refresh();
+    }
     const saveSettings = async () => {
         clearTimeout(saveTimer);const version=++editVersion;
         const includeStatus = tab === 'settings', savedStatusVersion = statusVersion;

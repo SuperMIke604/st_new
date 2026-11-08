@@ -23,6 +23,7 @@ import { PresetTokenPreview } from './preset-tokens.js';
 import { GenerationPreload, generationDatabaseResources } from './generation-preload.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
+import { startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse } from './database-log.js';
 import { TavernAPI, readEvents } from './api.js';
 import { buildPrompt, fitPrompt, generationBody, activateWorlds, expand } from './engine.js';
 import { VirtualChat } from './virtual-chat.js';
@@ -36,7 +37,7 @@ import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
-import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, databaseSummaryTriggered, messageSummaryRange } from './database.js';
+import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
@@ -2390,6 +2391,7 @@ async function databasePanel(preview = false) {
         countDatabaseTokens: async () => { sameChat(); const latest=currentDatabase(); return databaseTokenCount(latest.data, latest.settings); },
         latest: () => { sameChat(); return currentDatabase(); },
         isUpdating: () => !!state.databaseController,
+        isGenerating: () => state.busy,
     });
 }
 function databaseProgress(message, controller) {
@@ -2406,6 +2408,17 @@ async function databaseTokenCount(data, settings) {
     return result.token_count;
 }
 async function updateDatabase(from, to, automatic = false, kind = 'message') {
+    const log = startDatabaseLog(automatic, kind);
+    try {
+        const updated = await runDatabaseUpdate(from, to, automatic, kind, log);
+        finishDatabaseLog(log, updated ? '成功' : log.status === '已终止' ? '已终止' : '已跳过');
+        return updated;
+    } catch (error) {
+        finishDatabaseLog(log, '失败', error);
+        throw error;
+    }
+}
+async function runDatabaseUpdate(from, to, automatic, kind, log) {
     assertDatabaseWritable(); if (!state.character) throw new Error('请先打开聊天。');
     if (state.databaseController) throw new Error('数据库正在更新，请等待完成或终止填表。');
     const summarizing = kind === 'database';
@@ -2414,36 +2427,44 @@ async function updateDatabase(from, to, automatic = false, kind = 'message') {
         to = current.index >= 0 ? current.index : state.chat.findLastIndex(message => !message.is_user && message !== state.generation?.reply);
         from = to;
     }
+    log.from = from; log.to = to;
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= state.chat.length) throw new Error('请填写有效的起始和结束楼层。');
     const aiIndices=state.chat.map((message,index)=>!message.is_user&&index>=from&&index<=to?index:-1).filter(index=>index>=0);
-    if(!aiIndices.length){notify('没有消息需要更新', 'info');return false;}
+    if(!aiIndices.length){log.reason='选定范围内没有角色回复';notify('没有消息需要更新', 'info');return false;}
     const rangeStart=from,rangeEnd=to;if(!summarizing){from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;}to=aiIndices.at(-1);
+    log.stage = '校验目标楼层与快照';
     const write = databaseWriteGuard(to);
     write.check();
+    log.stage = '校验填表连接';
     let config = databaseConnection(settings);
     if (!config) throw new Error('填表连接已删除，请在数据库更新设置中重新选择。');
     config = { ...config, stream: false };
     const preset = { temperature: settings.temperature, top_p: 1, openai_max_tokens: settings.maxTokens, names_behavior: 0 };
     generationBody(config, preset, []);
+    log.stage = '准备填表数据';
     const chat = copy(state.chat);
     let result=summarizing?copy(current.data):settings.template;if(!summarizing)for(let index=aiIndices[0];index>=0;index--)if(!chat[index].is_user&&chat[index].TavernDB_ACU_Data){result=copy(chat[index].TavernDB_ACU_Data);break;}
     const sourceDatabase = summarizing ? JSON.stringify(current.data) : null;
     const previousMeta = chat[to]?.extra?.independentDatabase;
-    let reference = '';
+    let reference = '', lastResponse;
     const controller = new AbortController(); state.databaseController = controller;
     const progress=databaseProgress('正在准备填表数据，请稍候…',controller);
     try {
         if (config.proxyPassword && (!config.secretId || config.secretId.startsWith('no-key-'))) {
+            log.stage = '注册连接密钥';
             const secret = await api.post('/api/secrets/write', { key: config.source === 'custom' ? 'api_key_custom' : 'api_key_openai', value: config.proxyPassword, label: config.name || '数据库连接' });
             if (!secret.id) throw new Error('数据库连接密钥注册失败。'); config.secretId = secret.id;
             const next = { ...profileStore, profiles: profileStore.profiles.map(profile => profile.id === config.id ? { ...profile, secretId: secret.id } : profile) };
             if(config.id){await api.saveConnections(next); profileStore = next;}
         }
+        log.stage = '读取世界书参考';
         const worldConfig=settings.worldbookConfig||{source:'character'};const books=await databaseWorlds(worldConfig);reference=books.filter(book=>worldConfig.source!=='manual'||(worldConfig.manualSelection||[]).includes(book.name)).flatMap(book=>Object.entries(book.entries||{}).filter(([id,entry])=>{const enabled=worldConfig.enabledEntries?.[book.name];return Array.isArray(enabled)?enabled.map(String).includes(String(entry.uid??id)):!entry.disable;}).map(([,entry])=>entry.content||'')).join('\n\n');
         let start = from, batches = 0;
         const updateCounts = { operations: 0, tables: 0 };
         while (start <= to) {
             if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
+            Object.assign(log, { stage: '构建填表请求', batch: batches + 1, httpStatus: undefined,
+                format: undefined, responseChars: undefined, finishReason: undefined, parser: undefined });
             let end = to;
             while (end > start && chat[end].is_user) end--;
             if (chat[end].is_user) { end = chat.findIndex((message, index) => index >= start && index <= to && !message.is_user); if (end < start) throw new Error('整理范围内没有角色回复。'); }
@@ -2452,29 +2473,71 @@ async function updateDatabase(from, to, automatic = false, kind = 'message') {
             const messages = fillMessages({...settings,userName:persona().name}, result, summarizing ? [] : chat, start, end, reference, kind).map(message => ({ ...message, content: expand(message.content, variables) }));
 
             progress.update(summarizing?'正在总结最新数据库…':automatic?'正在总结消息，请稍候…':`正在总结消息，楼层 ${rangeStart}–${rangeEnd}…`);
+            log.stage = '请求模型';
             const response = await api.response('/api/backends/chat-completions/generate', generationBody(config, preset, messages), { signal: controller.signal });
-            let text = '';
+            log.stage = '读取模型响应'; log.httpStatus = response.status;
+            let text = '', responseBody;
+            const readChoice = value => {
+                if (value?.error) {
+                    log.reason = '模型接口在响应体中返回错误';
+                    throw new Error(typeof value.error === 'string' ? value.error : value.error.message || '填表失败');
+                }
+                const choice = value?.choices?.[0];
+                if (['stop', 'length', 'content_filter', 'tool_calls', 'function_call'].includes(choice?.finish_reason)) log.finishReason = choice.finish_reason;
+                return choice;
+            };
             if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
-                for await (const event of readEvents(response)) { if (event.error) throw new Error(typeof event.error === 'string' ? event.error : event.error.message || '填表失败'); text += event.choices?.[0]?.delta?.content || event.choices?.[0]?.text || ''; }
+                log.format = 'SSE';
+                const onMalformed = raw => {
+                    log.reason = '模型接口返回了无法解析的 SSE 数据';
+                    retainMalformedDatabaseResponse(log, 'SSE 事件数据', raw);
+                };
+                for await (const event of readEvents(response, onMalformed)) { const choice = readChoice(event); text += choice?.delta?.content || choice?.text || ''; }
             } else {
-                const value = await response.json(); if (value.error) throw new Error(typeof value.error === 'string' ? value.error : value.error.message || '填表失败');
-                text = value.choices?.[0]?.message?.content || value.choices?.[0]?.text || '';
+                log.format = '非流式';
+                responseBody = await response.text();
+                let value;
+                try { value = JSON.parse(responseBody); }
+                catch (error) {
+                    retainMalformedDatabaseResponse(log, 'HTTP 响应体', responseBody);
+                    throw error;
+                }
+                const choice = readChoice(value);
+                text = choice?.message?.content || choice?.text || '';
             }
-            progress.update('正在解析并应用数据库更新…');result = parseUpdate(text, result, updateCounts); start = end + 1; batches++;
+            lastResponse = typeof text === 'string' && (text || responseBody === undefined)
+                ? { source: '模型回复', text } : { source: 'HTTP 响应体', text: responseBody };
+            log.stage = '解析并应用更新';
+            if (typeof text === 'string') log.responseChars = text.length;
+            log.parser = {};
+            progress.update('正在解析并应用数据库更新…');
+            result = parseUpdate(text, result, updateCounts, log.parser);
+            Object.assign(log, updateCounts);
+            start = end + 1; batches++;
         }
         if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
+        log.stage = '复核聊天与快照';
         write.check();
         if (summarizing && (currentDatabase().index !== current.index || JSON.stringify(currentDatabase().data) !== sourceDatabase)) throw new Error('最新数据库已变化，请重新总结。');
         const metadata = summarizing ? { kind, messageSummaryTo: previousMeta?.messageSummaryTo ?? previousMeta?.to ?? current.index, batches } : { kind, from: rangeStart, to, batches };
+        log.stage = '校验并写入快照';
         storeDatabase(state.chat, state.header, result, to, metadata);
-        progress.update('正在保存数据库…');await saveChat(); await rememberChat(); notify(databaseUpdateNotice(updateCounts));
+        log.stage = '保存聊天';
+        progress.update('正在保存数据库…');await saveChat();
+        log.stage = '保存最近聊天设置';
+        await rememberChat(); notify(databaseUpdateNotice(updateCounts));
+        log.stage = '更新完成';
         return true;
     } catch (error) {
-        if (error.name === 'AbortError') { notify('填表操作已由用户终止', 'info'); return false; }
+        if (error.name === 'AbortError') { log.status = '已终止'; notify('填表操作已由用户终止', 'info'); return false; }
+        if (log.stage === '解析并应用更新' || (log.stage === '校验并写入快照' && error instanceof DatabaseFormatError)) {
+            retainMalformedDatabaseResponse(log, lastResponse.source, lastResponse.text);
+        }
         notify(`数据库更新失败：${error.message}`,true);throw error;
     } finally { progress.close(); state.databaseController = null; }
 }
 async function autoUpdateDatabase() {
+ let checkStage, checkIndex;
  try {
   if(state.databaseController || state.busy || state.dirty || state.loading || !state.character || !state.chat.length || state.chat.at(-1)?.is_user)return;
   const settings=currentDatabase().settings;
@@ -2482,11 +2545,22 @@ async function autoUpdateDatabase() {
   if(!settings.databaseSummaryAuto || state.databaseController || state.busy || state.dirty)return;
   const current=currentDatabase();
   if(current.index<0 || state.chat[current.index].extra?.independentDatabase?.kind==='database')return;
+  checkIndex=current.index; checkStage='检查自动总结快照';
   const write=databaseWriteGuard(current.index);write.check();
+  checkStage='统计自动总结 Token';
   const tokens=!databaseSummaryTriggered(settings,current.data,0)&&settings.databaseSummaryTokens>0?await databaseTokenCount(current.data,settings):0;
+  checkStage='复核自动总结快照';
   write.check();
+  checkStage=undefined;
   if(databaseSummaryTriggered(settings,current.data,tokens))await updateDatabase(0,0,true,'database');
- }catch(error){notify(`回复已保存，自动填表失败：${error.message}`,true);}
+ }catch(error){
+  if(checkStage){
+   const log=startDatabaseLog(true,'database');
+   Object.assign(log,{stage:checkStage,from:checkIndex,to:checkIndex});
+   finishDatabaseLog(log,'失败',error);
+  }
+  notify(`回复已保存，自动填表失败：${error.message}`,true);
+ }
 }
 const tokenCounts = new Map();
 let tokenCacheBytes = 0;

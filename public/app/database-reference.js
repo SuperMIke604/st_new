@@ -1,5 +1,5 @@
-// Copied unchanged from SuperMIke604/data_table index.js @ a9e295d32b2e691d9ae4399bf0b2b3c3fe922205.
-// Host adapters below supply state and collect feedback; function bodies remain upstream.
+// Adapted from SuperMIke604/data_table index.js @ a9e295d32b2e691d9ae4399bf0b2b3c3fe922205.
+// Host adapters supply state and collect feedback. Parser diagnostics use fixed labels.
 let currentJsonTableData, currentSettings, _dpState;
 let feedback = [];
 const showToast = (message, type, counts = {}) => feedback.push({message,type,...counts});
@@ -326,12 +326,12 @@ function repairAIJson(raw) {
 
     // 全部失败
     console.warn('repairAIJson: 所有修复策略均失败');
-    console.warn('原始文本前500字符:', text.substring(0, 500));
     // 输出位置附近的上下文（如果有错误位置信息传入的话）
     return null;
 }
 
-function parseDataUpdate(aiResponse) {
+function parseDataUpdate(aiResponse, diagnostics) {
+    if (typeof aiResponse !== 'string' && diagnostics) diagnostics.result = '模型响应内容不是文本';
     if (!currentJsonTableData) {
         console.error('parseDataUpdate: currentJsonTableData 未加载');
         return false;
@@ -340,6 +340,7 @@ function parseDataUpdate(aiResponse) {
     // 提取 <dataUpdate> 块
     const match = aiResponse.match(/<dataUpdate>([\s\S]*?)<\/dataUpdate>/);
     if (!match || !match[1]) {
+        if (diagnostics) diagnostics.result = aiResponse.trim() ? '缺少完整的 <dataUpdate> 块，或块为空' : '模型返回空文本';
         console.warn('parseDataUpdate: AI 响应中未找到 <dataUpdate> 块');
         return false;
     }
@@ -349,9 +350,10 @@ function parseDataUpdate(aiResponse) {
         data = JSON.parse(match[1].trim());
     } catch (e) {
         // 使用 repairAIJson 进行多策略修复
-        console.warn('parseDataUpdate: 首次 JSON.parse 失败，启动修复', e.message);
+        console.warn('parseDataUpdate: 首次 JSON.parse 失败，启动修复');
         data = repairAIJson(match[1]);
         if (!data) {
+            if (diagnostics) diagnostics.result = '<dataUpdate> JSON 无效，自动修复失败';
             console.error('parseDataUpdate: repairAIJson 也未能修复');
             appendTableEditErrorLog({
                 reason: '<dataUpdate> JSON 解析失败（修复后仍无效）',
@@ -363,13 +365,19 @@ function parseDataUpdate(aiResponse) {
     }
 
     if (!data || typeof data !== 'object') {
+        if (diagnostics) diagnostics.result = '<dataUpdate> JSON 不是有效对象';
         console.warn('parseDataUpdate: 解析结果不是有效对象');
         return false;
     }
 
     // 格式 A：operations 数组 — 增量更新
     if (Array.isArray(data.operations)) {
-        return applyOperations(data.operations);
+        const changed = applyOperations(data.operations);
+        if (diagnostics) {
+            diagnostics.result = changed ? `收到 ${data.operations.length} 条操作`
+                : data.operations.length ? `收到 ${data.operations.length} 条操作，均未应用` : 'operations 数组为空';
+        }
+        return changed;
     }
 
     // 格式 B：完整数据替换 — 直接合并/覆盖 sheet_*
@@ -382,6 +390,7 @@ function parseDataUpdate(aiResponse) {
         return true;
     }
 
+    if (diagnostics) diagnostics.result = '缺少 operations 数组和 sheet_* 表';
     console.warn('parseDataUpdate: 数据中既没有 operations 也没有 sheet_ 表');
     return false;
 }
@@ -395,7 +404,7 @@ function applyOperations(operations) {
 
     operations.forEach((op, opIndex) => {
         if (!op || !op.action) {
-            console.warn(`applyOperations: 第 ${opIndex} 项缺少 action 字段`, op);
+            console.warn(`applyOperations: 第 ${opIndex} 项缺少 action 字段`);
             return;
         }
 
@@ -486,14 +495,14 @@ function applyOperations(operations) {
                     break;
                 }
                 default:
-                    console.warn(`applyOperations: 未知 action "${op.action}"`, op);
+                    console.warn(`applyOperations: 第 ${opIndex} 项 action 不受支持`);
                     appendTableEditErrorLog({
                         reason: `未知 action: ${op.action}`,
                         command: JSON.stringify(op),
                     });
             }
         } catch (err) {
-            console.error(`applyOperations: 第 ${opIndex} 项执行异常`, err);
+            console.error(`applyOperations: 第 ${opIndex} 项执行异常`);
             appendTableEditErrorLog({
                 reason: '操作执行异常',
                 command: JSON.stringify(op),
@@ -667,7 +676,7 @@ function _dpPaginationRange(current, total) {
     pages.push(total);
     return pages;
 }
-export function referenceUpdate(text, database) { currentJsonTableData=structuredClone(database);feedback=[];const changed=parseDataUpdate(text);return {data:currentJsonTableData,changed,feedback:structuredClone(feedback)}; }
+export function referenceUpdate(text, database, diagnostics) { currentJsonTableData=structuredClone(database);feedback=[];const changed=parseDataUpdate(text, diagnostics);return {data:currentJsonTableData,changed,feedback:structuredClone(feedback)}; }
 export function referenceTableText(database, settings={}) { return buildTableDataTextForDollar0(database,settings); }
 export function referenceSheetText(name,headers,rows,start=0) {return formatTableToReadable(name,headers,rows,start);}
 export function referencePreviewRows(table,state) {_dpState=state;return _dpGetDisplayRows(table);}

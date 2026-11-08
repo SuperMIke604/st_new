@@ -156,7 +156,7 @@ export class TavernAPI {
 }
 
 /** SSE parser supports fragmented UTF-8, CRLF, multiline events and JSON errors. */
-export async function* readEvents(response) {
+export async function* readEvents(response, onMalformed) {
     if (!response.body) throw new Error('浏览器没有收到回复流。');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -166,7 +166,10 @@ export async function* readEvents(response) {
         if (!lines.length) return null;
         const text = lines.join('\n');
         if (text === '[DONE]') return { done: true };
-        try { return JSON.parse(text); } catch { throw new Error('模型返回了无法解析的流式数据。'); }
+        try { return JSON.parse(text); } catch {
+            onMalformed?.(text);
+            throw new Error('模型返回了无法解析的流式数据。');
+        }
     }
     try {
         while (true) {

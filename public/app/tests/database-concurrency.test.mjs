@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
-import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange } from '../database.js';
+import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
 
 import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
+import { startDatabaseLog, finishDatabaseLog, clearDatabaseLog, databaseLogText, databaseLogExport, retainMalformedDatabaseResponse } from '../database-log.js';
+import { readEvents } from '../api.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const functions = source.slice(source.indexOf('function assertDatabaseWritable('), source.indexOf('const tokenCounts ='));
@@ -15,12 +17,12 @@ function fixture() {
     const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [];
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
-    const context = vm.createContext({ state, inlineEdit: null, panelDirty: false, panelRevision: 1, AbortController, DOMException,
-        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
+    const context = vm.createContext({ state, cancelMessageEdit() {}, panelDirty: false, panelRevision: 1, AbortController, DOMException,
+        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: () => ({}), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
-        api: { post: async () => ({ token_count: 100 }), response: async (_path, _body, options) => { requestSignal = options.signal; return response; } },
+        api: { post: async () => ({ token_count: 100 }), response: async (_path, _body, options) => { requestSignal = options.signal; return (await response)(); } },
         parseUpdate: (_text, data, counts) => { counts.operations++; return { ...structuredClone(data), updated: true }; },
         databaseUpdateNotice: counts => `updated ${counts.operations}`,
         saveChat: async () => writes.push(structuredClone(state.chat)), rememberChat: async () => {},
@@ -33,7 +35,8 @@ function fixture() {
     vm.runInContext('databaseProgress = () => ({ update() {}, close() {} })', context);
     return { state, settings, requests, context, writes, notices, panels, run: code => vm.runInContext(code, context),
         panel: () => panelContext, signal: () => requestSignal,
-        finish: () => resolveResponse({ headers: { get: () => 'application/json' }, json: async () => ({ choices: [{ message: { content: 'update' } }] }) }),
+        finish: (content = 'update') => resolveResponse(() => Response.json({ choices: [{ message: { content } }] })),
+        respond: value => resolveResponse(() => value),
         fail: rejectResponse };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -156,6 +159,63 @@ test('fill failures clean up only the database task', async () => {
     f.fail(Error('offline')); await assert.rejects(task, /offline/);
     assert.equal(f.state.busy, true); assert.equal(f.state.controller, controller);
     assert.equal(f.state.databaseController, null); assert.equal(f.writes.length, 0);
+});
+
+test('update logs distinguish HTTP, parser and save failures while keeping copied summaries free of raw content', async () => {
+    clearDatabaseLog();
+    const request = fixture();
+    const task = request.run('updateDatabase(0, 1)'); await tick();
+    request.fail(Object.assign(Error('private upstream response'), { status: 429 }));
+    await assert.rejects(task, /private upstream response/);
+    assert.match(databaseLogText(), /失败[^\n]*\n阶段 · 请求模型\n.*HTTP 429/);
+
+    const parsing = fixture();
+    parsing.context.parseUpdate = parseUpdate;
+    const parseTask = parsing.run('updateDatabase(0, 1)'); await tick(); parsing.finish();
+    await assert.rejects(parseTask, /未产生有效/);
+    assert.match(databaseLogText(), /阶段 · 解析并应用更新\n.*响应 6 字符\n缺少完整的 <dataUpdate>/);
+
+    const saving = fixture();
+    saving.context.saveChat = async () => { throw Error('private chat data'); };
+    const saveTask = saving.run('updateDatabase(0, 1)'); await tick(); saving.finish();
+    await assert.rejects(saveTask, /private chat data/);
+    assert.match(databaseLogText(), /阶段 · 保存聊天\n.*已解析 1 条操作/);
+    assert.doesNotMatch(databaseLogText(), /private upstream response|private chat data|\bupdate\b/);
+    assert.deepEqual(databaseLogExport().entries.map(entry => entry.malformedResponse?.text), [undefined, 'update', undefined]);
+});
+
+test('JSON export includes the full latest malformed response and clearing removes it', async () => {
+    clearDatabaseLog();
+    const raw = '原始回复\r\n' + '长回复🚧\n'.repeat(60000) + '回复末尾';
+    const malformed = fixture();
+    malformed.context.parseUpdate = parseUpdate;
+    const task = malformed.run('updateDatabase(0, 1)'); await tick(); malformed.finish(raw);
+    await assert.rejects(task, /未产生有效/);
+    assert.equal(JSON.parse(JSON.stringify(databaseLogExport())).entries[0].malformedResponse.text, raw);
+    assert.doesNotMatch(databaseLogText(), /原始回复|回复末尾/);
+
+    const invalidTable = fixture();
+    invalidTable.context.parseUpdate = parseUpdate;
+    const badTable = '<dataUpdate>{"sheet_0":{"content":[[null,"列"],[null]]}}</dataUpdate>';
+    const tableTask = invalidTable.run('updateDatabase(0, 1)'); await tick(); invalidTable.finish(badTable);
+    await assert.rejects(tableTask, /列数不一致/);
+    assert.deepEqual(databaseLogExport().entries[0].malformedResponse, { source: '模型回复', text: badTable });
+    assert.equal(databaseLogExport().entries[1].malformedResponse, undefined);
+
+    const invalidHttp = fixture();
+    const httpTask = invalidHttp.run('updateDatabase(0, 1)'); await tick();
+    const body = '\n  <html>Bad response</html>\r\n';
+    invalidHttp.respond(new Response(body));
+    await assert.rejects(httpTask, { name: 'SyntaxError' });
+    assert.deepEqual(databaseLogExport().entries[0].malformedResponse, { source: 'HTTP 响应体', text: body });
+
+    const invalidSse = fixture();
+    const sseTask = invalidSse.run('updateDatabase(0, 1)'); await tick();
+    invalidSse.respond(new Response('data: {malformed\ndata: payload}\n\n', { headers: { 'Content-Type': 'text/event-stream' } }));
+    await assert.rejects(sseTask, /无法解析的流式数据/);
+    assert.deepEqual(databaseLogExport().entries[0].malformedResponse, { source: 'SSE 事件数据', text: '{malformed\npayload}' });
+    clearDatabaseLog();
+    assert.deepEqual(databaseLogExport().entries, []);
 });
 
 test('finishing fill does not reopen management or clear a different panel draft', async () => {
