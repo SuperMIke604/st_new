@@ -465,6 +465,7 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 .script-manager .regex-toolbar{flex-wrap:wrap}
 
 /* Ivory: original paper palette with supplied outline icons. */
+[data-palette=ivory] .appbar{border-bottom:1px solid #d8cab8}
 [data-palette=ivory] .message:not(.from-user){background:#F3EEE5}
 [data-palette=ivory] svg[data-icon="message"]{--theme-icon:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiA+PHBhdGggc3Ryb2tlPSJub25lIiBkPSJNMCAwaDI0djI0SDB6IiBmaWxsPSJub25lIiAvPjxwYXRoIGQ9Ik0xMiAxMXYuMDEiIC8+PHBhdGggZD0iTTggMTF2LjAxIiAvPjxwYXRoIGQ9Ik0xNiAxMXYuMDEiIC8+PHBhdGggZD0iTTE4IDRhMyAzIDAgMCAxIDMgM3Y4YTMgMyAwIDAgMSAtMyAzaC01bC01IDN2LTNoLTJhMyAzIDAgMCAxIC0zIC0zdi04YTMgMyAwIDAgMSAzIC0zbDEyIDAiIC8+PC9zdmc+")}
 [data-palette=ivory] svg[data-icon="database"]{--theme-icon:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiA+PHBhdGggc3Ryb2tlPSJub25lIiBkPSJNMCAwaDI0djI0SDB6IiBmaWxsPSJub25lIiAvPjxwYXRoIGQ9Ik00IDZhOCAzIDAgMSAwIDE2IDBhOCAzIDAgMSAwIC0xNiAwIiAvPjxwYXRoIGQ9Ik00IDZ2NmE4IDMgMCAwIDAgMTYgMHYtNiIgLz48cGF0aCBkPSJNNCAxMnY2YTggMyAwIDAgMCAxNiAwdi02IiAvPjwvc3ZnPg==")}

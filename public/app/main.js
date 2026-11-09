@@ -1780,7 +1780,9 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     let library = timing ? timing.measureSync('角色卡 · 整理分类数据', 'data', () => libraryState(state.own.characterLibrary)) : libraryState(state.own.characterLibrary);
     await loadCharacterCatalog(force, timing);
     if (revision !== panelRevision) return;
-    let folder = 'unfiled'; let mode = 'grid'; let page = 0;
+    const currentAvatar = state.character?.avatar;
+    let folder = (currentAvatar && library.assignments[currentAvatar]) || 'unfiled';
+    let mode = 'grid'; let page = 0;
     let foldersExpanded = false;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
@@ -1923,6 +1925,8 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         const searching = !!search.value.trim();
         const filter = () => filterCards(state.characters || [], library, searching ? 'all' : folder, search.value, sort.value);
         const found = timing ? timing.measureSync('角色卡 · 筛选与排序', 'data', filter, value => ({ metrics: { totalItems: (state.characters || []).length, renderedItems: value.length } })) : filter();
+        const currentIndex = found.findIndex(card => card.avatar === currentAvatar);
+        if (currentIndex > 0) found.unshift(...found.splice(currentIndex, 1));
         const pages = Math.max(1, Math.ceil(found.length / 60)); page = Math.min(page, pages - 1);
         const visible = found.slice(page * 60, (page + 1) * 60);
         path.textContent = `角色卡 / ${searching ? '全部分类搜索' : folder === 'unfiled' ? '未分类' : library.folders.find(item => item.id === folder)?.name || ''} · ${found.length}`;
@@ -1931,7 +1935,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         cards.replaceChildren();
         for (const card of visible) {
             const file = el('article', 'character-file'); file.classList.toggle('selected', selected.has(card.avatar)); file.draggable = true;
-            file.classList.toggle('current-character', card.avatar === state.character?.avatar);
+            file.classList.toggle('current-character', card.avatar === currentAvatar);
             file.addEventListener('dragstart', event => { const values = selected.has(card.avatar) ? [...selected] : [card.avatar]; event.dataTransfer.setData('application/x-tavern-cards', JSON.stringify(values)); event.dataTransfer.effectAllowed = 'move'; });
             const selection = el('input', 'card-selection'); selection.type = 'checkbox'; selection.checked = selected.has(card.avatar); selection.setAttribute('aria-label', `选择角色 ${card.name}`);
             selection.addEventListener('change', () => { if (selection.checked) selected.add(card.avatar); else selected.delete(card.avatar); file.classList.toggle('selected', selection.checked); updateSelection(); });
@@ -2005,6 +2009,12 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     search.addEventListener('input', () => { page = 0; renderCards(); });
     sort.addEventListener('change', () => { page = 0; renderCards(); });
     renderFolders(); renderCards();
+    body._onReady = () => {
+        const tabs = sidebar.querySelector('.library-folder-tabs');
+        if (tabs.scrollWidth <= tabs.clientWidth) return;
+        const active = tabs.querySelector('.folder-button.active');
+        if (active) tabs.scrollLeft += Math.max(0, active.getBoundingClientRect().right - tabs.getBoundingClientRect().right);
+    };
 }
 
 async function characterEditor(avatar = state.character?.avatar) {
@@ -2638,6 +2648,18 @@ async function preparePrompt(chat = state.chat) {
     });
 }
 
+function waitForReplyScriptVisibility() {
+    status('等待页面恢复可见 · 角色脚本待处理…');
+    return loadTimings.measure('助手等待页面恢复可见', 'generation', () => new Promise(resolve => {
+        const onVisibility = () => {
+            if (document.visibilityState !== 'visible') return;
+            document.removeEventListener('visibilitychange', onVisibility);
+            resolve();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+    }));
+}
+
 async function generate(mode = false) {
     assertIdle(); if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
     generationPreload.cancelScheduled();
@@ -2723,6 +2745,7 @@ async function generate(mode = false) {
             try {
                 if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
                 await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat());
+                if (document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
                 await loadTimings.measure('助手事件 message_received', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity()));
             } catch (error) { notify(`回复已保留，角色脚本处理失败：${error.message}`, true); }
         }
@@ -2744,6 +2767,7 @@ async function generate(mode = false) {
             try { await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat()); await rememberChat(); } catch (error) { notify(error.message, true); }
             list.setMessages(state.chat, { latest: list.follow });
         }
+        if (completed && scriptRuntime.helperReady && document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
         state.busy = false; state.controller = null; synchronize();
         if (completed && scriptRuntime.helperReady) {
             try { await loadTimings.measure('助手事件 generation_ended', 'generation', () => scriptRuntime.dispatch('generation_ended', [replyIndex], scriptSnapshot(state), scriptIdentity())); }

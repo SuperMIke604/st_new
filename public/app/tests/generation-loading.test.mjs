@@ -5,13 +5,15 @@ import vm from 'node:vm';
 import { LoadTimings, requestFailure } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const generate = source.slice(source.indexOf('async function generate('), source.indexOf('\nfunction beginMessageEdit('));
+const generate = source.slice(source.indexOf('function waitForReplyScriptVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
+    const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     let requests = 0; const mvuCalls = [], helperEvents = [], saved = [];
     const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(body, signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
         helperEvents.push(event);
@@ -20,11 +22,12 @@ function fixture({ native = false } = {}) {
             assert.equal(state.busy, true); assert.match(message.mes, /<UpdateVariable>/);
             (message.variables ||= {})[message.swipe_id || 0] = { stat_data: { score: 5 } };
             message.mes += '\n<StatusPlaceHolderImpl/>';
+            if (hideAfterReplyEvent) setVisibility('hidden');
         }
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+    const context = vm.createContext({ state, document, loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {}, preparePrompt: () => prepared.promise,
@@ -37,7 +40,7 @@ function fixture({ native = false } = {}) {
         saveChat: async () => { saved.push(structuredClone(state.chat)); }, rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, timings, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, timings, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -132,4 +135,47 @@ test('regeneration allocates exactly one new branch and retains original text an
     assert.equal(message.swipes.length, 2); assert.equal(message.swipe_id, 1); assert.equal(message.swipes[0], '原来的回复');
     assert.equal(message.variables[0].stat_data.score, 2); assert.equal(message.variables[1].stat_data.score, 5);
     assert.equal(message.swipes[1], message.mes);
+});
+
+test('a hidden page saves the raw non-streaming reply before waiting to dispatch scripts', async () => {
+    const f = fixture({ native: true });
+    f.state.chat[0].variables = { 0: { stat_data: { score: 2 } } };
+    const running = f.run(true);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.setVisibility('hidden');
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: 'new reply<UpdateVariable>commands</UpdateVariable>' } }] }) });
+    await tick();
+    const raw = f.saved.at(-1).at(-1);
+    assert.equal(raw.swipe_id, 1);
+    assert.equal(raw.swipes[1], 'new reply<UpdateVariable>commands</UpdateVariable>');
+    assert.equal(f.state.busy, true);
+    assert.match(f.statuses.at(-1), /等待页面恢复可见/);
+    assert.deepEqual(f.helperEvents, ['generation_started']);
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '助手等待页面恢复可见').status, 'loading');
+    assert.ok(!f.timings.snapshot().some(entry => entry.label === '助手事件 message_received'));
+    f.setVisibility('hidden'); await tick();
+    assert.deepEqual(f.helperEvents, ['generation_started']);
+    f.setVisibility('visible'); await running;
+    f.setVisibility('hidden'); f.setVisibility('visible'); await tick();
+    assert.deepEqual(f.helperEvents, ['generation_started', 'message_received', 'generation_ended']);
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '助手等待页面恢复可见').status, 'success');
+    assert.deepEqual(f.notices, []);
+    assert.equal(f.state.busy, false);
+    const saved = f.saved.at(-1).at(-1);
+    assert.equal(saved.swipes[0], '原来的回复');
+    assert.equal(saved.variables[0].stat_data.score, 2);
+    assert.equal(saved.variables[1].stat_data.score, 5);
+});
+
+test('hiding the page again before generation_ended defers that event until visible', async () => {
+    const f = fixture({ native: true, hideAfterReplyEvent: true }), running = f.run(false);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: 'reply<UpdateVariable>commands</UpdateVariable>' } }] }) });
+    await tick();
+    assert.equal(f.saved.at(-1).at(-1).variables[0].stat_data.score, 5);
+    assert.equal(f.state.busy, true);
+    assert.deepEqual(f.helperEvents, ['generation_started', 'message_sent', 'message_received']);
+    f.setVisibility('visible'); await running;
+    assert.equal(f.helperEvents.at(-1), 'generation_ended');
+    assert.equal(f.state.busy, false);
 });
