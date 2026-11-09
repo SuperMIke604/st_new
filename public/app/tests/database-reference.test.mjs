@@ -17,6 +17,21 @@ test('upstream readable format, diff search and pagination',()=>{
 import { databaseSettings, fillMessages, migrateLegacySettings } from '../database.js';
 import { parseUpdate, databaseUpdateNotice } from '../database.js';
 
+test('tagged updates repair full-width commas between operations and preserve cell text', () => {
+    const original = database();
+    const cell = '正文含有 }}，{ 和 "引号"，路径 C:\\临时\n第二行';
+    const update = JSON.stringify({ action: 'update', sheet: 'sheet_0', row: 0, data: { 1: cell } })
+        .replace('\\n', '\n');
+    const insert = JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: '乙，丙' } });
+    const counts = {};
+    const updated = parseUpdate(`<dataUpdate>{"operations":[${update}，\n${insert}]}</dataUpdate>`, original, counts);
+
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+    assert.equal(updated.sheet_0.content[1][2], cell);
+    assert.equal(updated.sheet_0.content[2][1], '乙，丙');
+    assert.deepEqual(original, database());
+});
+
 test('bare operations use the tagged update path only for a complete JSON object', () => {
     const original = database();
     const raw = JSON.stringify({ operations: [

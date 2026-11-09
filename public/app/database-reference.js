@@ -17,7 +17,7 @@ function repairAIJson(raw) {
     //  这是最常见的 AI 输出问题 — AI 在字符串值里写多行文本导致 JSON.parse 炸掉
     //  例："6": "黑色山本耀司\n风格"  ← \n 是真实换行符而非 \\n
     // ======================================================================
-    function escapeNewlinesInStrings(input) {
+    function repairJsonCharacters(input, normalizeCommas = false) {
         let result = '';
         let inString = false;
         let escape = false;
@@ -42,16 +42,25 @@ function repairAIJson(raw) {
                 if (ch === '\n') { result += '\\n'; continue; }
                 if (ch === '\r') { result += '\\r'; continue; }
                 if (ch === '\t') { result += '\\t'; continue; }
+            } else if (normalizeCommas && ch === '，') {
+                result += ',';
+                continue;
             }
             result += ch;
         }
         return result;
     }
 
-    const escapedText = escapeNewlinesInStrings(text);
+    const escapedText = repairJsonCharacters(text);
 
     // --- 策略 1：仅转义裸换行（覆盖 90% 的真实报错场景） ---
     try { const r = JSON.parse(escapedText); if (r && typeof r === 'object') return r; } catch (_) {}
+
+    // 只将字符串外的全角逗号作为 JSON 分隔符修复。
+    if (escapedText.includes('，')) {
+        const normalized = repairJsonCharacters(escapedText, true);
+        try { const r = JSON.parse(normalized); if (r && typeof r === 'object') return r; } catch (_) {}
+    }
 
     // ======================================================================
     //  辅助修复函数
@@ -185,7 +194,7 @@ function repairAIJson(raw) {
         const braceEnd = text.lastIndexOf('}');
         if (braceStart >= 0 && braceEnd > braceStart) {
             let extracted = text.substring(braceStart, braceEnd + 1);
-            extracted = escapeNewlinesInStrings(extracted);
+            extracted = repairJsonCharacters(extracted);
             extracted = removeTrailingCommas(removeComments(extracted));
             try { const r = JSON.parse(extracted); if (r && typeof r === 'object') return r; } catch (_) {}
             // 加全套修复再试
