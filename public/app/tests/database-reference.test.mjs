@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {referenceUpdate,referenceSheetText,referencePreviewRows,referencePagination} from '../database-reference.js';
+import {extractDataFromMessage,referenceUpdate,referenceSheetText,referencePreviewRows,referencePagination} from '../database-reference.js';
 const database=()=>({mate:{type:'chatSheets'},sheet_0:{name:'人物',content:[[null,'姓名','状态'],[null,'甲','正常']]}});
 test('upstream operations skip invalid targets, repair JSON, and extend update rows',()=>{
  let result=referenceUpdate('<dataUpdate>{"operations":[{"action":"insert","sheet":"missing"},{"action":"update","sheet":0,"row":2,"data":{"0":"乙"}}]}</dataUpdate>',database());
@@ -30,6 +30,64 @@ test('tagged updates repair full-width commas between operations and preserve ce
     assert.equal(updated.sheet_0.content[1][2], cell);
     assert.equal(updated.sheet_0.content[2][1], '乙，丙');
     assert.deepEqual(original, database());
+});
+
+test('tagged updates repair one mismatched data bracket without changing operations', () => {
+    const original = database();
+    const cell = '保留 ]、{、\\ 和 "引号"';
+    const update = JSON.stringify({ action: 'update', sheet: 'sheet_0', data: { 1: cell }, row: 0 });
+    const malformed = update.replace('},"row":0}', '],"row":0}');
+    const insert = JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: '乙' } });
+    const response = operations => `<dataUpdate>{"operations":[${operations}]}</dataUpdate>`;
+    const counts = {};
+
+    const updated = parseUpdate(response(`${malformed},${insert}`), original, counts);
+    assert.deepEqual(updated, parseUpdate(response(`${update},${insert}`), original));
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+    assert.equal(updated.sheet_0.content[1][2], cell);
+    assert.throws(() => parseUpdate(response(`${malformed},${malformed}`), original), /JSON 解析失败/);
+    assert.throws(() => parseUpdate(response(update.replace('},"row":0}', '},"row":0]')), original), /JSON 解析失败/);
+    assert.deepEqual(original, database());
+});
+
+test('tagged repair combines syntax corrections and preserves cell punctuation and literal tags', () => {
+    const original = database();
+    const cell = '原文 ,  } 与 , ]、{ note: 示例、</dataUpdate>、"引号"';
+    const update = '{"action":"update","sheet":"sheet_0",row:0,"data":{"1":' + JSON.stringify(cell) + '},}';
+    const insert = "{'action':'insert', 'sheet':'sheet_0', 'data':{'0':'乙的 \\'引号\\' 和 https://example.test'}}";
+    const text = '<dataUpdate>{operations:[' + update + '，\n/* comment */' + insert + ',]}</dataUpdate>';
+    const counts = {};
+    const updated = parseUpdate(text, original, counts);
+
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+    assert.equal(updated.sheet_0.content[1][2], cell);
+    assert.equal(updated.sheet_0.content[2][1], "乙的 '引号' 和 https://example.test");
+    assert.deepEqual(original, database());
+
+    const mismatch = '{"action":"update","sheet":"sheet_0","row":0,"data":{"1":"更新"]}';
+    const combined = '<dataUpdate>{"operations":[' + mismatch + '，' + insert + ']}</dataUpdate>';
+    assert.equal(parseUpdate(combined, original).sheet_0.content[1][2], '更新');
+});
+
+test('tagged bracket repair rejects ambiguous interior braces but can close an outer envelope', () => {
+    const original = database();
+    const ambiguous = '<dataUpdate>{"operations":[{"action":"insert","sheet":"sheet_0","data":{"0":"乙","row":0}]}</dataUpdate>';
+    assert.throws(() => parseUpdate(ambiguous, original), /JSON 解析失败/);
+    const operation = JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: '乙' } });
+    const outerOnly = '<dataUpdate>{"operations":[' + operation + '</dataUpdate>';
+    assert.equal(parseUpdate(outerOnly, original).sheet_0.content[2][1], '乙');
+    const unfinished = '<dataUpdate>{"operations":[' + operation.slice(0, -1) + '</dataUpdate>';
+    assert.throws(() => parseUpdate(unfinished, original), /JSON 解析失败/);
+    assert.deepEqual(original, database());
+});
+
+test('legacy tagged snapshots preserve literal closing tags and accept a missing carrier close', () => {
+    const snapshot = database();
+    snapshot.sheet_0.content[1][2] = '保留 </dataUpdate> 字面文本';
+    const prefix = '<dataUpdate>' + JSON.stringify(snapshot);
+    for (const suffix of ['', '</dataUpdate>']) {
+        assert.deepEqual(extractDataFromMessage({ mes: prefix + suffix }, { requireMate: true }), snapshot);
+    }
 });
 
 test('bare operations use the tagged update path only for a complete JSON object', () => {

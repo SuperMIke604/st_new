@@ -4,343 +4,112 @@ let currentJsonTableData, currentSettings, _dpState;
 let feedback = [];
 const showToast = (message, type, counts = {}) => feedback.push({message,type,...counts});
 const appendTableEditErrorLog = detail => feedback.push({type:'error',...detail});
-function repairAIJson(raw) {
-    if (!raw || typeof raw !== 'string') return null;
-    let text = raw.trim();
-    if (!text) return null;
-
-    // --- 策略 0：原文直接解析 ---
-    try { const r = JSON.parse(text); if (r && typeof r === 'object') return r; } catch (_) {}
-
-    // ======================================================================
-    //  核心修复：转义 JSON 字符串值内的裸换行符
-    //  这是最常见的 AI 输出问题 — AI 在字符串值里写多行文本导致 JSON.parse 炸掉
-    //  例："6": "黑色山本耀司\n风格"  ← \n 是真实换行符而非 \\n
-    // ======================================================================
-    function repairJsonCharacters(input, normalizeCommas = false) {
-        let result = '';
-        let inString = false;
-        let escape = false;
-        for (let i = 0; i < input.length; i++) {
-            const ch = input[i];
-            if (escape) {
-                result += ch;
-                escape = false;
-                continue;
-            }
-            if (ch === '\\' && inString) {
-                result += ch;
-                escape = true;
-                continue;
-            }
-            if (ch === '"') {
-                inString = !inString;
-                result += ch;
-                continue;
-            }
-            if (inString) {
-                if (ch === '\n') { result += '\\n'; continue; }
-                if (ch === '\r') { result += '\\r'; continue; }
-                if (ch === '\t') { result += '\\t'; continue; }
-            } else if (normalizeCommas && ch === '，') {
-                result += ',';
-                continue;
-            }
-            result += ch;
+function normalizeJsonSyntax(text) {
+    const tokens = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|\/\*|["'，]/g;
+    let incompleteToken = false;
+    const normalized = text.replace(tokens, token => {
+        if (token === '，') return ',';
+        if (token === '"' || token === "'" || token === '/*') {
+            incompleteToken = true;
+            return token;
         }
-        return result;
-    }
-
-    const escapedText = repairJsonCharacters(text);
-
-    // --- 策略 1：仅转义裸换行（覆盖 90% 的真实报错场景） ---
-    try { const r = JSON.parse(escapedText); if (r && typeof r === 'object') return r; } catch (_) {}
-
-    // 只将字符串外的全角逗号作为 JSON 分隔符修复。
-    if (escapedText.includes('，')) {
-        const normalized = repairJsonCharacters(escapedText, true);
-        try { const r = JSON.parse(normalized); if (r && typeof r === 'object') return r; } catch (_) {}
-    }
-
-    // ======================================================================
-    //  辅助修复函数
-    // ======================================================================
-
-    /** 移除 JSON 中的注释 (// 和 /* * /) */
-    function removeComments(s) {
-        let out = '';
-        let inString = false;
-        let escape = false;
-        for (let i = 0; i < s.length; i++) {
-            const ch = s[i];
-            if (escape) { out += ch; escape = false; continue; }
-            if (ch === '\\' && inString) { out += ch; escape = true; continue; }
-            if (ch === '"') { inString = !inString; out += ch; continue; }
-            if (inString) { out += ch; continue; }
-            // 不在字符串内时，检测注释
-            if (ch === '/' && i + 1 < s.length) {
-                if (s[i + 1] === '/') {
-                    // 单行注释：跳到行尾
-                    while (i < s.length && s[i] !== '\n') i++;
-                    continue;
-                }
-                if (s[i + 1] === '*') {
-                    // 多行注释：跳到 */
-                    i += 2;
-                    while (i + 1 < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++;
-                    i++; // 跳过 /
-                    continue;
-                }
-            }
-            out += ch;
-        }
-        return out;
-    }
-
-    /** 移除尾随逗号（只移除 }, ] 前的逗号） */
-    function removeTrailingCommas(s) {
-        return s.replace(/,\s*([}\]])/g, '$1');
-    }
-
-    /** 智能单引号 → 双引号（只替换 JSON 结构层的单引号，不误伤字符串值中的撇号） */
-    function smartSingleToDoubleQuotes(s) {
-        let out = '';
-        let inSingle = false;
-        let inDouble = false;
-        let escape = false;
-        for (let i = 0; i < s.length; i++) {
-            const ch = s[i];
-            if (escape) { out += ch; escape = false; continue; }
-            if (ch === '\\' && (inSingle || inDouble)) { out += ch; escape = true; continue; }
-            if (ch === '"' && !inSingle) { inDouble = !inDouble; out += ch; continue; }
-            if (ch === "'" && !inDouble) {
-                // 判断这个单引号是否是 JSON 结构层的（key/value 的定界符）
-                if (!inSingle) {
-                    // 进入单引号字符串 → 替换为双引号
-                    inSingle = true;
-                    out += '"';
-                    continue;
-                } else {
-                    // 离开单引号字符串 → 替换为双引号
-                    inSingle = false;
-                    out += '"';
-                    continue;
-                }
-            }
-            out += ch;
-        }
-        return out;
-    }
-
-    /** 给无引号的 key 加双引号 */
-    function quoteBareKeys(s) {
-        return s.replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');
-    }
-
-    /** 统计未闭合的括号/花括号，在末尾补齐 */
-    function closeBrackets(s) {
-        let openBraces = 0;
-        let openBrackets = 0;
-        let inString = false;
-        let escape = false;
-        for (let i = 0; i < s.length; i++) {
-            const ch = s[i];
-            if (escape) { escape = false; continue; }
-            if (ch === '\\' && inString) { escape = true; continue; }
-            if (ch === '"') { inString = !inString; continue; }
-            if (inString) continue;
-            if (ch === '{') openBraces++;
-            if (ch === '}') openBraces--;
-            if (ch === '[') openBrackets++;
-            if (ch === ']') openBrackets--;
-        }
-        let suffix = '';
-        for (let i = 0; i < Math.min(Math.max(0, openBrackets), 10); i++) suffix += ']';
-        for (let i = 0; i < Math.min(Math.max(0, openBraces), 10); i++) suffix += '}';
-        return s + suffix;
-    }
-
-    // ======================================================================
-    //  组合策略：逐步加码
-    // ======================================================================
-
-    // --- 策略 2：换行转义 + 移除注释 ---
-    {
-        let fixed = removeComments(escapedText);
-        try { const r = JSON.parse(fixed); if (r && typeof r === 'object') return r; } catch (_) {}
-    }
-
-    // --- 策略 3：换行转义 + 移除注释 + 尾随逗号 ---
-    {
-        let fixed = removeTrailingCommas(removeComments(escapedText));
-        try { const r = JSON.parse(fixed); if (r && typeof r === 'object') return r; } catch (_) {}
-    }
-
-    // --- 策略 4：换行转义 + 全套修复（注释 + 尾随逗号 + 单引号 + 无引号key + 补括号） ---
-    {
-        let fixed = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(removeTrailingCommas(removeComments(escapedText)))));
-        try { const r = JSON.parse(fixed); if (r && typeof r === 'object') return r; } catch (_) {}
-    }
-
-    // --- 策略 5：不转义换行 + 全套修复（防止换行转义误伤的 fallback） ---
-    {
-        let fixed = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(removeTrailingCommas(removeComments(text)))));
-        try { const r = JSON.parse(fixed); if (r && typeof r === 'object') return r; } catch (_) {}
-    }
-
-    // --- 策略 6：尝试提取最外层 {} 之间内容后修复 ---
-    {
-        const braceStart = text.indexOf('{');
-        const braceEnd = text.lastIndexOf('}');
-        if (braceStart >= 0 && braceEnd > braceStart) {
-            let extracted = text.substring(braceStart, braceEnd + 1);
-            extracted = repairJsonCharacters(extracted);
-            extracted = removeTrailingCommas(removeComments(extracted));
-            try { const r = JSON.parse(extracted); if (r && typeof r === 'object') return r; } catch (_) {}
-            // 加全套修复再试
-            let fixed = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(extracted)));
-            try { const r = JSON.parse(fixed); if (r && typeof r === 'object') return r; } catch (_) {}
-        }
-    }
-
-    // --- 策略 7：中间缺少 } 修复（支持单处 & 多处同时缺失）---
-    // 针对 AI 在 operations 数组条目中漏写闭合括号的情况
-    // 思路：找到候选插入点，先逐个尝试，再尝试多点组合（最多4处同时缺失）
-    {
-        const base = escapeNewlinesInStrings(text);
-        // 找出所有结构性 "}" 的位置（不在字符串内）
-        const insertionCandidates = [];
-        let inString7 = false, escape7 = false;
-        for (let i = 0; i < base.length; i++) {
-            const ch = base[i];
-            if (escape7) { escape7 = false; continue; }
-            if (ch === '\\' && inString7) { escape7 = true; continue; }
-            if (ch === '"') { inString7 = !inString7; continue; }
-            if (inString7) continue;
-            if (ch === '}' && i + 1 < base.length) {
-                const next = base[i + 1];
-                if (next === ',' || next === ']' || next === '\n' || next === '\r' || next === ' ') {
-                    insertionCandidates.push(i);
-                }
-            }
-        }
-
-        // 辅助：在多个位置同时插入 }（positions 必须升序），返回修复后的字符串
-        function insertBracesAt(src, positions) {
-            let result = src;
-            // 从后往前插入，避免偏移量变化
-            for (let k = positions.length - 1; k >= 0; k--) {
-                const p = positions[k];
-                result = result.substring(0, p + 1) + '}' + result.substring(p + 1);
-            }
-            return result;
-        }
-
-        // 单点修复（原有逻辑）
-        for (let ci = insertionCandidates.length - 1; ci >= 0; ci--) {
-            const candidate = insertBracesAt(base, [insertionCandidates[ci]]);
-            const repaired = removeTrailingCommas(candidate);
-            try { const r = JSON.parse(repaired); if (r && typeof r === 'object') return r; } catch (_) {}
-            const full = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(repaired)));
-            try { const r = JSON.parse(full); if (r && typeof r === 'object') return r; } catch (_) {}
-        }
-
-        // 多点修复：对候选点取最后 N 个（N=2,3,4），暴力枚举组合（候选点过多时限制范围避免性能问题）
-        const maxCandidates = Math.min(insertionCandidates.length, 20); // 最多取后20个候选点
-        const tail = insertionCandidates.slice(insertionCandidates.length - maxCandidates);
-        for (let n = 2; n <= 4; n++) {
-            // 枚举 tail 中所有 C(len, n) 的组合
-            const len = tail.length;
-            if (len < n) continue;
-            // 使用迭代组合枚举
-            const indices = Array.from({length: n}, (_, i) => i);
-            while (true) {
-                const positions = indices.map(i => tail[i]);
-                const candidate = insertBracesAt(base, positions);
-                const repaired = removeTrailingCommas(candidate);
-                try { const r = JSON.parse(repaired); if (r && typeof r === 'object') return r; } catch (_) {}
-                const full = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(repaired)));
-                try { const r = JSON.parse(full); if (r && typeof r === 'object') return r; } catch (_) {}
-                // 推进组合
-                let i = n - 1;
-                while (i >= 0 && indices[i] === len - n + i) i--;
-                if (i < 0) break;
-                indices[i]++;
-                for (let j = i + 1; j < n; j++) indices[j] = indices[j - 1] + 1;
-            }
-        }
-    }
-
-    // --- 策略 8：中间多余 } 修复 ---
-    // 针对 AI 多写了一个 } 的情况（与策略7相反）
-    // 思路：找出所有结构性 } 的位置，从后往前逐个尝试删除一个，直到解析成功
-    {
-        const base = escapeNewlinesInStrings(text);
-        const deletionCandidates = [];
-        let inString8 = false, escape8 = false;
-        for (let i = 0; i < base.length; i++) {
-            const ch = base[i];
-            if (escape8) { escape8 = false; continue; }
-            if (ch === '\\' && inString8) { escape8 = true; continue; }
-            if (ch === '"') { inString8 = !inString8; continue; }
-            if (inString8) continue;
-            if (ch === '}') deletionCandidates.push(i);
-        }
-        // 从后往前逐个尝试删除一个 }
-        for (let ci = deletionCandidates.length - 1; ci >= 0; ci--) {
-            const pos = deletionCandidates[ci];
-            const candidate = base.substring(0, pos) + base.substring(pos + 1);
-            const repaired = removeTrailingCommas(candidate);
-            try { const r = JSON.parse(repaired); if (r && typeof r === 'object') return r; } catch (_) {}
-            // 加全套修复
-            const full = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(repaired)));
-            try { const r = JSON.parse(full); if (r && typeof r === 'object') return r; } catch (_) {}
-        }
-    }
-
-    // --- 策略 9：逐行括号平衡修复 ---
-    // 针对多行同时缺 }（策略7枚举组合超出范围）的情况
-    // 思路：按行扫描，对每一行单独计算花括号缺口，在行尾补上对应数量的 }
-    {
-        const base = escapeNewlinesInStrings(text);
-        const lines9 = base.split('\n');
-        const fixedLines = lines9.map(line => {
-            const trimmed = line.trim();
-            // 只处理 operations 数组里的操作条目行（有缩进且以 { 开头，且包含 "action"）
-            if (!trimmed.startsWith('{') || !trimmed.includes('"action"')) return line;
-            let depth9 = 0, inStr9 = false, esc9 = false;
-            for (const ch of trimmed) {
-                if (esc9) { esc9 = false; continue; }
-                if (ch === '\\' && inStr9) { esc9 = true; continue; }
-                if (ch === '"') { inStr9 = !inStr9; continue; }
-                if (inStr9) continue;
-                if (ch === '{') depth9++;
-                else if (ch === '}') depth9--;
-            }
-            if (depth9 <= 0) return line; // 平衡或多余，不动
-            // 在行尾（逗号之前）补上缺失的 }
-            const trailingComma = trimmed.endsWith(',');
-            const withoutComma = trailingComma ? trimmed.slice(0, -1) : trimmed;
-            const fixed = withoutComma + '}'.repeat(depth9) + (trailingComma ? ',' : '');
-            // 保留原缩进
-            const indent = line.match(/^(\s*)/)[1];
-            return indent + fixed;
+        if (token[0] === '/') return ' ';
+        const singleQuoted = token[0] === "'";
+        const content = token.slice(1, -1).replace(/\\[\s\S]|["\u0000-\u001f]/g, part => {
+            if (part === "\\'" && singleQuoted) return "'";
+            if (part.startsWith('\\')) return part;
+            return JSON.stringify(part).slice(1, -1);
         });
-        const fixedText = fixedLines.join('\n');
-        const repaired = removeTrailingCommas(fixedText);
-        try { const r = JSON.parse(repaired); if (r && typeof r === 'object') return r; } catch (_) {}
-        const full = closeBrackets(quoteBareKeys(smartSingleToDoubleQuotes(repaired)));
-        try { const r = JSON.parse(full); if (r && typeof r === 'object') return r; } catch (_) {}
+        return '"' + content + '"';
+    });
+    if (incompleteToken) return null;
+
+    // Skip complete strings before considering any structural replacements.
+    return normalized.replace(/"(?:[^"\\]|\\[\s\S])*"|,\s*(?=[}\]])|([{,]\s*)(\w+)(?=\s*:)/g,
+        (token, prefix, key) => prefix ? prefix + '"' + key + '"' : token.startsWith(',') ? '' : token);
+}
+
+function repairJsonBrackets(text, taggedUpdate) {
+    const tokens = /"(operations|data)"\s*:\s*([{\[])|"(?:[^"\\]|\\[\s\S])*"|[{}\[\]]/g;
+    const stack = [];
+    let mismatch = -1;
+
+    for (const { 0: token, 1: key, 2: opener, index } of text.matchAll(tokens)) {
+        const bracket = opener ?? token;
+        if (bracket === '{' || bracket === '[') {
+            stack.push({ key, close: bracket === '{' ? '}' : ']' });
+            continue;
+        }
+        if (bracket !== '}' && bracket !== ']') continue;
+        const container = stack.pop();
+        if (bracket === container?.close) continue;
+
+        // Only replace a single closing bracket of an operations[i].data object.
+        if (!taggedUpdate || mismatch !== -1 || bracket !== ']' || container?.key !== 'data' || container.close !== '}'
+            || stack.length !== 3 || stack[0].close !== '}'
+            || stack[1].key !== 'operations' || stack[1].close !== ']' || stack[2].close !== '}') return null;
+        mismatch = index;
     }
 
-    // 全部失败
-    console.warn('repairAIJson: 所有修复策略均失败');
-    // 输出位置附近的上下文（如果有错误位置信息传入的话）
-    return null;
+    if (mismatch !== -1) {
+        if (stack.length !== 0) return null;
+        const data = parseJsonObject(text.slice(0, mismatch) + '}' + text.slice(mismatch + 1));
+        return Array.isArray(data?.operations) ? data : null;
+    }
+
+    // A tagged update may close its outer envelope, but never an unfinished operation or table.
+    if (stack.length === 0 || stack.length > 20) return null;
+    if (taggedUpdate && (stack.length > 2 || stack[0].close !== '}'
+        || (stack.length === 2 && (stack[1].key !== 'operations' || stack[1].close !== ']')))) return null;
+    return parseJsonObject(text + stack.reverse().map(container => container.close).join(''));
+}
+
+function parseJsonObject(text) {
+    try {
+        const data = JSON.parse(text);
+        return data && typeof data === 'object' ? data : null;
+    } catch {
+        return null;
+    }
+}
+
+function repairJsonCandidate(text, taggedUpdate) {
+    const normalized = normalizeJsonSyntax(text);
+    if (normalized === null) return null;
+    const data = normalized !== text ? parseJsonObject(normalized) : null;
+    return data ?? repairJsonBrackets(normalized, taggedUpdate);
+}
+
+function repairAIJson(raw, taggedUpdate = false) {
+    const text = raw.trim();
+    if (!text) return null;
+    const data = repairJsonCandidate(text, taggedUpdate);
+    if (data) return data;
+
+    // Keep support for an object wrapped in a fence or explanation.
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start < 0 || end <= start || (start === 0 && end === text.length - 1)) return null;
+    const extracted = text.slice(start, end + 1);
+    return parseJsonObject(extracted) ?? repairJsonCandidate(extracted, taggedUpdate);
+}
+
+function dataUpdatePayload(text, allowMissingClose = false) {
+    const start = text.indexOf('<dataUpdate>');
+    if (start === -1) return null;
+    const rest = text.slice(start + '<dataUpdate>'.length);
+    const tokens = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|<\/dataUpdate>/g;
+    for (const { 0: token, index } of rest.matchAll(tokens)) {
+        if (token === '</dataUpdate>') return rest.slice(0, index);
+    }
+    return allowMissingClose ? rest : null;
 }
 
 function parseDataUpdate(aiResponse, diagnostics) {
-    if (typeof aiResponse !== 'string' && diagnostics) diagnostics.result = '模型响应内容不是文本';
+    if (typeof aiResponse !== 'string') {
+        if (diagnostics) diagnostics.result = '模型响应内容不是文本';
+        return false;
+    }
     if (!currentJsonTableData) {
         console.error('parseDataUpdate: currentJsonTableData 未加载');
         return false;
@@ -357,8 +126,8 @@ function parseDataUpdate(aiResponse, diagnostics) {
     }
 
     // 提取 <dataUpdate> 块
-    const match = aiResponse.match(/<dataUpdate>([\s\S]*?)<\/dataUpdate>/);
-    if (!match || !match[1]) {
+    const payload = dataUpdatePayload(aiResponse);
+    if (!payload) {
         if (diagnostics) diagnostics.result = trimmed ? '缺少完整的 <dataUpdate> 块，或块为空' : '模型返回空文本';
         console.warn('parseDataUpdate: AI 响应中未找到 <dataUpdate> 块');
         return false;
@@ -366,17 +135,17 @@ function parseDataUpdate(aiResponse, diagnostics) {
 
     let data;
     try {
-        data = JSON.parse(match[1].trim());
+        data = JSON.parse(payload.trim());
     } catch (e) {
         // 使用 repairAIJson 进行多策略修复
         console.warn('parseDataUpdate: 首次 JSON.parse 失败，启动修复');
-        data = repairAIJson(match[1]);
+        data = repairAIJson(payload, true);
         if (!data) {
             if (diagnostics) diagnostics.result = '<dataUpdate> JSON 无效，自动修复失败';
             console.error('parseDataUpdate: repairAIJson 也未能修复');
             appendTableEditErrorLog({
                 reason: '<dataUpdate> JSON 解析失败（修复后仍无效）',
-                command: match[1],
+                command: payload,
                 detail: String(e.message || e),
             });
             return false;
@@ -720,15 +489,9 @@ export function extractDataFromMessage(message, options = {}) {
     //     抽取 payload（抽不到则自然落到后面的通用逻辑）：
     //       (a) <dataUpdate> … (</dataUpdate> | 串尾) —— 支持响应被截断、缺闭合标签；
     //       (b) Markdown 围栏代码块 ```json … ``` / ``` … ```。
-    //     只有这两类"被明确标记"的文本才可能承载数据；普通对话消息（首字符为
-    //     文字等、且无 <dataUpdate>）会在下方 2.1 预筛处快速返回 null，从而规避
-    //     repairAIJson 策略 7 的括号候选组合爆炸（数据概览卡顿根因）。
-    //     注意：载体正则不带 m 标志 —— 无 m 时 $ 表示"串尾（含末尾换行前）"，
-    //     正是截断兜底所需；若加 m 则 $ 会匹配每一行的行尾，lazy 量词会在第一个
-    //     换行处收住，payload 被腰斩。
     const carrierPayloads = [];
-    const dataUpdateMatch = mesText.match(/^[\s\S]*?<dataUpdate>([\s\S]*?)(?:<\/dataUpdate>|$)/);
-    if (dataUpdateMatch && dataUpdateMatch[1]) carrierPayloads.push(dataUpdateMatch[1]);
+    const taggedPayload = dataUpdatePayload(mesText, true);
+    if (taggedPayload) carrierPayloads.push(taggedPayload);
     const fencedMatch = mesText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (fencedMatch && fencedMatch[1]) carrierPayloads.push(fencedMatch[1]);
 
@@ -737,11 +500,7 @@ export function extractDataFromMessage(message, options = {}) {
         try {
             json = JSON.parse(payload.trim());
         } catch (_) {
-            // 载体修复必须有界（性能关键）：
-            // 仅当 payload 本身看起来就是（损坏的）JSON 文档——trim 后以 { 或 [ 开头——
-            // 才允许进入完整修复；代码块 / 散文等"垃圾载体"一律不进入修复、直接判为
-            // 无数据。否则 repairAIJson 策略 7/8/9 的 C(20,2..4) 组合枚举会被"高密度
-            // 花括号"的代码块重新触发，使数据概览重新卡到秒级。
+            // 只修复看起来像 JSON 的载体，跳过普通代码块和散文。
             const pt = payload.trim();
             json = (pt[0] === '{' || pt[0] === '[') ? repairAIJson(payload) : null;
         }
@@ -760,15 +519,7 @@ export function extractDataFromMessage(message, options = {}) {
     const looksLikeJsonDoc = head[0] === '{' || head[0] === '[';
     if (!looksLikeJsonDoc) {
         // 2.2 散文内嵌对象兜底（有界成本）：
-        //     仅当"首个 { 与末个 } 之间"能【直接】JSON.parse 成功、且结果符合本扩展
-        //     的数据形状时才采纳。刻意【不调用 repairAIJson】——只做一次朴素
-        //     indexOf/lastIndexOf 抽取 + 一次 JSON.parse，从根本上杜绝策略 7 的
-        //     括号候选组合爆炸（数据概览卡顿根因）。
-        //     形状判据（收紧版）：
-        //       主：mate.type === 'chatSheets'（与 requireMate 的判定标准一致）；
-        //       备：存在 sheet_ 前缀键、且其值具备表格结构 { name, content }。
-        //     由于 { a: 1 } 这类无引号 key 的对象字面量 JSON.parse 必然失败，
-        //     纯说明性文本（如"示例：配置项 { a: 1 }"）不会被误采。
+        //     只做一次直接解析，并检查旧快照的数据形状。
         const braceStart = mesText.indexOf('{');
         const braceEnd = mesText.lastIndexOf('}');
         if (braceStart >= 0 && braceEnd > braceStart) {
