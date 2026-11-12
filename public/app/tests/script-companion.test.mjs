@@ -8,6 +8,7 @@ import { scriptSupport } from '../scripts.js';
 import { roleScriptContent } from '../role-script-adapters.js';
 import { scriptChat } from '../script-chat.js';
 import { helperMessageRevision } from '../helper-state.js';
+import { RequestLog } from '../request-log.js';
 import { inlineScriptMessage } from '../scripts.js';
 import { inlineFrameGeometry, ScriptInlineView } from '../script-inline.js';
 
@@ -31,7 +32,7 @@ const source = main.slice(main.indexOf('async function helperHostAction('), main
 function host() {
     const state = { character: {}, chat: [{ mes: 'kept' }], preset: {}, busy: false }, runtime = { frame: {}, epoch: 1, auxiliaryControllers: new Set(), extensionPrompts: new Map() };
     const input = { value: '', focus() {} }, calls = [];
-    const context = vm.createContext({ state, scriptRuntime: runtime, inlineEdit: null, panelDirty: false, variablesSaving: false, AbortController, AbortSignal, validateExtensionPrompt, generationBody, helperMessageRevision,
+    const context = vm.createContext({ state, requestLog: new RequestLog(), scriptRuntime: runtime, inlineEdit: null, panelDirty: false, variablesSaving: false, AbortController, AbortSignal, validateExtensionPrompt, generationBody, helperMessageRevision,
         scriptIdentity: () => 'chat', connection: () => ({ source: 'custom', url: 'https://model.invalid/v1', model: 'chosen', secretId: 'host-only' }),
         $: () => input, resizeInput() {}, list: { setMessages() {} }, scriptSnapshot: () => ({}),
         api: { async response(path, body, options) { calls.push({ path, body, options }); return { headers: new Headers(), async json() { return { choices: [{ message: { content: 'parsed' } }] }; } }; } },
@@ -43,6 +44,10 @@ test('raw script generation uses host credentials, accepts only text options and
     const f = host();
     const result = await f.call('generate-raw', { options: { prompt: 'parse', systemPrompt: 'rules', quietToLoud: true } });
     assert.equal(result.value, 'parsed'); assert.equal(f.calls.length, 1);
+    const [entry] = f.context.requestLog.entries;
+    assert.equal(entry.source, 'script');
+    assert.deepEqual(entry.messages.map(message => message.content), ['rules', 'parse']);
+    assert.equal(entry.reply, 'parsed');
     assert.equal(f.calls[0].body.model, 'chosen'); assert.equal(f.calls[0].body.secret_id, 'host-only'); assert.equal(f.calls[0].body.stream, false);
     assert.equal(f.runtime.auxiliaryControllers.size, 0); assert.equal(f.state.chat[0].mes, 'kept');
     await assert.rejects(f.call('generate-raw', { options: { prompt: 'parse', url: 'https://evil.invalid' } }), /参数无效/);

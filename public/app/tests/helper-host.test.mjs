@@ -8,7 +8,7 @@ import { scriptSnapshot } from '../scripts.js';
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const hostSource = main.slice(main.indexOf('async function helperHostAction('), main.indexOf('\nfunction variableManagerPanel('));
 function fixture({ unpersisted = false, stored } = {}) {
-    let records = [{ chat_metadata: { integrity: 'identity' } }, { mes: 'reply', swipe_id: 0, variables: { 0: { score: 2 } } }], settings = { extension_settings: { independentHelper: { keep: 42 } }, world_info_settings: { world_info: { globalSelect: ['Enabled'] } } }, writes = 0;
+    let records = [{ chat_metadata: { integrity: 'identity' } }, { mes: 'reply', swipe_id: 0, variables: { 0: { score: 2 } } }], settings = { extension_settings: { independentHelper: { keep: 42 } }, world_info_settings: { world_info: { globalSelect: ['Enabled'] } } }, writes = 0, paints = 0;
     const state = { character: { avatar: 'card.png', data: { extensions: { world: 'Allowed' } } }, file: 'chat', header: structuredClone(records[0]), chat: structuredClone(records.slice(1)), settings: structuredClone(settings) };
     state.chatUnpersisted = unpersisted;
     if (stored !== undefined) records = structuredClone(stored);
@@ -16,7 +16,7 @@ function fixture({ unpersisted = false, stored } = {}) {
     const context = vm.createContext({ state, scriptRuntime, inlineEdit: null, panelDirty: false, variablesSaving: false, structuredClone, AbortSignal, copy: structuredClone,
         patchHelperVariables, patchHelperMessages, validateVariables, scriptSnapshot, scriptIdentity: () => 'identity', settingsOwn: () => ({}),
         nativeScriptPlan: () => [{ scope: 'character', id: 'mvu', enabled: true }, { scope: 'global', id: 'ordinary', enabled: true }], scriptSupport: () => ({ adapter: 'remote-module' }),
-        roleWorldEntries: book => book.entries, list: { setMessages() {} }, generationPreload: { invalidate() {} },
+        roleWorldEntries: book => book.entries, list: { setMessages() { paints++; } }, generationPreload: { invalidate() {} },
         api: {
             readCache: { clear() {} },
             post: async (path, payload) => path === '/api/worldinfo/get' ? { entries: [{ name: payload.name }] } : structuredClone(records),
@@ -26,7 +26,7 @@ function fixture({ unpersisted = false, stored } = {}) {
         },
     });
     vm.runInContext(hostSource, context);
-    return { state, context, scriptRuntime, records: () => records, settings: () => settings, writes: () => writes, call: (operation, payload, identity = 'identity') => context.helperHostAction(operation, payload, identity) };
+    return { state, context, scriptRuntime, records: () => records, settings: () => settings, writes: () => writes, paints: () => paints, call: (operation, payload, identity = 'identity') => context.helperHostAction(operation, payload, identity) };
 }
 test('host saves a fresh variable transaction, verifies persistence and retains generation message references', async () => {
     const f = fixture(), reference = f.state.chat[0];
@@ -79,6 +79,37 @@ test('host permits only explicitly dispatched lifecycle writes during generation
     const f = fixture(); f.state.busy = true; f.scriptRuntime.processing = true;
     await f.call('save-variables', { changes: [{ type: 'chat', base: {}, value: { score: 2 } }] });
     assert.equal(f.records()[0].chat_metadata.variables.score, 2);
+    assert.equal(f.paints(), 1);
+    f.state.generation = { dispatchingMessageSent: true };
+    const reference = f.state.chat[0];
+    const result = await f.call('save-chat', {
+        changes: [{ type: 'chat', base: { score: 2 }, value: { score: 3 } }],
+        messages: [{ message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, data: { score: 5 }, message: 'updated' }],
+    });
+    assert.equal(f.writes(), 2);
+    assert.equal(f.paints(), 1, 'message_sent writes share the generation repaint');
+    assert.equal(f.state.chat[0], reference);
+    assert.equal(f.records()[1].variables[0].score, 5);
+    assert.equal(result.snapshot.chat[0].mes, 'updated');
+});
+test('message_sent applies the confirmed increment without a full chat round trip', async () => {
+    const f = fixture();
+    f.state.busy = true;
+    f.state.generation = { dispatchingMessageSent: true };
+    f.scriptRuntime.processing = true;
+    const reference = f.state.chat[0];
+    f.context.api.canSaveChatDelta = () => true;
+    f.context.api.trySaveChatDelta = async (_avatar, _file, next) => {
+        assert.equal(next[1].variables[0].score, 5);
+        return true;
+    };
+    f.context.api.post = () => assert.fail('must not download the full chat');
+    const result = await f.call('save-variables', { changes: [
+        { type: 'message', message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, value: { 0: { score: 5 } } },
+    ] });
+    assert.equal(f.writes(), 0);
+    assert.equal(f.state.chat[0], reference);
+    assert.equal(result.snapshot.chat[0].variables[0].score, 5);
 });
 test('settings and global-variable saves touch only their own namespaces and reject stale bases', async () => {
     const f = fixture();

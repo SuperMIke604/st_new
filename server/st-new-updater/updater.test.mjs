@@ -8,6 +8,45 @@ import { init, validateManifest, listRecentCharacters, installUpdate, createCata
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
 
+test('chat delta preserves unknown history, verifies persistence, and rejects stale or unsafe writes', async t => {
+    const chats = await fs.mkdtemp(path.join(os.tmpdir(), 'st-chat-delta-'));
+    t.after(() => fs.rm(chats, { recursive: true, force: true }));
+    await fs.mkdir(path.join(chats, '角色'));
+    const target = path.join(chats, '角色', '聊天.jsonl');
+    const header = { chat_metadata: { integrity: 'keep' }, unknown: { keep: 1 } };
+    const history = { mes: '旧历史', swipes: ['旧历史', '候选'], extra: { other: 'keep' } };
+    const user = { mes: '新增消息', is_user: true };
+    const serialize = records => records.map(item => JSON.stringify(item)).join('\n');
+    const revision = records => createHash('sha256').update(serialize(records)).digest('hex');
+    await fs.writeFile(target, serialize([header, history]));
+    const routes = new Map();
+    await init({ post: (route, handler) => routes.set(route, handler) });
+    const call = overrides => {
+        const result = { status: 200 };
+        const response = { json: body => { result.body = body; }, status: code => { result.status = code; return response; } };
+        routes.get('/chat-delta')({ user: { directories: { chats } }, body: {
+            avatar_url: '角色.png', file_name: '聊天', base: revision([header, history]),
+            result: revision([header, history, user]), append: [user], patches: [], ...overrides,
+        } }, response);
+        return result;
+    };
+    assert.equal(call({ file_name: '../聊天' }).status, 422);
+    assert.equal(call({ file_name: '不存在' }).status, 409);
+    assert.deepEqual(call(), { status: 200, body: { ok: true, revision: revision([header, history, user]) } });
+    assert.equal(call().status, 200, 'an ambiguous retry cannot append twice');
+    assert.equal(await fs.readFile(target, 'utf8'), serialize([header, history, user]));
+    const edited = { ...user, variables: { 0: { score: 5 } } };
+    const edit = { base: revision([header, history, user]), result: revision([header, history, edited]), append: [],
+        patches: [{ index: 2, fields: { variables: edited.variables }, remove: [] }] };
+    assert.equal(call({ ...edit, base: '0'.repeat(64) }).status, 409);
+    assert.equal(call({ ...edit, patches: [{ index: 0, fields: { chat_metadata: { integrity: 'changed' } }, remove: [] }] }).status, 409);
+    assert.equal(call({ ...edit, patches: [{ index: 2, fields: JSON.parse('{"__proto__":{}}'), remove: [] }] }).status, 400);
+    assert.equal(call(edit).status, 200);
+    assert.equal(await fs.readFile(target, 'utf8'), serialize([header, history, edited]));
+    assert.equal(call({ ...edit, result: '0'.repeat(64) }).status, 409);
+    assert.deepEqual(await fs.readdir(path.dirname(target)), ['聊天.jsonl']);
+});
+
 test('settings snapshots read only the authenticated user file, without caching or preset scans', async () => {
     const routes = new Map(), reads = [];
     let value = { unknown: { keep: 7 } };

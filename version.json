@@ -1,11 +1,12 @@
 {
   "schema": 1,
-  "revision": "01f07270d77b652bd239a3b8fd6bdf8b5718f4181ba11211d60ec8d05a4ef3c7",
-  "publishedAt": "2026-11-12T05:53:12.867370+00:00",
+  "revision": "6f57c1546afbe3f7f126a60d2a09b66715bdcee68e96e190705bfbe73baae0c3",
+  "publishedAt": "2026-11-12T08:24:27.465769+00:00",
   "files": {
-    "public/app/api.js": "a19a56fe6ab61385ee97474c8d4228e3f1ec48e8efa51fde6d07de3f016c1773",
+    "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
+    "public/app/chat-delta.js": "ddfce277e9e39e7434445540c2dce207c7118a5e434c4b3f933cb696270d9bcb",
     "public/app/chat-history.js": "57ecb3d5238639547ba31b71541da92cc5996a58247c6d127ae3f56ea2e8b3ab",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
     "public/app/claude-day.css": "633187c7a25bba2e3cb5cfb0dca52274fc7eae60a9f65bbf3a5cd126f337329c",
@@ -25,7 +26,7 @@
     "public/app/generation-interceptor.js": "8593d763aedbd646b39d19f6df0cb0994bb9c28fd991b843b85bd44ca57f19d3",
     "public/app/generation-parameters.js": "89d74934b1b9f32da32ccad4d1fd36589972fdc2c16a88e99dfe1653ad48b3df",
     "public/app/generation-preload.js": "b3a7d3a2c14bae8b92148a57b9abc01129340dc2622416475401534a4423ad99",
-    "public/app/helper-state.js": "82992689769471b1f0bb74e55d385a925f3e66401196120e61c534e2e296257a",
+    "public/app/helper-state.js": "4b2e8913008e57d93c2e5e55a5550b990d800545b967818a8f5fc51be4ddf403",
     "public/app/history-regex-cache.js": "a8eb4feb9b63b318972f10618f23e62c9c29cbf3da1caec6b4fea8010de088ff",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
     "public/app/html-card-context.js": "e5cff3121116cff7856d86bc7036c0b041de5294f54b3db55fe353dd6a438bf0",
@@ -33,8 +34,8 @@
     "public/app/icons.js": "8452a42bfac658adc972f4fea93c0f2b5b8761dc3da13970154bb65b81d09c85",
     "public/app/index.html": "1486c2b21275e8d226f4fc2a7c10f92eb91ddcb97ec969b68acbff926d42d6cc",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/load-timings.js": "5a41ebc36bdc955028621e1564ccea61d640fc765b6d1ce418f373d866b71d68",
-    "public/app/main.js": "b60aadcc93b4c422bcda327af8f9d1004e9b358d2865869beccbb91db1e49bfe",
+    "public/app/load-timings.js": "294aab35e1b77b63bbe4842c8ec139441dae28da7fa376a2905353733ae95a69",
+    "public/app/main.js": "e39016ff74075705e57928f0ac3c53674eeb46a449c825d0d8345fc42ad003eb",
     "public/app/message-edit.js": "d5b08ef67f281c0cf0495f460e27bbba0c8859039c9e5524540d91e7cb9b3afd",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -47,6 +48,7 @@
     "public/app/reading.js": "d27baef975571556a8719730c37b5d862b5de73929d10277f7b4f6ba33687eb6",
     "public/app/README.md": "1641b2567090bcfe5d332ab3b3cdbf4c9852e45fd7825ab722813f6074a7433e",
     "public/app/regex.js": "1f221bf9228f47cf2fae8325b03f0408bd28f1321a8f6e9c0e94b09dc13f7350",
+    "public/app/request-log.js": "e4de2a6fcdf2b274e88977ad1d2fee55efb9aca73c62c655ef70e20e9eaaca79",
     "public/app/role-avatar-store.js": "56b22ae55b0fd42ab26298d723b92e10175112f9d48bcfd67096cb025deab261",
     "public/app/role-script-adapters.js": "afac6df88ef0ad257018168afac53f8450ed7c79ab19035e366deba05358529a",
     "public/app/role-worldbook.js": "66feaaf5db3a6126bcb32bd4821b8d35f0a5908f97f5d70e9b013fcf3ae731ac",
@@ -62,7 +64,7 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "37574ab12bbfcddcb095d40dac3b07426b11a851d10b70295e5b8cfb059a06f6",
     "public/app/select.js": "7e522bb74b1347cc9d9b8ef7b5f5790d4a80636b249c951cd15dde4a8c771a26",
-    "public/app/style.css": "37d6b6db54dbeb0a2f2aebfd056e72c667fff557c22e3fe5f8e526703f0380db",
+    "public/app/style.css": "bb467b103a33850a653cc3f6163cac56c8968ef0e037e28b175d3040dccca1c0",
     "public/app/theme-init.js": "6f60ae558cb5bd96957e55c08e7c3edc3ab9a1c93cb6e58264176cdca3a00042",
     "public/app/toast.js": "16398643017b5b43362c62bf73023426685add0260a3c90563665c950e7009cb",
     "public/app/typography.css": "24c9f3576fd79fafe27daf54f9326b587931abca4793ca24e9c44eee29ec3102",
@@ -74,6 +76,8 @@
     "public/app/vendor/JQUERY-LICENSE": "f290c625a6b8388370d937f70e0ad43fdf704936aa5aa211d7764ae026b5d05e",
     "public/app/vendor/jquery.min.js": "f7f6a5894f1d19ddad6fa392b2ece2c5e578cbf7da4ea805b6885eb6985b6e3d",
     "public/app/vendor/purify.min.js": "ef9a98b5b21aac33c73e316ef21f5cf06f68eff003a40ac953022129112cff3c",
+    "public/app/vendor/SHA256-LICENSE": "0fea2e0cffe72ee17adc25c42e55daf5c87c6e9cd5b3362ee4213890bda0ee7c",
+    "public/app/vendor/sha256.min.js": "d2728b7895b8776c4f1b4efb81c8a8433215d6167f7bfb29c578afceeb3cd836",
     "public/app/vendor/SHOWDOWN-LICENSE": "56c14cb3c7835f93abce90f65b7ed58470981e2d768a8e60499ca34bae7764ad",
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
@@ -82,10 +86,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "8558dced5078c7fb8954055d94aac9aaf5e0702a69c6006154fe84ef88a48bd5"
+    "public/app/version.js": "0b83747703b593171d2d98d9b6517859d00c240e0063716ad11f04adf9759d8a"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "4821043911de703d3d7264bdacc24de5f2048476c2aa60ffa2be736a4d532ceb"
+    "sha256": "43f00b4f8f554f4ba7570e16b8bf17a964893b241c8ec1748cfa7a2e832e0435"
   }
 }

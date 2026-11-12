@@ -3,19 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { LoadTimings, requestFailure } from '../load-timings.js';
+import { RequestLog } from '../request-log.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForReplyScriptVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false, hideAfterReplyEvent = false } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, intercept = body => body } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
-    let requests = 0; const mvuCalls = [], helperEvents = [], saved = [];
-    const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(body, signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
+    let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [];
+    const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
         helperEvents.push(event);
         if (native && event === 'message_received') {
             const message = state.chat[args[0]];
@@ -27,24 +28,34 @@ function fixture({ native = false, hideAfterReplyEvent = false } = {}) {
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
-        $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({}),
+    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+        $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
-        regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {}, preparePrompt: () => prepared.promise,
-        list: { follow: true, update() {}, setMessages() { renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message }))); } },
+        regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
+        preparePrompt: chat => { promptHistory.push(Array.from(chat, message => message.mes)); return prepared.promise; },
+        list: { follow: true, update() {}, setMessages() {
+            if (state.generation?.reply) assert.equal(requests, 1, 'start the request before painting the waiting placeholder');
+            renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
+        } },
         api: { response() { requests++; return response.promise; } },
         readEvents: response => response.events,
         generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
         nativeScriptPlan: () => native ? [{ enabled: true }] : [], scriptSupport: () => ({ adapter: 'remote-module', supported: true }), scriptSnapshot: () => ({}), scriptIdentity: () => 'test', scriptRuntime,
         prepareRoleMvu: async (...args) => { mvuCalls.push(args); assert.equal(state.busy, true); return { changed: false }; },
-        saveChat: async () => { saved.push(structuredClone(state.chat)); }, rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
+        saveChat: async options => {
+            saveOptions.push(options);
+            if (conflict) { state.chatConflict = '聊天已变化'; throw new Error(state.chatConflict); }
+            saved.push(structuredClone(state.chat));
+        },
+        rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, timings, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
-    const f = fixture(), running = f.run(false);
+    const finalMessages = [{ role: 'user', content: '脚本改写后的消息' }];
+    const f = fixture({ intercept: body => ({ ...body, messages: finalMessages }) }), running = f.run(false);
     assert.equal(f.state.busy, true);
     assert.equal(f.state.generation.regenerate, false);
     assert.match(f.statuses.at(-1), /发送消息.*准备上下文/);
@@ -54,13 +65,31 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.renders.at(-1).at(-1).pending, true);
     assert.equal(f.renders.at(-1).at(-1).text, '');
     assert.equal(f.requests(), 1);
+    assert.deepEqual(f.requestLog.entries[0].messages, finalMessages);
+    assert.equal(f.requestLog.entries[0].status, 'pending');
+    assert.deepEqual(f.promptHistory, [['原来的回复', '测试消息']]);
+    assert.equal(f.saveOptions[0].incremental, true);
     f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '测试回复' } }] }) });
     await running;
+    assert.deepEqual(f.timings.snapshot().find(entry => entry.label === '模型请求至响应头').metrics,
+        { requestedStream: 1, streamResponse: 0 });
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.state.chat.at(-1).mes, '测试回复');
+    assert.equal(f.requestLog.entries[0].status, 'success');
+    assert.equal(f.requestLog.entries[0].reply, '测试回复');
     assert.equal(f.renders.at(-1).at(-1).pending, false);
     assert.deepEqual(f.postGeneration, ['database', 'preload'], 'warm resources only after saving and automatic database updates');
     assert.equal(f.mvuCalls.length, 2); assert.equal(f.mvuCalls[0][0], true); assert.equal(f.mvuCalls[0][1], undefined); assert.equal(f.mvuCalls[1][1].text, '测试回复');
+});
+
+test('a pre-send conflict restores the draft and prevents a request or overwrite', async () => {
+    const f = fixture({ native: true, conflict: true });
+    await f.run(false);
+    assert.equal(f.input.value, '测试消息');
+    assert.equal(f.state.chat.length, 1);
+    assert.equal(f.requests(), 0);
+    assert.equal(f.saveOptions.length, 1);
+    await assert.rejects(f.run(false), /聊天已变化/);
 });
 
 test('stopping regeneration clears loading and restores the previous reply', async () => {
@@ -96,6 +125,7 @@ test('stream diagnostics distinguish response headers, first reasoning text and 
     await tick();
     const record = label => f.timings.snapshot().find(entry => entry.label === label);
     assert.equal(record('模型请求至响应头').status, 'success');
+    assert.deepEqual(record('模型请求至响应头').metrics, { requestedStream: 1, streamResponse: 1 });
     assert.equal(record('模型请求至首段文本（含思考）').status, 'success');
     assert.equal(record('模型请求至回复接收完成').status, 'loading');
     tail.resolve(); await running;

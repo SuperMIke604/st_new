@@ -1,5 +1,6 @@
 import { timedFetch, loadTimings } from './load-timings.js';
 import { prepareChatSaveBody } from './chat-save-body.js';
+import { chatDelta, chatLines } from './chat-delta.js';
 export class ApiError extends Error {
     constructor(message, status) { super(message); this.status = status; }
 }
@@ -26,6 +27,12 @@ export class TavernAPI {
             throw new ApiError(typeof message === 'string' ? message : `请求失败（${response.status}）${response.status === 403 ? '，请刷新页面重新认证' : ''}`, response.status);
         }
         return response;
+    }
+    async processPrompt({ messages, custom_prompt_post_processing: type, char_name, user_name, group_names }) {
+        const response = await this.response('/api/backends/chat-completions/process', { messages, type, char_name, user_name, group_names }, {
+            signal: AbortSignal.timeout(5000), fallbackStatuses: [404, 405],
+        });
+        return (await response.json()).messages;
     }
     async post(path, data = {}, options) {
         const catalogRoute = { '/api/characters/all': '/api/plugins/st-new-updater/characters', '/api/worldinfo/list': '/api/plugins/st-new-updater/worlds' }[path];
@@ -132,15 +139,55 @@ export class TavernAPI {
         this.saveQueue = task;
         return task;
     }
-    async saveChat(avatar, file, header, messages) {
+    rememberChatBase(avatar, file, records) {
+        const header = records?.[0];
+        this.chatBase = header && typeof header === 'object' && !Array.isArray(header) && !Object.hasOwn(header, 'mes')
+            ? { avatar, file, lines: chatLines(records) } : null;
+    }
+    canSaveChatDelta(avatar, file) {
+        return !this.chatDeltaMissing && this.chatBase?.avatar === avatar && this.chatBase.file === file;
+    }
+    async trySaveChatDelta(avatar, file, records) {
+        if (!this.canSaveChatDelta(avatar, file)) return false;
+        const base = this.chatBase;
+        const prepared = await loadTimings.measure('准备聊天增量传输', 'generation', async () => {
+            const lines = chatLines(records);
+            const delta = await chatDelta(base.lines, lines, base.revision);
+            if (!delta) return null;
+            const payload = { avatar_url: avatar, file_name: file, ...delta };
+            const serializedBody = JSON.stringify(payload);
+            const bytes = new Blob([serializedBody]).size;
+            return bytes <= 4000000 ? { lines, delta, payload, serializedBody, bytes } : null;
+        }, value => value ? { metrics: { transferBytes: value.bytes } } : {});
+        if (!prepared) return false;
+        const { lines, delta, payload, serializedBody } = prepared;
+        try {
+            const result = await this.post('/api/plugins/st-new-updater/chat-delta', payload, { serializedBody, fallbackStatuses: [404, 422] });
+            if (!result?.ok || result.revision !== delta.result) throw new Error('聊天增量保存核验失败，请重试。');
+        } catch (error) {
+            if (error.status === 404) { this.chatDeltaMissing = true; return false; }
+            if (error.status === 422 && error.message === 'delta-unsupported') return false;
+            error.chatDelta = true;
+            throw error;
+        }
+        this.chatBase = { avatar, file, lines, revision: delta.result };
+        return true;
+    }
+    async saveChat(avatar, file, header, messages, { incremental = false } = {}) {
         const payload = { avatar_url: avatar, file_name: file, chat: [header, ...messages] };
+        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat)) return;
         const json = loadTimings.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
         const finishCompression = loadTimings.start('准备聊天保存传输', 'generation');
         let prepared;
         try { prepared = await prepareChatSaveBody(json, { compress: this.chatCompression !== false }); finishCompression('success', { metrics: prepared.metrics }); }
         catch (error) { finishCompression('error'); throw error; }
         for (let attempt = 0; ; attempt++) {
-            try { const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) }); if (!result?.ok) throw new Error('聊天保存失败。'); return; }
+            try {
+                const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
+                if (!result?.ok) throw new Error('聊天保存失败。');
+                this.rememberChatBase(avatar, file, payload.chat);
+                return;
+            }
             catch (error) {
                 if (error.status === 415 && prepared.metrics.gzip) {
                     this.chatCompression = false;

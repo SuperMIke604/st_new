@@ -13,8 +13,13 @@ export function helperMessageRevision(message) {
 }
 export function patchHelperVariables(records, changes) {
     if (!Array.isArray(records) || !records[0] || Object.hasOwn(records[0], 'mes')) throw Error('聊天文件格式无效。');
+    const next = structuredClone(records);
+    applyHelperVariables(next, changes);
+    return next;
+}
+function applyHelperVariables(next, changes) {
     if (!Array.isArray(changes) || changes.length > 500 || JSON.stringify(changes).length > 4000000) throw Error('脚本变量保存批次无效或过大。');
-    const next = structuredClone(records), seen = new Set();
+    const seen = new Set();
     for (const change of changes) {
         if (!change || !['chat', 'message'].includes(change.type)) throw Error('不支持此脚本变量范围。');
         const key = change.type === 'chat' ? 'chat' : `message:${change.message_id}`;
@@ -34,12 +39,12 @@ export function patchHelperVariables(records, changes) {
         if (change.type === 'chat') (next[0].chat_metadata ||= {}).variables = value;
         else next[change.message_id + 1].variables = value;
     }
-    return next;
 }
-export function patchHelperMessages(records, patches, { greetings = [] } = {}) {
+export function patchHelperMessages(records, patches, { greetings = [], changes = [] } = {}) {
     if (!Array.isArray(records) || !records[0] || Object.hasOwn(records[0], 'mes')) throw Error('聊天文件格式无效。');
     if (!Array.isArray(patches) || patches.length > 100 || JSON.stringify(patches).length > 4000000) throw Error('消息修改批次无效。');
-    let next = structuredClone(records); const seen = new Set();
+    const next = structuredClone(records), seen = new Set();
+    applyHelperVariables(next, changes);
     for (const patch of patches) {
         if (!Number.isSafeInteger(patch?.message_id) || patch.message_id < 0 || seen.has(patch.message_id)) throw Error('消息楼层无效或重复。');
         seen.add(patch.message_id);
@@ -65,7 +70,7 @@ export function patchHelperMessages(records, patches, { greetings = [] } = {}) {
             variables = Object.fromEntries(patch.swipes_data.map((value, index) => [index, validateVariables(value)]));
         }
         if (patch.data !== undefined || patch.swipes_data !== undefined) {
-            next = patchHelperVariables(next, [{ type: 'message', message_id: patch.message_id, revision: patch.revision, base: patch.base, value: variables }]);
+            applyHelperVariables(next, [{ type: 'message', message_id: patch.message_id, revision: patch.revision, base: patch.base, value: variables }]);
         }
         const target = next[patch.message_id + 1];
         if (patch.message !== undefined) {

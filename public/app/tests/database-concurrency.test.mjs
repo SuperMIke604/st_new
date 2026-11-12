@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+import { RequestLog } from '../request-log.js';
 import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
 
 import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
@@ -17,9 +18,9 @@ function fixture() {
     const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [];
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
-    const context = vm.createContext({ state, cancelMessageEdit() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
+    const context = vm.createContext({ state, requestLog: new RequestLog(), cancelMessageEdit() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
         sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
-        databaseConnection: () => ({}), generationBody: () => ({}), databaseWorlds: async () => [],
+        databaseConnection: () => ({}), generationBody: (_config, _preset, messages) => ({ messages }), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
         api: { post: async () => ({ token_count: 100 }), response: async (_path, _body, options) => { requestSignal = options.signal; return (await response)(); } },
@@ -49,6 +50,10 @@ test('database summary applies bare operations to the latest snapshot without di
     const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();
     assert.equal(f.requests[0][1].marker, 'latest'); assert.equal(f.requests[0][2].length, 0); assert.equal(f.requests[0][6], 'database');
     f.finish('{"operations":[{"action":"insert","sheet":"sheet_0","data":{"0":"状态","1":"已总结"}}]}'); await task;
+    const [entry] = f.context.requestLog.entries;
+    assert.equal(entry.source, 'database');
+    assert.equal(entry.status, 'success');
+    assert.match(entry.reply, /已总结/);
     assert.equal(f.writes.length, 1); assert.equal(f.state.chat[1].extra.independentDatabase.kind, 'database');
     assert.equal(f.writes[0][1].TavernDB_ACU_Data.sheet_0.content[1][2], '已总结');
     assert.equal(f.state.chat[1].extra.independentDatabase.messageSummaryTo, 1);

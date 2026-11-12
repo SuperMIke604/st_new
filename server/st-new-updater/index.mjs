@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +7,72 @@ export const info = { id: 'st-new-updater', name: 'ST New Frontend Updater', des
 const RAW = 'https://raw.githubusercontent.com/SuperMIke604/st_new/main/';
 const BACKEND_FILE = 'server/st-new-updater/index.mjs';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const revisionPattern = /^[a-f0-9]{64}$/;
+const plainFilename = value => typeof value === 'string' && value.length > 0
+    && !/[<>:"/\\|?*\u0000-\u001f]/.test(value) && !/[. ]$/.test(value)
+    && !/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(value);
+const safeField = key => !['__proto__', 'prototype', 'constructor'].includes(key);
+const conflict = '聊天已在别处变化，请重新打开聊天后再发送。';
+
+function applyChatDelta(directory, body) {
+    const { avatar_url: avatar, file_name: file, base, result, patches, append } = body ?? {};
+    if (!plainFilename(avatar) || !avatar.endsWith('.png') || !plainFilename(avatar.slice(0, -4))
+        || avatar.slice(0, -4).includes('.png') || !plainFilename(file) || Buffer.byteLength(file + '.jsonl') > 255)
+        return { status: 422, error: 'delta-unsupported' };
+    if (typeof base !== 'string' || !revisionPattern.test(base) || typeof result !== 'string' || !revisionPattern.test(result)
+        || !Array.isArray(patches) || patches.length > 500 || !Array.isArray(append) || append.length > 20
+        || !append.every(message => record(message) && typeof message.mes === 'string')
+        || Buffer.byteLength(JSON.stringify(body)) > 4000000) return { status: 400, error: '无效的聊天增量。' };
+    const root = realpathSync(directory);
+    const folder = path.join(root, avatar.slice(0, -4));
+    const target = path.join(folder, file + '.jsonl');
+    let original, stamp;
+    try {
+        if (!lstatSync(folder).isDirectory()) return { status: 422, error: 'delta-unsupported' };
+        stamp = lstatSync(target, { bigint: true });
+        if (!stamp.isFile() || stamp.size > 64n * 1024n * 1024n) return { status: 422, error: 'delta-unsupported' };
+        original = readFileSync(target, 'utf8');
+    } catch (error) {
+        if (error.code === 'ENOENT') return { status: 409, error: conflict };
+        throw error;
+    }
+    let records;
+    try { records = original.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line)); }
+    catch { return { status: 409, error: conflict }; }
+    if (!record(records[0]) || Object.hasOwn(records[0], 'mes') || !records.every(record)) return { status: 409, error: conflict };
+    const current = digest(records.map(item => JSON.stringify(item)).join('\n'));
+    if (current === result) return { ok: true, revision: result };
+    if (current !== base) return { status: 409, error: conflict };
+    const integrity = records[0].chat_metadata?.integrity;
+    const seen = new Set();
+    for (const patch of patches) {
+        const { index, fields, remove } = patch ?? {};
+        if (!Number.isSafeInteger(index) || index < 0 || index >= records.length || seen.has(index)
+            || !record(fields) || !Array.isArray(remove) || !Object.keys(fields).every(safeField)
+            || !remove.every(key => typeof key === 'string' && safeField(key))) return { status: 400, error: '无效的聊天字段。' };
+        seen.add(index);
+        for (const key of remove) delete records[index][key];
+        records[index] = { ...records[index], ...fields };
+    }
+    if (Object.hasOwn(records[0], 'mes') || records[0].chat_metadata?.integrity !== integrity) return { status: 409, error: conflict };
+    const updated = [...records, ...append].map(item => JSON.stringify(item)).join('\n');
+    if (digest(updated) !== result) return { status: 409, error: conflict };
+    // Keep validation and atomic replacement in one turn of the host event loop.
+    // The temporary file is adjacent so rename cannot cross volumes.
+    const temp = path.join(folder, '.st-new-chat-' + randomUUID() + '.tmp');
+    try {
+        const fd = openSync(temp, 'wx', Number(stamp.mode & 0o777n));
+        try { writeFileSync(fd, updated, 'utf8'); fsyncSync(fd); }
+        finally { closeSync(fd); }
+        const latest = lstatSync(target, { bigint: true });
+        if (latest.ino !== stamp.ino || latest.size !== stamp.size || latest.mtimeNs !== stamp.mtimeNs || latest.ctimeNs !== stamp.ctimeNs)
+            return { status: 409, error: conflict };
+        renameSync(temp, target);
+        if (digest(readFileSync(target)) !== result) return { status: 409, error: conflict };
+        return { ok: true, revision: result };
+    } finally { try { unlinkSync(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+}
 export function validateManifest(value) {
     if (value?.schema !== 1 || !/^[a-f0-9]{64}$/.test(value.revision) || !value.files || typeof value.files !== 'object') throw Error('版本清单无效');
     const entries = Object.entries(value.files);
@@ -187,6 +254,13 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
     const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
+    router.post('/chat-delta', (request, response) => {
+        try {
+            const result = applyChatDelta(request.user.directories.chats, request.body);
+            if (result.status) return response.status(result.status).json({ error: result.error });
+            return response.json(result);
+        } catch { return response.status(500).json({ error: '聊天增量保存失败，请重试。' }); }
+    });
     // Read only the authenticated user's settings. No preset or resource scans,
     // and no cache: callers use this before writes and for persisted readback.
     router.post('/settings', async (request, response) => {

@@ -704,3 +704,17 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
   background:transparent!important;
   border:0!important;
 }
+.request-log-panel .panel-header{gap:12px}
+.request-log-panel .panel-header h1{margin:0}
+.request-log-toolbar{align-items:center}
+.request-log-toolbar .check-field{min-height:42px;margin-right:auto}
+.request-log-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.request-log-filters input{flex:1 1 190px;min-width:0}
+.request-log-list,.request-log-messages{display:grid;gap:8px}
+.request-log-disclosure{border:1px solid var(--line);border-radius:10px;min-width:0}
+.request-log-disclosure>summary{cursor:pointer;min-height:40px;align-content:center;padding:8px 12px;overflow-wrap:anywhere}
+.request-log-meta{display:block;padding-left:16px;color:var(--muted)}
+.request-log-content,.request-log-text{padding:0 12px 12px}
+.request-log-content>.button{margin-bottom:8px}
+.request-log-text pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-size:var(--type-code-size,13px);line-height:1.6}
+.request-log-panel :is(summary,input,select):focus-visible{outline:2px solid var(--green);outline-offset:-2px}
