@@ -17,7 +17,7 @@ function fixture() {
     const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [];
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
-    const context = vm.createContext({ state, cancelMessageEdit() {}, panelDirty: false, panelRevision: 1, AbortController, DOMException,
+    const context = vm.createContext({ state, cancelMessageEdit() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
         sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: () => ({}), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
@@ -62,6 +62,29 @@ test('database summary rejects a newer snapshot arriving while request is runnin
     f.state.chat.push({ is_user: false, mes: 'new', TavernDB_ACU_Data: defaultDatabase() });
     f.finish(); await assert.rejects(task, /最新数据库已变化/); assert.equal(f.writes.length, 0);
     assert.equal(databaseLogExport().entries[0].reason, '最新数据库快照所在楼层已变化');
+});
+
+test('database summary saves to the reloaded chat and preserves unrelated saved fields', async () => {
+    const f = fixture();
+    const oldChat = f.state.chat, oldHeader = f.state.header;
+    storeDatabase(oldChat, oldHeader, defaultDatabase(), 1, { kind: 'message', to: 1 });
+    const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();
+    f.state.chat = structuredClone(oldChat);
+    f.state.header = structuredClone(oldHeader);
+    f.state.chat[1].extra.variables = { level: 2 };
+    f.state.header.chat_metadata.variables = { weather: 'rain' };
+    f.state.chat.push({ is_user: true, mes: 'next' });
+
+    f.finish(); await task;
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.writes[0][1].TavernDB_ACU_Data.updated, true);
+    assert.equal(f.writes[0][1].extra.independentDatabase.messageSummaryTo, 1);
+    assert.deepEqual(f.writes[0][1].extra.variables, { level: 2 });
+    assert.equal(f.writes[0][2].mes, 'next');
+    assert.deepEqual(f.state.header.chat_metadata.variables, { weather: 'rain' });
+    assert.equal(f.state.header.chat_metadata.independentDatabase.history.length, 1);
+    assert.equal(oldChat[1].TavernDB_ACU_Data.updated, undefined);
+    assert.equal(oldHeader.chat_metadata.independentDatabase.history.length, 0);
 });
 
 test('automatic database summary saves while a later non-streaming reply is waiting for its API response', async () => {
@@ -153,7 +176,17 @@ test('fill rejects changed source, database, and switched chat without writing',
         ['目标楼层或之前的消息已变化', f => { f.state.chat[1].mes = 'edited'; }],
         ['写入所依据的数据库快照已变化', f => { f.state.chat[0].TavernDB_ACU_Data = {}; }],
         ['当前聊天已切换', f => { f.state.file = 'other'; }],
-        ['当前聊天记录或元数据已被替换', f => { f.state.chat = structuredClone(f.state.chat); }],
+        ['当前聊天文件的标识已变化', f => { f.state.header = { chat_metadata: { integrity: 'other' } }; }],
+        ['目标楼层或之前的消息已变化', f => {
+            f.state.chat = structuredClone(f.state.chat);
+            f.state.chat[1].swipe_id = 1;
+        }],
+        ['目标楼层已替换、移动或删除', f => { f.state.chat = structuredClone(f.state.chat.slice(0, 1)); }],
+        ['写入所依据的数据库快照已变化', f => {
+            f.state.chat = structuredClone(f.state.chat);
+            f.state.chat[1].extra.independentDatabase = { snapshotDeleted: true };
+        }],
+        ['正在保存变量，请稍候。', f => { f.context.variablesSaving = true; }],
         ['目标楼层已替换且正在生成', f => {
             const reply = { is_user: false, mes: '' };
             f.state.chat[1] = reply;
@@ -184,6 +217,8 @@ test('preview write guard allows streaming outside its source range and protects
     f.run('guard.saved(); guard.check()');
     f.state.generation.reply = f.state.chat[1];
     assert.throws(() => f.run('guard.check()'), /该楼层正在生成/);
+    f.state.chat = structuredClone(f.state.chat);
+    assert.throws(() => f.run('guard.check()'), error => error.reason === '当前聊天记录或元数据已被替换');
 });
 
 test('fill failures clean up only the database task', async () => {

@@ -2369,10 +2369,23 @@ function assertDatabaseWritable() {
     cancelMessageEdit();
     if (state.dirty && !state.busy) throw new DatabaseWriteError('当前聊天尚未保存，请先重试保存。');
 }
-function databaseWriteGuard(index) {
+function databaseWriteGuard(index, { allowReload = false } = {}) {
     const chat = state.chat, header = state.header, identity = `${state.character?.avatar}/${state.file}`, target = chat[index];
-    const hash = sourceHash(chat, index);
-    const snapshot = () => JSON.stringify([header.chat_metadata?.independentDatabase?.seed, chat.slice(0, index + 1).map(message => [message.TavernDB_ACU_Data, message.extra?.independentDatabase?.snapshotDeleted])]);
+    const source = messages => allowReload
+        ? JSON.stringify(messages.slice(0, index + 1).map(message => [
+            !!message.is_user, message.name, message.mes || message.message || '', message.send_date, message.swipe_id ?? 0,
+        ]))
+        : sourceHash(messages, index);
+    const originalSource = source(chat);
+    const integrity = header.chat_metadata?.integrity;
+    const createdAt = header.create_date;
+    const snapshot = () => JSON.stringify([
+        state.header.chat_metadata?.independentDatabase?.seed,
+        state.chat.slice(0, index + 1).map(message => [
+            message.TavernDB_ACU_Data,
+            allowReload ? message.extra?.independentDatabase : message.extra?.independentDatabase?.snapshotDeleted,
+        ]),
+    ]);
     let original = snapshot();
     return {
         check() {
@@ -2380,19 +2393,24 @@ function databaseWriteGuard(index) {
             const changed = '聊天或数据库已变化，请重新打开数据库后重试。';
             if (`${state.character?.avatar}/${state.file}` !== identity)
                 throw new DatabaseWriteError(changed, '当前聊天已切换');
-            if (state.chat !== chat || state.header !== header)
+            if (!allowReload && (state.chat !== chat || state.header !== header))
                 throw new DatabaseWriteError(changed, '当前聊天记录或元数据已被替换');
-            if (chat[index] !== target) {
-                const reason = chat[index] && state.generation?.reply === chat[index]
+            if (allowReload && variablesSaving)
+                throw new DatabaseWriteError('正在保存变量，请稍候。');
+            if (allowReload && (!state.header || state.header.chat_metadata?.integrity !== integrity || state.header.create_date !== createdAt))
+                throw new DatabaseWriteError(changed, '当前聊天文件的标识已变化');
+            const currentTarget = state.chat[index];
+            if ((currentTarget !== target && (!allowReload || state.chat === chat)) || (target && !currentTarget)) {
+                const reason = currentTarget && state.generation?.reply === currentTarget
                     ? '目标楼层已替换且正在生成' : '目标楼层已替换、移动或删除';
                 throw new DatabaseWriteError(changed, reason);
             }
-            if (sourceHash(chat, index) !== hash)
+            if (currentTarget && state.generation?.reply === currentTarget)
+                throw new DatabaseWriteError('该楼层正在生成，请选择已完成的楼层。', '目标楼层正在生成');
+            if (source(state.chat) !== originalSource)
                 throw new DatabaseWriteError(changed, '目标楼层或之前的消息已变化');
             if (snapshot() !== original)
                 throw new DatabaseWriteError(changed, '写入所依据的数据库快照已变化');
-            if (target && state.generation?.reply === target)
-                throw new DatabaseWriteError('该楼层正在生成，请选择已完成的楼层。', '目标楼层正在生成');
         },
         saved() { original = snapshot(); },
     };
@@ -2490,7 +2508,7 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
     if(!aiIndices.length){log.reason='选定范围内没有角色回复';notify('没有消息需要更新', 'info');return false;}
     const rangeStart=from,rangeEnd=to;if(!summarizing){from=Math.max(0,aiIndices[0]-1);if(from>0&&!state.chat[from].is_user&&state.chat[from-1]?.is_user)from--;}to=aiIndices.at(-1);
     log.stage = '校验目标楼层与快照';
-    const write = databaseWriteGuard(to);
+    const write = databaseWriteGuard(to, { allowReload: true });
     write.check();
     log.stage = '校验填表连接';
     let config = databaseConnection(settings);
@@ -2610,7 +2628,7 @@ async function autoUpdateDatabase() {
   const current=currentDatabase();
   if(current.index<0 || state.chat[current.index].extra?.independentDatabase?.kind==='database')return;
   checkIndex=current.index; checkStage='检查自动总结快照';
-  const write=databaseWriteGuard(current.index);write.check();
+  const write=databaseWriteGuard(current.index, { allowReload: true });write.check();
   checkStage='统计自动总结 Token';
   const tokens=!databaseSummaryTriggered(settings,current.data,0)&&settings.databaseSummaryTokens>0?await databaseTokenCount(current.data,settings):0;
   checkStage='复核自动总结快照';
