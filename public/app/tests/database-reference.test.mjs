@@ -98,6 +98,30 @@ test('tagged updates drop one surplus brace after each complete operation', () =
     assert.deepEqual(original, database());
 });
 
+test('tagged inserts can close complete data objects at operation boundaries', () => {
+    const original = database();
+    const cell = '保留正文里的 }, { 和 }]';
+    const insert = name => JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: name } });
+    const operations = ['乙', '丙', '丁', '戊', cell].map(insert);
+    const extra = insert('己');
+    const response = items => `<dataUpdate>{"operations":[${items.join(',')}]}</dataUpdate>`;
+    const counts = {};
+
+    const broken = operations.map(operation => operation.slice(0, -1));
+    const updated = parseUpdate(response([`${extra}}`, ...broken]), original, counts);
+    assert.deepEqual(updated, parseUpdate(response([extra, ...operations]), original));
+    assert.deepEqual(counts, { operations: 6, tables: 0 });
+    assert.equal(updated.sheet_0.content.at(-1)[1], cell);
+    for (const malformed of [
+        insert('乙').slice(0, -2),
+        insert('乙').replace('"0"', '"row"').slice(0, -1),
+        insert('乙').replace('"insert"', '"update"').slice(0, -1),
+    ]) {
+        assert.throws(() => parseUpdate(response([malformed, extra]), original), /JSON 解析失败/);
+    }
+    assert.deepEqual(original, database());
+});
+
 test('legacy tagged snapshots preserve literal closing tags and accept a missing carrier close', () => {
     const snapshot = database();
     snapshot.sheet_0.content[1][2] = '保留 </dataUpdate> 字面文本';

@@ -32,6 +32,7 @@ function normalizeJsonSyntax(text) {
 function repairJsonBrackets(text, taggedUpdate) {
     const tokens = /"(operations|data)"\s*:\s*([{\[])|"(?:[^"\\]|\\[\s\S])*"|[{}\[\]]/g;
     const extraOperationClose = /\s*}(?=\s*(?:,\s*\{|\]))/y;
+    const operationBoundary = /\s*(?:,\s*\{|\])/y;
     const stack = [];
     const repaired = [];
     let copiedThrough = 0;
@@ -41,7 +42,7 @@ function repairJsonBrackets(text, taggedUpdate) {
         const [token, key, opener] = match;
         const bracket = opener ?? token;
         if (bracket === '{' || bracket === '[') {
-            stack.push({ key, close: bracket === '{' ? '}' : ']' });
+            stack.push({ key, close: bracket === '{' ? '}' : ']', start: match.index });
             continue;
         }
         if (bracket !== '}' && bracket !== ']') continue;
@@ -56,6 +57,20 @@ function repairJsonBrackets(text, taggedUpdate) {
                     const end = extraOperationClose.lastIndex;
                     repaired.push(text.slice(copiedThrough, end - 1));
                     copiedThrough = tokens.lastIndex = end;
+                }
+            }
+            if (inOperations && stack.length === 3 && stack[2].close === '}' && container.key === 'data' && bracket === '}') {
+                operationBoundary.lastIndex = tokens.lastIndex;
+                if (operationBoundary.test(text)) {
+                    // The data object is complete. Confirm the enclosing insert before closing it.
+                    const end = tokens.lastIndex;
+                    const operation = parseJsonObject(text.slice(stack[2].start, end) + '}');
+                    if (operation?.action !== 'insert' || !operation.data || Array.isArray(operation.data)
+                        || Object.entries(operation.data).some(([column, value]) => !/^(0|[1-9]\d*)$/.test(column)
+                            || (value !== null && typeof value === 'object'))) return null;
+                    stack.pop();
+                    repaired.push(text.slice(copiedThrough, end), '}');
+                    copiedThrough = end;
                 }
             }
             continue;
@@ -76,7 +91,7 @@ function repairJsonBrackets(text, taggedUpdate) {
         return Array.isArray(data?.operations) ? data : null;
     }
 
-    // A tagged update may close its outer envelope, but never an unfinished operation or table.
+    // At the end of input only the outer envelope may still need closing.
     if (stack.length === 0 || stack.length > 20) return null;
     if (taggedUpdate && (stack.length > 2 || stack[0].close !== '}'
         || (stack.length === 2 && (stack[1].key !== 'operations' || stack[1].close !== ']')))) return null;
