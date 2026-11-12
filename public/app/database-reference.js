@@ -31,10 +31,14 @@ function normalizeJsonSyntax(text) {
 
 function repairJsonBrackets(text, taggedUpdate) {
     const tokens = /"(operations|data)"\s*:\s*([{\[])|"(?:[^"\\]|\\[\s\S])*"|[{}\[\]]/g;
+    const extraOperationClose = /\s*}(?=\s*(?:,\s*\{|\]))/y;
     const stack = [];
-    let mismatch = -1;
+    const repaired = [];
+    let copiedThrough = 0;
+    let repairedDataClose = false;
 
-    for (const { 0: token, 1: key, 2: opener, index } of text.matchAll(tokens)) {
+    for (let match; (match = tokens.exec(text));) {
+        const [token, key, opener] = match;
         const bracket = opener ?? token;
         if (bracket === '{' || bracket === '[') {
             stack.push({ key, close: bracket === '{' ? '}' : ']' });
@@ -42,18 +46,33 @@ function repairJsonBrackets(text, taggedUpdate) {
         }
         if (bracket !== '}' && bracket !== ']') continue;
         const container = stack.pop();
-        if (bracket === container?.close) continue;
+        const inOperations = taggedUpdate && stack[0]?.close === '}'
+            && stack[1]?.key === 'operations' && stack[1].close === ']';
+        if (bracket === container?.close) {
+            if (inOperations && stack.length === 2 && bracket === '}') {
+                // Skip one extra brace between a complete operation and the next item or array close.
+                extraOperationClose.lastIndex = tokens.lastIndex;
+                if (extraOperationClose.test(text)) {
+                    const end = extraOperationClose.lastIndex;
+                    repaired.push(text.slice(copiedThrough, end - 1));
+                    copiedThrough = tokens.lastIndex = end;
+                }
+            }
+            continue;
+        }
 
         // Only replace a single closing bracket of an operations[i].data object.
-        if (!taggedUpdate || mismatch !== -1 || bracket !== ']' || container?.key !== 'data' || container.close !== '}'
-            || stack.length !== 3 || stack[0].close !== '}'
-            || stack[1].key !== 'operations' || stack[1].close !== ']' || stack[2].close !== '}') return null;
-        mismatch = index;
+        if (!inOperations || repairedDataClose || bracket !== ']' || container?.key !== 'data' || container.close !== '}'
+            || stack.length !== 3 || stack[2].close !== '}') return null;
+        repaired.push(text.slice(copiedThrough, match.index), '}');
+        copiedThrough = tokens.lastIndex;
+        repairedDataClose = true;
     }
 
-    if (mismatch !== -1) {
+    if (repaired.length) {
         if (stack.length !== 0) return null;
-        const data = parseJsonObject(text.slice(0, mismatch) + '}' + text.slice(mismatch + 1));
+        repaired.push(text.slice(copiedThrough));
+        const data = parseJsonObject(repaired.join(''));
         return Array.isArray(data?.operations) ? data : null;
     }
 

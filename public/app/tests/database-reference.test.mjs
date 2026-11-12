@@ -81,6 +81,23 @@ test('tagged bracket repair rejects ambiguous interior braces but can close an o
     assert.deepEqual(original, database());
 });
 
+test('tagged updates drop one surplus brace after each complete operation', () => {
+    const original = database();
+    const cell = '保留正文里的 }}、}, { 和 }]';
+    const first = JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: cell }, row: 1 });
+    const second = JSON.stringify({ action: 'insert', sheet: 'sheet_0', data: { 0: '丙' }, row: 2 });
+    const response = operations => `<dataUpdate>{"operations":[${operations}]}</dataUpdate>`;
+    const counts = {};
+
+    const updated = parseUpdate(response(`${first}}，\n${second} }`), original, counts);
+    assert.deepEqual(updated, parseUpdate(response(`${first},${second}`), original));
+    assert.equal(updated.sheet_0.content[2][1], cell);
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+    assert.throws(() => parseUpdate(response(`${first}}},${second}`), original), /JSON 解析失败/);
+    assert.throws(() => parseUpdate(response(first.replace('},"row"', '}},"row"')), original), /JSON 解析失败/);
+    assert.deepEqual(original, database());
+});
+
 test('legacy tagged snapshots preserve literal closing tags and accept a missing carrier close', () => {
     const snapshot = database();
     snapshot.sheet_0.content[1][2] = '保留 </dataUpdate> 字面文本';
