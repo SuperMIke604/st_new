@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
 
 import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
-import { startDatabaseLog, finishDatabaseLog, clearDatabaseLog, databaseLogText, databaseLogExport, retainMalformedDatabaseResponse } from '../database-log.js';
+import { DatabaseWriteError, startDatabaseLog, finishDatabaseLog, clearDatabaseLog, databaseLogText, databaseLogExport, retainMalformedDatabaseResponse } from '../database-log.js';
 import { readEvents } from '../api.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
@@ -18,7 +18,7 @@ function fixture() {
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
     const context = vm.createContext({ state, cancelMessageEdit() {}, panelDirty: false, panelRevision: 1, AbortController, DOMException,
-        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
+        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: () => ({}), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
@@ -61,6 +61,22 @@ test('database summary rejects a newer snapshot arriving while request is runnin
     const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();
     f.state.chat.push({ is_user: false, mes: 'new', TavernDB_ACU_Data: defaultDatabase() });
     f.finish(); await assert.rejects(task, /最新数据库已变化/); assert.equal(f.writes.length, 0);
+    assert.equal(databaseLogExport().entries[0].reason, '最新数据库快照所在楼层已变化');
+});
+
+test('automatic database summary saves while a later non-streaming reply is waiting for its API response', async () => {
+    const f = fixture();
+    storeDatabase(f.state.chat, f.state.header, defaultDatabase(), 1);
+    Object.assign(f.settings, { auto: false, databaseSummaryAuto: true, databaseSummaryTokens: 100 });
+    const task = f.run('autoUpdateDatabase()'); await tick();
+    const pending = { is_user: false, mes: '' };
+    f.state.chat.push({ is_user: true, mes: 'next' }, pending);
+    f.state.busy = true;
+    f.state.generation = { reply: pending };
+    f.finish(); await task;
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.state.chat[1].extra.independentDatabase.kind, 'database');
+    assert.equal(f.state.generation.reply, pending);
 });
 
 test('automatic database summary runs with message summary disabled and avoids repeated compaction', async () => {
@@ -133,9 +149,25 @@ test('fill alone does not activate the chat composer busy state and rejects dupl
 });
 
 test('fill rejects changed source, database, and switched chat without writing', async () => {
-    for (const change of [f => { f.state.chat[1].mes = 'edited'; }, f => { f.state.chat[0].TavernDB_ACU_Data = {}; }, f => { f.state.file = 'other'; }, f => { f.state.chat = structuredClone(f.state.chat); }]) {
+    const conflicts = [
+        ['目标楼层或之前的消息已变化', f => { f.state.chat[1].mes = 'edited'; }],
+        ['写入所依据的数据库快照已变化', f => { f.state.chat[0].TavernDB_ACU_Data = {}; }],
+        ['当前聊天已切换', f => { f.state.file = 'other'; }],
+        ['当前聊天记录或元数据已被替换', f => { f.state.chat = structuredClone(f.state.chat); }],
+        ['目标楼层已替换且正在生成', f => {
+            const reply = { is_user: false, mes: '' };
+            f.state.chat[1] = reply;
+            f.state.generation = { reply };
+        }],
+        ['当前聊天尚未保存，请先重试保存。', f => { f.state.dirty = true; }],
+    ];
+    for (const [reason, change] of conflicts) {
         const f = fixture(), task = f.run('updateDatabase(0, 1)'); await tick();
-        change(f); f.finish(); await assert.rejects(task, /变化/);
+        change(f); f.finish(); await assert.rejects(task, DatabaseWriteError);
+        const [entry] = databaseLogExport().entries;
+        assert.equal(entry.stage, '复核聊天与快照');
+        assert.equal(entry.reason, reason);
+        assert.ok(databaseLogText().includes(reason));
         assert.equal(f.writes.length, 0); assert.equal(f.state.databaseController, null);
     }
 });

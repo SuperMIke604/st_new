@@ -2,6 +2,13 @@ const entries = [];
 const limit = 50;
 let latestMalformed;
 
+export class DatabaseWriteError extends Error {
+    constructor(message, reason = message) {
+        super(message);
+        this.reason = reason;
+    }
+}
+
 export function startDatabaseLog(automatic, kind) {
     const entry = {
         startedAt: Date.now(), trigger: automatic ? '自动' : '手动',
@@ -19,7 +26,8 @@ export function finishDatabaseLog(entry, status, error) {
     entry.durationMs = Date.now() - entry.startedAt;
     if (Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599) entry.httpStatus = error.status;
     // Error messages can include model output, prompts or credentials.
-    if (error?.name === 'TimeoutError') entry.reason = '请求超时';
+    if (error instanceof DatabaseWriteError) entry.reason = error.reason;
+    else if (error?.name === 'TimeoutError') entry.reason = '请求超时';
     else if (!entry.reason && error?.name === 'SyntaxError' && entry.stage === '读取模型响应') entry.reason = '模型接口返回的 JSON 无效';
     else if (!entry.reason && error?.name === 'TypeError' && entry.stage === '请求模型' && !entry.httpStatus) entry.reason = '未收到模型接口的 HTTP 响应';
 }

@@ -1,0 +1,97 @@
+/* Claude Web's daytime palette, adapted to the standalone front end. */
+:root[data-palette="claude-day"] {
+    --paper: #f8f8f6;
+    --surface: #fff;
+    --soft: #f4f4f1;
+    --ink: #262522;
+    --muted: #686660;
+    --line: #dedcd6;
+    --green: #a64d32;
+    --claude-day-accent: #d97757;
+    --claude-day-accent-soft: #f3e0d8;
+    --claude-day-serif: Georgia, "Songti SC", "Noto Serif CJK SC", SimSun, serif;
+    --ui-tone-35573e: #893d27;
+    --ui-tone-365b41: var(--ui-tone-35573e);
+    --ui-tone-3d6243: var(--green);
+    --ui-tone-3f6545: var(--green);
+    --ui-tone-496c53: var(--green);
+    --ui-tone-63715e: var(--muted);
+    --ui-tone-748272: var(--muted);
+    --ui-tone-87967c: var(--muted);
+    --ui-tone-8b9584: var(--muted);
+    --ui-tone-8ba181: var(--green);
+    --ui-tone-a1aa9a: var(--muted);
+    --ui-tone-a2ac9a: var(--muted);
+    --ui-tone-d3dccb: #c9c5bc;
+    --ui-tone-dce5d3: #aaa79e;
+    --ui-tone-dce6d3: var(--line);
+    --ui-tone-dde5d6: var(--line);
+    --ui-tone-dfe7d6: var(--line);
+    --ui-tone-e2e8db: var(--soft);
+    --ui-tone-e4ecdc: var(--claude-day-accent-soft);
+    --ui-tone-e6eddf: var(--soft);
+    --ui-tone-e7efdf: var(--claude-day-accent-soft);
+    --ui-tone-e9eee3: #efeeeb;
+    --ui-tone-e9eee4: var(--ui-tone-e9eee3);
+    --ui-tone-edf2e8: var(--soft);
+    --ui-tone-f0f4eb: var(--soft);
+    --ui-tone-f2f5ee: var(--soft);
+    --ui-tone-f8faf5: #f8f7f3;
+    --ui-tone-fafbf8: var(--surface);
+    --ui-tone-fafbf8f5: var(--surface);
+}
+
+[data-palette="claude-day"] ::selection {
+    color: var(--ink);
+    background: #efcfc2;
+}
+
+[data-palette="claude-day"] .appbar {
+    box-shadow: inset 0 -1px var(--line);
+}
+
+[data-palette="claude-day"] :is(.welcome h1, .message-content, .reading-sample) {
+    font-family: var(--claude-day-serif);
+}
+
+[data-palette="claude-day"] .welcome h1 {
+    color: var(--ink);
+    letter-spacing: normal;
+}
+
+[data-palette="claude-day"] :is(.welcome p, .eyebrow, .field small, .panel-header small) {
+    color: var(--muted);
+}
+
+[data-palette="claude-day"] .message {
+    background: transparent;
+    box-shadow: none;
+}
+
+[data-palette="claude-day"] .message.from-user {
+    background: #eeede9;
+}
+
+[data-palette="claude-day"] :is(.message-content, .reading-sample) .dialogue-quote {
+    color: var(--reading-dialogueColor, #863e2c);
+}
+
+[data-palette="claude-day"] .message-content a {
+    color: var(--green);
+    text-underline-offset: 3px;
+}
+
+[data-palette="claude-day"] .message-content blockquote {
+    background: var(--soft);
+    border-inline-start-color: var(--claude-day-accent);
+    color: var(--muted);
+}
+
+[data-palette="claude-day"] #composer {
+    background: var(--surface);
+    box-shadow: 0 6px 24px #2b282214;
+}
+
+[data-palette="claude-day"] #composer:focus-within {
+    border-color: var(--green);
+}

@@ -23,7 +23,7 @@ import { PresetTokenPreview } from './preset-tokens.js';
 import { GenerationPreload, generationDatabaseResources } from './generation-preload.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
-import { startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse } from './database-log.js';
+import { DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse } from './database-log.js';
 import { TavernAPI, readEvents } from './api.js';
 import { buildPrompt, fitPrompt, generationBody, activateWorlds, expand } from './engine.js';
 import { VirtualChat } from './virtual-chat.js';
@@ -528,14 +528,21 @@ function welcome() {
     $('message-list').append(welcome);
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
+function applyPalette(palette, persist = false) {
+    document.documentElement.dataset.palette = palette;
+    const themeColor = palette === 'claude-day' ? '#f8f8f6'
+        : ['paper', 'mist', 'ivory'].includes(palette) ? '#f3eee4' : '#f7f8f4';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+    if (persist) {
+        try { localStorage.setItem('independent-palette', palette); } catch { /* Server preferences remain available. */ }
+    }
+}
 async function reloadResources() {
     const loaded = await api.bootstrapSettings(); state.settings = loaded.settings; state.bundle = loaded.bundle;
     const legacySelection = { independent_frontend: { preset: state.settings.independent_frontend?.preset }, extension_settings: { independent_frontend: { preset: state.settings.extension_settings?.independent_frontend?.preset } } };
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
-    document.documentElement.dataset.palette = state.own.palette || 'paper';
-    try{localStorage.setItem('independent-palette',state.own.palette||'paper');}catch{}
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',['mist','ivory'].includes(state.own.palette)?'#f3eee4':(state.own.palette||'paper')==='paper'?'#f3eee4':'#f7f8f4');
+    applyPalette(state.own.palette || 'paper', true);
     try { const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null'); if (saved) state.own.reading = readingSettings(saved, true); } catch { /* Use server preferences when local data is unavailable. */ }
     applyReading(state.own.reading);
     await presetSelection.load(legacySelection, presets().map(item => item.name));
@@ -2356,11 +2363,11 @@ async function databaseModels(config) {
  const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
 }
 function assertDatabaseWritable() {
-    if (state.historySaving) throw new Error('正在保存聊天记录，请稍候。');
-    if (state.databaseHistorySaving) throw new Error('正在保存历史总结删除，请稍候。');
-    if (state.loading) throw new Error('正在切换聊天，请稍候。');
+    if (state.historySaving) throw new DatabaseWriteError('正在保存聊天记录，请稍候。');
+    if (state.databaseHistorySaving) throw new DatabaseWriteError('正在保存历史总结删除，请稍候。');
+    if (state.loading) throw new DatabaseWriteError('正在切换聊天，请稍候。');
     cancelMessageEdit();
-    if (state.dirty && !state.busy) throw new Error('当前聊天尚未保存，请先重试保存。');
+    if (state.dirty && !state.busy) throw new DatabaseWriteError('当前聊天尚未保存，请先重试保存。');
 }
 function databaseWriteGuard(index) {
     const chat = state.chat, header = state.header, identity = `${state.character?.avatar}/${state.file}`, target = chat[index];
@@ -2370,9 +2377,22 @@ function databaseWriteGuard(index) {
     return {
         check() {
             assertDatabaseWritable();
-            if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity || chat[index] !== target || sourceHash(chat, index) !== hash || snapshot() !== original)
-                throw new Error('聊天或数据库已变化，请重新打开数据库后重试。');
-            if (target && state.generation?.reply === target) throw new Error('该楼层正在生成，请选择已完成的楼层。');
+            const changed = '聊天或数据库已变化，请重新打开数据库后重试。';
+            if (`${state.character?.avatar}/${state.file}` !== identity)
+                throw new DatabaseWriteError(changed, '当前聊天已切换');
+            if (state.chat !== chat || state.header !== header)
+                throw new DatabaseWriteError(changed, '当前聊天记录或元数据已被替换');
+            if (chat[index] !== target) {
+                const reason = chat[index] && state.generation?.reply === chat[index]
+                    ? '目标楼层已替换且正在生成' : '目标楼层已替换、移动或删除';
+                throw new DatabaseWriteError(changed, reason);
+            }
+            if (sourceHash(chat, index) !== hash)
+                throw new DatabaseWriteError(changed, '目标楼层或之前的消息已变化');
+            if (snapshot() !== original)
+                throw new DatabaseWriteError(changed, '写入所依据的数据库快照已变化');
+            if (target && state.generation?.reply === target)
+                throw new DatabaseWriteError('该楼层正在生成，请选择已完成的楼层。', '目标楼层正在生成');
         },
         saved() { original = snapshot(); },
     };
@@ -2555,7 +2575,14 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
         if (controller.signal.aborted) throw new DOMException('填表已停止', 'AbortError');
         log.stage = '复核聊天与快照';
         write.check();
-        if (summarizing && (currentDatabase().index !== current.index || JSON.stringify(currentDatabase().data) !== sourceDatabase)) throw new Error('最新数据库已变化，请重新总结。');
+        if (summarizing) {
+            const latest = currentDatabase();
+            const changed = '最新数据库已变化，请重新总结。';
+            if (latest.index !== current.index)
+                throw new DatabaseWriteError(changed, '最新数据库快照所在楼层已变化');
+            if (JSON.stringify(latest.data) !== sourceDatabase)
+                throw new DatabaseWriteError(changed, '最新数据库内容已变化');
+        }
         const metadata = summarizing ? { kind, messageSummaryTo: previousMeta?.messageSummaryTo ?? previousMeta?.to ?? current.index, batches } : { kind, from: rangeStart, to, batches };
         log.stage = '校验并写入快照';
         storeDatabase(state.chat, state.header, result, to, metadata);
@@ -2851,8 +2878,10 @@ function toolsPanel() {
     if (state.dirty) body.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
-    const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色'], ['ivory', '象牙纸白']] });
-    palette.addEventListener('change', () => { document.documentElement.dataset.palette = palette.value; });
+    const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [
+        ['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色'], ['ivory', '象牙纸白'], ['claude-day', 'Claude 白天'],
+    ] });
+    palette.addEventListener('change', () => applyPalette(palette.value));
     const rememberReading = value => { const settings = readingSettings(value, true); state.own.reading = settings; try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ } applyReading(settings); };
     const reading = readingSettings(state.own.reading), typography = el('div', 'parameter-grid'); body.append(typography);
     const readingInputs = new Map();
@@ -2879,7 +2908,11 @@ function toolsPanel() {
         rememberReading(values()); panelDirty = true;
     }, 'refresh'), action('保存阅读设置', async () => {
         const reading = readingSettings(values(), true);
-        await saveOwn({ enterSend: enter.value === 'enter', palette: palette.value, reading }); rememberReading(reading); document.documentElement.dataset.palette = palette.value; try{localStorage.setItem('independent-palette',palette.value);}catch{} document.querySelector('meta[name="theme-color"]')?.setAttribute('content',['mist','ivory'].includes(palette.value)?'#f3eee4':palette.value==='paper'?'#f3eee4':'#f7f8f4'); panelDirty = false; notify('阅读设置已保存');
+        const selectedPalette = palette.value;
+        await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
+        rememberReading(reading);
+        applyPalette(selectedPalette, true);
+        panelDirty = false; notify('阅读设置已保存');
     }, 'tools', 'primary')); body.append(footer);
     note(body, '手机输入框默认回车换行，用发送按钮发送。此页面独立运行，不加载原生前端或第三方扩展。');
     const native = el('a', 'native-link', '打开原生页面'); native.href = '/'; native.target = '_blank'; native.rel = 'noopener'; body.append(native);
