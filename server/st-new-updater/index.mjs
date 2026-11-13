@@ -15,7 +15,16 @@ const plainFilename = value => typeof value === 'string' && value.length > 0
 const safeField = key => !['__proto__', 'prototype', 'constructor'].includes(key);
 const conflict = '聊天已在别处变化，请重新打开聊天后再发送。';
 
-function applyChatDelta(directory, body) {
+function applyChatDelta(directory, body, confirmed) {
+    const started = performance.now();
+    let phase = started;
+    const timings = {};
+    const mark = name => {
+        const now = performance.now();
+        timings[name] = now - phase;
+        phase = now;
+    };
+    const success = revision => ({ ok: true, revision, timings: { ...timings, deltaServerMs: performance.now() - started } });
     const { avatar_url: avatar, file_name: file, base, result, patches, append } = body ?? {};
     if (!plainFilename(avatar) || !avatar.endsWith('.png') || !plainFilename(avatar.slice(0, -4))
         || avatar.slice(0, -4).includes('.png') || !plainFilename(file) || Buffer.byteLength(file + '.jsonl') > 255)
@@ -32,48 +41,69 @@ function applyChatDelta(directory, body) {
         if (!lstatSync(folder).isDirectory()) return { status: 422, error: 'delta-unsupported' };
         stamp = lstatSync(target, { bigint: true });
         if (!stamp.isFile() || stamp.size > 64n * 1024n * 1024n) return { status: 422, error: 'delta-unsupported' };
-        original = readFileSync(target, 'utf8');
+        original = readFileSync(target);
     } catch (error) {
         if (error.code === 'ENOENT') return { status: 409, error: conflict };
         throw error;
     }
-    let records;
-    try { records = original.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line)); }
-    catch { return { status: 409, error: conflict }; }
-    if (!record(records[0]) || Object.hasOwn(records[0], 'mes') || !records.every(record)) return { status: 409, error: conflict };
-    const lines = records.map(item => JSON.stringify(item));
-    const current = digest(lines.join('\n'));
-    if (current === result) return { ok: true, revision: result };
+    mark('deltaReadMs');
+    let current, lines;
+    try {
+        // Reuse validation only for byte-identical content written and verified
+        // by this plugin. Native edits still take the canonical JSONL path.
+        if (confirmed.target === target && digest(original) === confirmed.revision) {
+            lines = original.toString('utf8').split('\n');
+            current = confirmed.revision;
+            timings.deltaConfirmed = 1;
+        } else {
+            const records = original.toString('utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+            if (!record(records[0]) || Object.hasOwn(records[0], 'mes') || !records.every(record)) return { status: 409, error: conflict };
+            lines = records.map(item => JSON.stringify(item));
+            current = digest(lines.join('\n'));
+            timings.deltaConfirmed = 0;
+        }
+    } catch (error) {
+        if (error instanceof SyntaxError) return { status: 409, error: conflict };
+        throw error;
+    }
+    mark('deltaBaseMs');
+    if (current === result) return success(result);
     if (current !== base) return { status: 409, error: conflict };
-    const integrity = records[0].chat_metadata?.integrity;
     const seen = new Set();
     for (const patch of patches) {
         const { index, fields, remove } = patch ?? {};
-        if (!Number.isSafeInteger(index) || index < 0 || index >= records.length || seen.has(index)
+        if (!Number.isSafeInteger(index) || index < 0 || index >= lines.length || seen.has(index)
             || !record(fields) || !Array.isArray(remove) || !Object.keys(fields).every(safeField)
             || !remove.every(key => typeof key === 'string' && safeField(key))) return { status: 400, error: '无效的聊天字段。' };
         seen.add(index);
-        for (const key of remove) delete records[index][key];
-        records[index] = { ...records[index], ...fields };
-        lines[index] = JSON.stringify(records[index]);
+        const previous = JSON.parse(lines[index]);
+        const integrity = index === 0 ? previous.chat_metadata?.integrity : undefined;
+        for (const key of remove) delete previous[key];
+        const next = { ...previous, ...fields };
+        if (index === 0 && (Object.hasOwn(next, 'mes') || next.chat_metadata?.integrity !== integrity)) return { status: 409, error: conflict };
+        lines[index] = JSON.stringify(next);
     }
-    if (Object.hasOwn(records[0], 'mes') || records[0].chat_metadata?.integrity !== integrity) return { status: 409, error: conflict };
     for (const message of append) lines.push(JSON.stringify(message));
-    const updated = lines.join('\n');
+    const updated = Buffer.from(lines.join('\n'), 'utf8');
     if (digest(updated) !== result) return { status: 409, error: conflict };
+    mark('deltaPatchMs');
     // Keep validation and atomic replacement in one turn of the host event loop.
     // The temporary file is adjacent so rename cannot cross volumes.
     const temp = path.join(folder, '.st-new-chat-' + randomUUID() + '.tmp');
     try {
         const fd = openSync(temp, 'wx', Number(stamp.mode & 0o777n));
-        try { writeFileSync(fd, updated, 'utf8'); fsyncSync(fd); }
+        try { writeFileSync(fd, updated); fsyncSync(fd); }
         finally { closeSync(fd); }
         const latest = lstatSync(target, { bigint: true });
         if (latest.ino !== stamp.ino || latest.size !== stamp.size || latest.mtimeNs !== stamp.mtimeNs || latest.ctimeNs !== stamp.ctimeNs)
             return { status: 409, error: conflict };
         renameSync(temp, target);
+        mark('deltaWriteMs');
         if (digest(readFileSync(target)) !== result) return { status: 409, error: conflict };
-        return { ok: true, revision: result };
+        mark('deltaVerifyMs');
+        confirmed.target = target;
+        confirmed.revision = result;
+        return success(result);
     } finally { try { unlinkSync(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
 }
 export function validateManifest(value) {
@@ -257,10 +287,12 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
     const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
+    const confirmedChat = {};
     router.post('/chat-delta', (request, response) => {
         try {
-            const result = applyChatDelta(request.user.directories.chats, request.body);
+            const { timings, ...result } = applyChatDelta(request.user.directories.chats, request.body, confirmedChat);
             if (result.status) return response.status(result.status).json({ error: result.error });
+            response.set?.('Server-Timing', Object.entries(timings).map(([key, value]) => `${key};dur=${value.toFixed(2)}`).join(', '));
             return response.json(result);
         } catch { return response.status(500).json({ error: '聊天增量保存失败，请重试。' }); }
     });

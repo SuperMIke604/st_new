@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "bf47d639ffd0fcbfa13cdb884995bce9f8de3a839e34bfa400a2609a8e04bb16",
-  "publishedAt": "2026-11-13T08:51:57.211845+00:00",
+  "revision": "8bb476751ea48415842fdf92dd1a2cbbef8d68cc0e6a03543ecef2dc34da1f3d",
+  "publishedAt": "2026-11-13T09:50:40.445697+00:00",
   "files": {
     "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -34,7 +34,7 @@
     "public/app/icons.js": "8452a42bfac658adc972f4fea93c0f2b5b8761dc3da13970154bb65b81d09c85",
     "public/app/index.html": "1486c2b21275e8d226f4fc2a7c10f92eb91ddcb97ec969b68acbff926d42d6cc",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/load-timings.js": "294aab35e1b77b63bbe4842c8ec139441dae28da7fa376a2905353733ae95a69",
+    "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
     "public/app/main.js": "e39016ff74075705e57928f0ac3c53674eeb46a449c825d0d8345fc42ad003eb",
     "public/app/message-edit.js": "d5b08ef67f281c0cf0495f460e27bbba0c8859039c9e5524540d91e7cb9b3afd",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
@@ -86,10 +86,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "487d2e960ebf8d520e962f508983370bbf8a5c4bf13611401e930fe0f759f230"
+    "public/app/version.js": "fa692076b8ad3ec9bb5cbbf36df90837a31b5e2c31e2c77234ed2330d6277d29"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "6891b5e43d93acc2b23b2295cdd7bd5603e01c38f88e7e6b17041b8792fc4bcf"
+    "sha256": "4a3d3d3a367093e47a41c85c5de09d7c5cb89075bda55304fc9f10ab9d80d5d8"
   }
 }

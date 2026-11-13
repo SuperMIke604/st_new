@@ -23,7 +23,8 @@ test('chat delta preserves unknown history, verifies persistence, and rejects st
     await init({ post: (route, handler) => routes.set(route, handler) });
     const call = overrides => {
         const result = { status: 200 };
-        const response = { json: body => { result.body = body; }, status: code => { result.status = code; return response; } };
+        const response = { json: body => { result.body = body; }, status: code => { result.status = code; return response; },
+            set: (name, value) => { if (name === 'Server-Timing') result.timings = value; } };
         routes.get('/chat-delta')({ user: { directories: { chats } }, body: {
             avatar_url: '角色.png', file_name: '聊天', base: revision([header, history]),
             result: revision([header, history, user]), append: [user], patches: [], ...overrides,
@@ -32,8 +33,13 @@ test('chat delta preserves unknown history, verifies persistence, and rejects st
     };
     assert.equal(call({ file_name: '../聊天' }).status, 422);
     assert.equal(call({ file_name: '不存在' }).status, 409);
-    assert.deepEqual(call(), { status: 200, body: { ok: true, revision: revision([header, history, user]) } });
-    assert.equal(call().status, 200, 'an ambiguous retry cannot append twice');
+    const first = call();
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.body, { ok: true, revision: revision([header, history, user]) });
+    assert.match(first.timings, /deltaConfirmed;dur=0\.00/);
+    const retry = call();
+    assert.equal(retry.status, 200, 'an ambiguous retry cannot append twice');
+    assert.match(retry.timings, /deltaConfirmed;dur=1\.00/);
     assert.equal(await fs.readFile(target, 'utf8'), serialize([header, history, user]));
     const edited = { ...user, variables: { 0: { score: 5 } } };
     const edit = { base: revision([header, history, user]), result: revision([header, history, edited]), append: [],
@@ -41,9 +47,15 @@ test('chat delta preserves unknown history, verifies persistence, and rejects st
     assert.equal(call({ ...edit, base: '0'.repeat(64) }).status, 409);
     assert.equal(call({ ...edit, patches: [{ index: 0, fields: { chat_metadata: { integrity: 'changed' } }, remove: [] }] }).status, 409);
     assert.equal(call({ ...edit, patches: [{ index: 2, fields: JSON.parse('{"__proto__":{}}'), remove: [] }] }).status, 400);
-    assert.equal(call(edit).status, 200);
+    const saved = call(edit);
+    assert.equal(saved.status, 200);
+    assert.match(saved.timings, /deltaConfirmed;dur=1\.00/);
     assert.equal(await fs.readFile(target, 'utf8'), serialize([header, history, edited]));
     assert.equal(call({ ...edit, result: '0'.repeat(64) }).status, 409);
+    const external = serialize([header, { ...history, mes: '新历史' }, edited]);
+    await fs.writeFile(target, external);
+    assert.equal(call(edit).status, 409);
+    assert.equal(await fs.readFile(target, 'utf8'), external);
     assert.deepEqual(await fs.readdir(path.dirname(target)), ['聊天.jsonl']);
 });
 

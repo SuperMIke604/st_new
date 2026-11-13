@@ -138,6 +138,15 @@ test('request timings omit query values and bodies and preserve HTTP error behav
         assert.equal(entry.httpStatus, 500); assert.equal(entry.reason, 'http-error');
         assert.match(timingDetailText(entry), /HTTP 500.*服务端/);
         assert.ok(!JSON.stringify(entry).includes('private-'));
+        globalThis.fetch = async () => new Response('{}', { headers: {
+            'Server-Timing': 'deltaReadMs;dur=24.42, deltaConfirmed;dur=0.00, unknown;dur=99;desc="private-header"',
+        } });
+        await timedFetch('/api/plugins/st-new-updater/chat-delta');
+        const delta = loadTimings.snapshot().at(-1);
+        assert.deepEqual(delta.metrics, { deltaReadMs: 24.4, deltaConfirmed: 0 });
+        assert.match(timingDetailText(delta), /已确认文件命中：0/);
+        await timedFetch('/api/example');
+        assert.equal(loadTimings.snapshot().at(-1).metrics, undefined);
         globalThis.fetch = async () => { throw new DOMException('private-error', 'AbortError'); };
         await assert.rejects(timedFetch('/api/cancelled'));
         assert.equal(loadTimings.snapshot().at(-1).status, 'cancelled');
