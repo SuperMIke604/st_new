@@ -32,6 +32,28 @@ test('tagged updates repair full-width commas between operations and preserve ce
     assert.deepEqual(original, database());
 });
 
+test('tagged updates escape unambiguous quotes inside numeric column values', () => {
+    const original = database();
+    const cell = '正文里的 "称呼"、转义的 "引号"、路径 C:\\临时';
+    const operations = [
+        { action: 'update', sheet: 'sheet_0', row: 0, data: { 1: cell } },
+        { action: 'insert', sheet: 'sheet_0', data: { 0: '乙' } },
+    ];
+    const response = payload => '<dataUpdate>' + payload + '</dataUpdate>';
+    const json = JSON.stringify({ operations }, null, 2);
+    const malformed = json.replace('\\"称呼\\"', '"称呼"');
+    const counts = {}, diagnostics = {};
+
+    const updated = parseUpdate(response(malformed), original, counts, diagnostics);
+    assert.deepEqual(updated, parseUpdate(response(json), original));
+    assert.equal(updated.sheet_0.content[1][2], cell);
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+    assert.match(diagnostics.result, /已修复单元格引号/);
+    assert.throws(() => parseUpdate(response(malformed.replace('"称呼"', '"称呼",')), original), /JSON 解析失败/);
+    assert.throws(() => parseUpdate(response(malformed.replace('"1":', '"row":')), original), /JSON 解析失败/);
+    assert.deepEqual(original, database());
+});
+
 test('tagged updates repair one mismatched data bracket without changing operations', () => {
     const original = database();
     const cell = '保留 ]、{、\\ 和 "引号"';

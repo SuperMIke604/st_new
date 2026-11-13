@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "8bb476751ea48415842fdf92dd1a2cbbef8d68cc0e6a03543ecef2dc34da1f3d",
-  "publishedAt": "2026-11-13T09:50:40.445697+00:00",
+  "revision": "f8941aed9898b02c2405c269f3c544611f9df56557027e8d26b53e71b9b703f9",
+  "publishedAt": "2026-11-13T15:32:49.607491+00:00",
   "files": {
     "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -18,7 +18,7 @@
     "public/app/database-overview.js": "44fcea32da45c15d753e6e61c0e94d994a20bf07d4226691b1b1b3e9d9257803",
     "public/app/DATABASE-PARITY.md": "c5e720819ec036b9866da21b608f5ca2ac0b97e687a475fd0dfd8600d3423d3c",
     "public/app/database-preview.js": "24d2bd036ba984422ae095bf53d65a17dfd93ee1412aa35a7183888563e2146b",
-    "public/app/database-reference.js": "632baf041af84466b1c1047682b1c737288910490808edee745b2154e7d67972",
+    "public/app/database-reference.js": "b718273e77402c9c17c662f13eb51ee42cc60801f3fbf1f10e0eb6cf7c19566a",
     "public/app/database-ui.js": "ced72e445c314ed01f5fc67fcb52bc248fd8c2982ddf07400362db63a2e88a17",
     "public/app/database.js": "a6e6f30f3649449fc8b324765ac928ea3ae6c414f5fe82c47697735553b3a919",
     "public/app/diagnostic-export.js": "3c0699c9f2e87a347440b7fc89502baff2239cd27503fa05925a6e55a653a5d6",
@@ -86,7 +86,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "fa692076b8ad3ec9bb5cbbf36df90837a31b5e2c31e2c77234ed2330d6277d29"
+    "public/app/version.js": "f67593eb17c3f1dcb6cbf26f33d0c30da325d22bb3e16a6222b830ed10985c58"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

@@ -107,6 +107,38 @@ function parseJsonObject(text) {
     }
 }
 
+function repairOperationCellQuotes(payload) {
+    let changed = false;
+    // A numeric column must occupy its own line, with an intact value delimiter.
+    const cellLine = /^([ \t]*"(?:0|[1-9]\d*)"[ \t]*:[ \t]*")(.*)("[ \t]*,?[ \t]*\r?)$/gm;
+    const repaired = payload.replace(cellLine, (line, prefix, value, suffix) => {
+        // A quote beside JSON punctuation could be a structural delimiter.
+        const tokens = /\\[^\r\n]|"(\s*[,}\]:])?/g;
+        let ambiguous = false;
+        const escaped = value.replace(tokens, (token, delimiter) => {
+            if (delimiter) ambiguous = true;
+            return token === '"' ? '\\"' : token;
+        });
+        if (ambiguous || escaped === value) return line;
+        changed = true;
+        return prefix + escaped + suffix;
+    });
+    if (!changed) return null;
+
+    const data = parseJsonObject(repaired);
+    if (!Array.isArray(data?.operations) || Object.keys(data).length !== 1) return null;
+    const valid = data.operations.every(operation => {
+        if (!operation || !['insert', 'update', 'delete'].includes(operation.action)
+            || !Object.keys(operation).every(key => ['action', 'sheet', 'row', 'data'].includes(key))) return false;
+        if (!Object.hasOwn(operation, 'data')) return operation.action === 'delete';
+        const cells = operation.data;
+        return cells && typeof cells === 'object' && !Array.isArray(cells)
+            && Object.entries(cells).every(([column, value]) => /^(0|[1-9]\d*)$/.test(column)
+                && (value === null || typeof value !== 'object'));
+    });
+    return valid ? data : null;
+}
+
 function repairJsonCandidate(text, taggedUpdate) {
     const normalized = normalizeJsonSyntax(text);
     if (normalized === null) return null;
@@ -167,13 +199,17 @@ function parseDataUpdate(aiResponse, diagnostics) {
         return false;
     }
 
-    let data;
+    let data, format;
     try {
         data = JSON.parse(payload.trim());
     } catch (e) {
         // 使用 repairAIJson 进行多策略修复
         console.warn('parseDataUpdate: 首次 JSON.parse 失败，启动修复');
         data = repairAIJson(payload, true);
+        if (!data) {
+            data = repairOperationCellQuotes(payload);
+            if (data) format = '已修复单元格引号';
+        }
         if (!data) {
             if (diagnostics) diagnostics.result = '<dataUpdate> JSON 无效，自动修复失败';
             console.error('parseDataUpdate: repairAIJson 也未能修复');
@@ -194,7 +230,7 @@ function parseDataUpdate(aiResponse, diagnostics) {
 
     // 格式 A：operations 数组 — 增量更新
     if (Array.isArray(data.operations)) {
-        return applyOperations(data.operations, diagnostics);
+        return applyOperations(data.operations, diagnostics, format);
     }
 
     // 格式 B：完整数据替换 — 直接合并/覆盖 sheet_*
