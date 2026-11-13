@@ -17,12 +17,16 @@ test('copy writes directly and leaves no visible JSON editor when the clipboard 
 
 test('in-flight export captures a snapshot without download and saves the same snapshot after completion', async () => {
     let busy = true, urlsCreated = 0, blob, clicked = 0;
-    const nodes = [], parent = { append(node) { nodes.push(node); }, querySelector() { return null; } };
+    const list = { before(node) { nodes.unshift(node); } };
+    const nodes = [list], parent = { append(node) { nodes.push(node); }, querySelector(selector) { return selector === '.timing-table-wrap' ? list : null; } };
     const doc = { createElement(tag) { return { tag, children: [], setAttribute() {}, addEventListener(_type, callback) { this.callback = callback; }, append(...children) { this.children.push(...children); }, click() { clicked++; }, remove() {} }; } };
-    const dependencies = { document: doc, urls: { createObjectURL(value) { urlsCreated++; blob = value; return 'blob:snapshot'; }, revokeObjectURL() {} }, later() {} };
+    let copied;
+    const dependencies = { document: doc, clipboard: { async writeText(text) { copied = text; } }, urls: { createObjectURL(value) { urlsCreated++; blob = value; return 'blob:snapshot'; }, revokeObjectURL() {} }, later() {} };
     exportDiagnostics('{"schema":3,"pending":true}', parent, () => busy, dependencies);
-    const [note, preview, save] = nodes[0].children;
+    const [note, preview, save, copy] = nodes[0].children;
+    assert.equal(nodes[1], list);
     assert.equal(urlsCreated, 0); assert.equal(preview.readOnly, true); assert.match(preview.value, /pending/);
+    await copy.callback(); assert.equal(copied, preview.value); assert.equal(clicked, 0);
     save.callback(); assert.equal(clicked, 0); assert.match(note.textContent, /仍在生成/);
     busy = false; save.callback();
     assert.equal(clicked, 1); assert.equal(await blob.text(), preview.value);

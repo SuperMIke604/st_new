@@ -41,7 +41,8 @@ function applyChatDelta(directory, body) {
     try { records = original.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line)); }
     catch { return { status: 409, error: conflict }; }
     if (!record(records[0]) || Object.hasOwn(records[0], 'mes') || !records.every(record)) return { status: 409, error: conflict };
-    const current = digest(records.map(item => JSON.stringify(item)).join('\n'));
+    const lines = records.map(item => JSON.stringify(item));
+    const current = digest(lines.join('\n'));
     if (current === result) return { ok: true, revision: result };
     if (current !== base) return { status: 409, error: conflict };
     const integrity = records[0].chat_metadata?.integrity;
@@ -54,9 +55,11 @@ function applyChatDelta(directory, body) {
         seen.add(index);
         for (const key of remove) delete records[index][key];
         records[index] = { ...records[index], ...fields };
+        lines[index] = JSON.stringify(records[index]);
     }
     if (Object.hasOwn(records[0], 'mes') || records[0].chat_metadata?.integrity !== integrity) return { status: 409, error: conflict };
-    const updated = [...records, ...append].map(item => JSON.stringify(item)).join('\n');
+    for (const message of append) lines.push(JSON.stringify(message));
+    const updated = lines.join('\n');
     if (digest(updated) !== result) return { status: 409, error: conflict };
     // Keep validation and atomic replacement in one turn of the host event loop.
     // The temporary file is adjacent so rename cannot cross volumes.

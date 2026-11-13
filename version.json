@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "6f57c1546afbe3f7f126a60d2a09b66715bdcee68e96e190705bfbe73baae0c3",
-  "publishedAt": "2026-11-12T08:24:27.465769+00:00",
+  "revision": "bf47d639ffd0fcbfa13cdb884995bce9f8de3a839e34bfa400a2609a8e04bb16",
+  "publishedAt": "2026-11-13T08:51:57.211845+00:00",
   "files": {
     "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -21,7 +21,7 @@
     "public/app/database-reference.js": "632baf041af84466b1c1047682b1c737288910490808edee745b2154e7d67972",
     "public/app/database-ui.js": "ced72e445c314ed01f5fc67fcb52bc248fd8c2982ddf07400362db63a2e88a17",
     "public/app/database.js": "a6e6f30f3649449fc8b324765ac928ea3ae6c414f5fe82c47697735553b3a919",
-    "public/app/diagnostic-export.js": "a940bf86a72465f40bf57e900c2930d29c69e6fed0e76cadac8789938e5303f3",
+    "public/app/diagnostic-export.js": "3c0699c9f2e87a347440b7fc89502baff2239cd27503fa05925a6e55a653a5d6",
     "public/app/engine.js": "e4251e4d7728f4e7e04445649a87934318dc634c8245cf4449ab270051ce3cd0",
     "public/app/generation-interceptor.js": "8593d763aedbd646b39d19f6df0cb0994bb9c28fd991b843b85bd44ca57f19d3",
     "public/app/generation-parameters.js": "89d74934b1b9f32da32ccad4d1fd36589972fdc2c16a88e99dfe1653ad48b3df",
@@ -86,10 +86,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "0b83747703b593171d2d98d9b6517859d00c240e0063716ad11f04adf9759d8a"
+    "public/app/version.js": "487d2e960ebf8d520e962f508983370bbf8a5c4bf13611401e930fe0f759f230"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "43f00b4f8f554f4ba7570e16b8bf17a964893b241c8ec1748cfa7a2e832e0435"
+    "sha256": "6891b5e43d93acc2b23b2295cdd7bd5603e01c38f88e7e6b17041b8792fc4bcf"
   }
 }
