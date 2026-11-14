@@ -172,6 +172,36 @@ test('legacy tagged snapshots preserve literal closing tags and accept a missing
     }
 });
 
+test('clear removes only the specified table rows and can be retried', () => {
+    const original = database();
+    original.sheet_0.content.push([null, '乙', '正常']);
+    original.sheet_0.source = { keep: true };
+    original.sheet_1 = { name: '地点', content: [[null, '名称'], [null, '书店']] };
+    for (const sheet of ['sheet_0', '人物', 0]) {
+        const raw = JSON.stringify({ operations: [{ action: 'clear', sheet }] });
+        const counts = {};
+        const cleared = parseUpdate(raw, original, counts);
+        assert.deepEqual(cleared.sheet_0, { ...original.sheet_0, content: [original.sheet_0.content[0]] });
+        assert.deepEqual(cleared.sheet_1, original.sheet_1);
+        assert.deepEqual(parseUpdate(raw, cleared, counts), cleared);
+        assert.deepEqual(counts, { operations: 2, tables: 0 });
+    }
+    assert.equal(original.sheet_0.content.length, 3);
+    for (const operation of [{ action: 'clear' }, { action: 'clear', sheet: 'missing' },
+        { action: 'clear', sheet: 'sheet_0', row: 0 }]) {
+        assert.throws(() => parseUpdate(JSON.stringify({ operations: [operation] }), original), /目标表不存在|只接受/);
+    }
+});
+
+test('tagged JSON quote repair preserves clear and insert order', () => {
+    const text = '<dataUpdate>{"operations":[{"action":"clear","sheet":"sheet_0"},'
+        + '{"action":"insert","sheet":"sheet_0","data":{"0":"姓名包含"引号""}}]}</dataUpdate>';
+    const counts = {};
+    const result = parseUpdate(text, database(), counts);
+    assert.deepEqual(result.sheet_0.content, [[null, '姓名', '状态'], [null, '姓名包含"引号"', '']]);
+    assert.deepEqual(counts, { operations: 2, tables: 0 });
+});
+
 test('bare operations use the tagged update path only for a complete JSON object', () => {
     const original = database();
     const raw = JSON.stringify({ operations: [

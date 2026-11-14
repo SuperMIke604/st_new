@@ -126,6 +126,7 @@ export function parseUpdate(text, current, counts, diagnostics) {
             const label = reason.endsWith('目标表不存在') ? '目标表不存在'
                 : reason.startsWith('未知 action:') ? '不支持的操作'
                 : reason === 'delete 行索引越界' ? '删除行索引越界'
+                : reason === 'clear 只接受 action 和 sheet 字段' ? reason
                 : reason === 'update 缺少 row 索引' ? '更新缺少行索引'
                 : reason === '操作执行异常' ? reason : '';
             if (label) diagnostics.issues[label] = (diagnostics.issues[label] || 0) + 1;

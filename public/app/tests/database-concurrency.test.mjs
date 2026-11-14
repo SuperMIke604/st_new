@@ -61,6 +61,28 @@ test('database summary applies bare operations to the latest snapshot without di
     assert.equal(f.state.header.chat_metadata.independentDatabase.history.length, 1);
 });
 
+test('an AI clear operation saves the target table and archives its previous rows', async () => {
+    const f = fixture();
+    f.context.parseUpdate = parseUpdate;
+    const initial = defaultDatabase();
+    initial.sheet_0.content.push([null, '地点', '书店']);
+    initial.sheet_1.content.push([null, '甲', '朋友', '正常']);
+    storeDatabase(f.state.chat, f.state.header, initial, 1, { kind: 'message', to: 1 });
+
+    const task = f.run("updateDatabase(0, 0, false, 'database')");
+    await tick();
+    f.finish('<dataUpdate>{"operations":[{"action":"clear","sheet":"sheet_0"}]}</dataUpdate>');
+    await task;
+
+    assert.equal(f.writes.length, 1);
+    const saved = f.writes[0][1].TavernDB_ACU_Data;
+    assert.deepEqual(saved.sheet_0.content, [initial.sheet_0.content[0]]);
+    assert.deepEqual(saved.sheet_1, initial.sheet_1);
+    assert.deepEqual(databaseForChat(f.writes[0], f.state.header).data, saved);
+    const [previous] = f.state.header.chat_metadata.independentDatabase.history;
+    assert.deepEqual(previous.data, initial);
+});
+
 test('database summary rejects a newer snapshot arriving while request is running', async () => {
     const f = fixture();storeDatabase(f.state.chat, f.state.header, defaultDatabase(), 1);
     const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();

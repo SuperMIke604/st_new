@@ -141,6 +141,7 @@ function repairOperationCellQuotes(payload) {
     const data = parseJsonObject(repaired) ?? repairAIJson(repaired, true);
     if (!Array.isArray(data?.operations) || Object.keys(data).length !== 1) return null;
     const valid = data.operations.every(operation => {
+        if (operation?.action === 'clear') return isClearOperation(operation);
         if (!operation || !['insert', 'update', 'delete'].includes(operation.action)
             || !Object.keys(operation).every(key => ['action', 'sheet', 'row', 'data'].includes(key))) return false;
         if (!Object.hasOwn(operation, 'data')) return operation.action === 'delete';
@@ -261,6 +262,10 @@ function parseDataUpdate(aiResponse, diagnostics) {
     return false;
 }
 
+function isClearOperation(operation) {
+    return Object.keys(operation).every(key => key === 'action' || key === 'sheet');
+}
+
 function applyOperations(operations, diagnostics, format) {
     const sheets = Object.keys(currentJsonTableData)
         .filter(k => k.startsWith('sheet_'))
@@ -275,7 +280,7 @@ function applyOperations(operations, diagnostics, format) {
         }
 
         try {
-            // 支持 sheet 为数字索引或字符串 key
+            // 支持 sheet 为数字索引、表键或表名
             let table;
             let tableIndex;
             if (typeof op.sheet === 'number') {
@@ -299,6 +304,18 @@ function applyOperations(operations, diagnostics, format) {
             }
 
             switch (op.action) {
+                case 'clear': {
+                    if (!isClearOperation(op)) {
+                        appendTableEditErrorLog({
+                            reason: 'clear 只接受 action 和 sheet 字段',
+                            command: JSON.stringify(op),
+                        });
+                        break;
+                    }
+                    table.content.length = 1;
+                    appliedCount++;
+                    break;
+                }
                 case 'insert': {
                     const data = op.data || {};
                     const rowIndex = typeof op.row === 'number' ? op.row : null;
