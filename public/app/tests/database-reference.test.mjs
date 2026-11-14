@@ -54,6 +54,25 @@ test('tagged updates escape unambiguous quotes inside numeric column values', ()
     assert.deepEqual(original, database());
 });
 
+test('compact operations repair multiple cells and can reuse structural repairs', () => {
+    const original = database();
+    const update = { action: 'update', sheet: 'sheet_0', row: 0, data: { 1: '带"引号"的状态' } };
+    const insert = { action: 'insert', sheet: 'sheet_0', data: { 0: '别名"乙"', 1: '保留\\"和"丙"' } };
+    const response = separator => '<dataUpdate>{"operations":['
+        + [update, insert].map(operation => JSON.stringify(operation)
+            .replace(/\\"(引号|乙|丙)\\"/g, '"$1"'))
+            .join(separator) + ']}</dataUpdate>';
+
+    for (const separator of [',', '，']) {
+        const counts = {}, diagnostics = {};
+        const result = parseUpdate(response(separator), original, counts, diagnostics);
+        assert.equal(result.sheet_0.content[1][2], update.data[1]);
+        assert.deepEqual(result.sheet_0.content[2], [null, insert.data[0], insert.data[1]]);
+        assert.deepEqual(counts, { operations: 2, tables: 0 });
+        assert.match(diagnostics.result, /已修复单元格引号/);
+    }
+});
+
 test('tagged updates repair one mismatched data bracket without changing operations', () => {
     const original = database();
     const cell = '保留 ]、{、\\ 和 "引号"';

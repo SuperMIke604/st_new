@@ -108,24 +108,37 @@ function parseJsonObject(text) {
 }
 
 function repairOperationCellQuotes(payload) {
-    let changed = false;
-    // A numeric column must occupy its own line, with an intact value delimiter.
-    const cellLine = /^([ \t]*"(?:0|[1-9]\d*)"[ \t]*:[ \t]*")(.*)("[ \t]*,?[ \t]*\r?)$/gm;
-    const repaired = payload.replace(cellLine, (line, prefix, value, suffix) => {
-        // A quote beside JSON punctuation could be a structural delimiter.
-        const tokens = /\\[^\r\n]|"(\s*[,}\]:])?/g;
-        let ambiguous = false;
-        const escaped = value.replace(tokens, (token, delimiter) => {
-            if (delimiter) ambiguous = true;
-            return token === '"' ? '\\"' : token;
-        });
-        if (ambiguous || escaped === value) return line;
-        changed = true;
-        return prefix + escaped + suffix;
-    });
-    if (!changed) return null;
+    const tokens = /("(?:0|[1-9]\d*)"\s*:\s*")|"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g;
+    const quotes = /\\[\s\S]|"/g;
+    const boundary = /\s*(?:}|[,，]\s*(?:"(?:0|[1-9]\d*)"\s*:|}))/y;
+    const ambiguousDelimiter = /\s*[,，}\]:]/y;
+    const parts = [];
+    let copiedThrough = 0;
 
-    const data = parseJsonObject(repaired);
+    for (let match; (match = tokens.exec(payload));) {
+        if (!match[1]) continue;
+        quotes.lastIndex = tokens.lastIndex;
+        let closed = false;
+        for (let quote; (quote = quotes.exec(payload));) {
+            if (quote[0] !== '"') continue;
+            boundary.lastIndex = quotes.lastIndex;
+            if (boundary.test(payload)) {
+                tokens.lastIndex = quotes.lastIndex;
+                closed = true;
+                break;
+            }
+            ambiguousDelimiter.lastIndex = quotes.lastIndex;
+            if (ambiguousDelimiter.test(payload)) return null;
+            parts.push(payload.slice(copiedThrough, quote.index), '\\');
+            copiedThrough = quote.index;
+        }
+        if (!closed) return null;
+    }
+    if (!parts.length) return null;
+    parts.push(payload.slice(copiedThrough));
+    const repaired = parts.join('');
+
+    const data = parseJsonObject(repaired) ?? repairAIJson(repaired, true);
     if (!Array.isArray(data?.operations) || Object.keys(data).length !== 1) return null;
     const valid = data.operations.every(operation => {
         if (!operation || !['insert', 'update', 'delete'].includes(operation.action)
