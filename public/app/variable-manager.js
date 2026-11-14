@@ -34,13 +34,28 @@ export function variableRows(value) {
     };
     walk(value, []); return result;
 }
-export function setVariable(value, path, next) {
+function variableTarget(value, path) {
     const result = validateVariables(value);
     if (!path.length || path.some(key => blocked.has(key))) throw Error('变量路径无效。');
     let parent = result;
-    for (const key of path.slice(0,-1)) { if (!parent || !Object.hasOwn(parent,key)) throw Error('变量路径已变化，请重新读取。'); parent = parent[key]; }
-    if (!parent || !Object.hasOwn(parent,path.at(-1))) throw Error('变量路径已变化，请重新读取。');
-    parent[path.at(-1)] = next; return validateVariables(result);
+    for (const [index, key] of path.entries()) {
+        if (!parent || typeof parent !== 'object' || !Object.hasOwn(parent,key) || (Array.isArray(parent) && key === 'length')) {
+            throw Error('变量路径已变化，请重新读取。');
+        }
+        if (index === path.length - 1) return { result, parent, key };
+        parent = parent[key];
+    }
+}
+export function setVariable(value, path, next) {
+    const { result, parent, key } = variableTarget(value, path);
+    parent[key] = next;
+    return validateVariables(result);
+}
+export function deleteVariable(value, path) {
+    const { result, parent, key } = variableTarget(value, path);
+    if (Array.isArray(parent)) parent.splice(Number(key), 1);
+    else delete parent[key];
+    return result;
 }
 export function defaultVariableMessage(chat) {
     for (let i = chat.length - 1; i >= 0; i--) if (!chat[i].is_system && Object.keys(chat[i].variables?.[chat[i].swipe_id || 0] || {}).length) return i;
@@ -77,28 +92,35 @@ export function renderVariableManager(body, { el, action, messages, initialMessa
     const messageInput=select(toolbar,'消息楼层',messages.map((m,i)=>[String(i),`#${i} · ${m.is_user?'用户':'AI'}${m.is_system?' · 隐藏':''}`])); messageInput.value=String(messageId);
     body.append(el('p','note','修改仅在点击“保存”后生效。消息变量对应所选楼层的当前回复分支；全局变量会影响其他聊天。'));
     const search=el('input','variable-search');search.type='search';search.placeholder='搜索变量名称或内容…';search.setAttribute('aria-label','搜索变量');body.append(search);
-    const list=el('div','variable-list'), editor=el('div','variable-editor'), pager=el('div','variable-pager');body.append(list,editor,pager);
+    const list=el('div','variable-list'), editor=el('div','variable-editor'), pager=el('div','variable-pager');body.append(list,pager);
     const advanced=el('details','advanced'),summary=el('summary','','JSON 编辑');advanced.append(summary);
-    const raw=el('textarea','variable-json');raw.rows=12;raw.spellcheck=false;raw.setAttribute('aria-label','变量 JSON');advanced.append(raw);body.append(advanced);
+    const raw=el('textarea','variable-json');raw.rows=12;raw.spellcheck=false;raw.setAttribute('aria-label','变量 JSON');advanced.append(el('p','note','修改 JSON 后，点击“应用 JSON”更新变量列表。'),raw);body.append(advanced);
     let rawChanged=false, editChanged=false;
     const changed=()=>rawChanged||editChanged||!equal(base,draft);
     const sync=()=>dirty(changed());
-    const updateRaw=()=>{raw.value=JSON.stringify(draft,null,2);rawChanged=false;};
-    const parseRaw=()=>{if(!rawChanged)return;let value;try{value=JSON.parse(raw.value);}catch{throw Error('变量 JSON 格式无效。');}draft=validateVariables(value);rawChanged=false;};
-    const applyEditor=()=>{if(!editing)return;draft=setVariable(draft,editing.path,parseVariableValue(editing.value.value,editing.type.value));editing=null;editChanged=false;editor.replaceChildren();updateRaw();sync();};
-    const edit=entry=>{
-        if(pending)return;parseRaw();
+    const updateRaw=()=>{raw.value=JSON.stringify(draft,null,2);rawChanged=false;list.inert=false;};
+    const parseRaw=()=>{if(!rawChanged)return;let value;try{value=JSON.parse(raw.value);}catch{throw Error('变量 JSON 格式无效。');}draft=validateVariables(value);updateRaw();render();sync();};
+    const closeEditor=()=>{editing=null;editChanged=false;editor.replaceChildren();editor.remove();};
+    const applyEditor=()=>{if(!editing)return;draft=setVariable(draft,editing.path,parseVariableValue(editing.value.value,editing.type.value));closeEditor();updateRaw();sync();render();};
+    const edit=row=>{
+        if(pending||rawChanged)return;
+        if(editing&&equal(editing.path,row.path)){editing.value.focus();return;}
         if(editChanged&&!confirm('放弃当前变量尚未应用的修改？'))return;
-        let current=draft;for(const key of entry.path){if(!current||!Object.hasOwn(current,key))throw Error('变量路径已变化，请应用 JSON 后重试。');current=current[key];}
-        const row={...entry,value:current};
-        editing=null;editChanged=false;editor.replaceChildren();
+        closeEditor();
         editor.append(el('h3','',row.path.join(' / ')));
         const type=select(editor,'值类型',[['string','文本'],['number','数字'],['boolean','开关'],['null','空值'],['object','对象'],['array','数组']]);type.value=variableType(row.value);
         const value=el('textarea');value.rows=3;value.setAttribute('aria-label','变量值');value.value=typeof row.value==='string'?row.value:JSON.stringify(row.value,null,2);label(editor,'变量值',value);
         const hint=el('p','note','开关填写 true 或 false；对象和数组使用 JSON 格式。');editor.append(hint);
         editing={path:row.path,type,value};
         for(const input of [type,value])input.addEventListener('input',()=>{editChanged=true;sync();});
-        const buttons=el('div','inline-edit-buttons');buttons.append(action('应用',()=>{applyEditor();render();}),action('取消',()=>{editing=null;editChanged=false;editor.replaceChildren();sync();}));editor.append(buttons);value.focus();
+        const buttons=el('div','inline-edit-buttons');buttons.append(action('应用',applyEditor),action('取消',()=>{closeEditor();sync();}));editor.append(buttons);render();value.focus();
+    };
+    const remove=row=>{
+        if(pending||rawChanged)return;
+        if(editChanged&&!equal(editing.path,row.path)&&!confirm('放弃当前变量尚未应用的修改？'))return;
+        draft=deleteVariable(draft,row.path);
+        closeEditor();
+        updateRaw();render();sync();
     };
     const render=()=>{
         list.replaceChildren();pager.replaceChildren();
@@ -108,19 +130,31 @@ export function renderVariableManager(body, { el, action, messages, initialMessa
         for(const row of rows.slice(page*50,(page+1)*50)){
             const item=el('div','variable-row'),name=el('div','variable-path',row.path.join(' / '));name.title=row.path.join(' / ');
             const text=typeof row.value==='string'?row.value:JSON.stringify(row.value);
-            const button=action(text||'（空文本）',()=>edit(row));button.title='编辑变量值';button.setAttribute('aria-label',`编辑变量 ${row.path.join(' / ')}`);item.append(name,button);list.append(item);
+            const path=row.path.join(' / ');
+            const preview=action(text||'（空文本）',()=>edit(row),null,'variable-value');
+            preview.title=text||'（空文本）';
+            preview.setAttribute('aria-label',`编辑变量 ${path}`);
+            const editButton=action('编辑',()=>edit(row));
+            editButton.setAttribute('aria-label',`编辑 ${path}`);
+            const deleteButton=action('删除',()=>remove(row),null,'danger');
+            deleteButton.setAttribute('aria-label',`删除 ${path}`);
+            const actions=el('div','variable-actions');actions.append(editButton,deleteButton);
+            item.append(name,preview,actions);
+            if(editing&&equal(editing.path,row.path))item.append(editor);
+            list.append(item);
         }
+        if(editing&&!list.contains(editor))list.prepend(editor);
         const prev=action('上一页',()=>{page--;render();}),next=action('下一页',()=>{page++;render();});prev.disabled=page===0;next.disabled=page===total-1;
         pager.append(prev,el('small','',`${page+1} / ${total} · ${rows.length} 项`),next);
     };
-    const load=()=>{base=validateVariables(read(scope,messageId));draft=clone(base);editing=null;editChanged=false;editor.replaceChildren();messageInput.closest('label').hidden=scope!=='message';updateRaw();render();sync();};
+    const load=()=>{base=validateVariables(read(scope,messageId));draft=clone(base);closeEditor();messageInput.closest('label').hidden=scope!=='message';updateRaw();render();sync();};
     const switchScope=()=>{
         if(pending||changed()&&!confirm('放弃未保存的变量修改并切换？')){scopeInput.value=scope;messageInput.value=String(messageId);return;}
         scope=scopeInput.value;messageId=Number(messageInput.value);page=0;load();
     };
     scopeInput.addEventListener('change',switchScope);messageInput.addEventListener('change',switchScope);
-    search.addEventListener('input',()=>{query=search.value.toLowerCase();page=0;render();});raw.addEventListener('input',()=>{rawChanged=true;editing=null;editChanged=false;editor.replaceChildren();sync();});
-    advanced.append(action('应用 JSON',()=>{parseRaw();updateRaw();render();sync();}));
+    search.addEventListener('input',()=>{query=search.value.toLowerCase();page=0;render();});raw.addEventListener('input',()=>{rawChanged=true;list.inert=true;closeEditor();sync();});
+    advanced.append(action('应用 JSON',parseRaw));
     const footer=el('div','editor-footer'),saveButton=action('保存',async()=>{
         if(pending)return;parseRaw();applyEditor();const value=validateVariables(draft);
         pending=true;const controls=Array.from(body.querySelectorAll('input,textarea,select,button')).map(input=>[input,input.disabled]);for(const [input] of controls)input.disabled=true;

@@ -435,15 +435,16 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 .variable-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .variable-toolbar .field{margin:0}
 .variable-search{width:100%;margin:12px 0;background:var(--surface);color:var(--ink)}
-.variable-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.variable-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .variable-path{min-width:0;overflow-wrap:anywhere;color:var(--muted)}
-.variable-row>.button{width:100%;justify-content:flex-start;text-align:left;border:1px solid var(--line);background:var(--surface)}
-.variable-editor{margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:12px}
+.variable-row>.variable-value{width:100%;min-width:0;justify-content:flex-start;text-align:left;border:1px solid var(--line);background:var(--surface)}
+.variable-actions{display:flex;gap:4px}
+.variable-editor{grid-column:1/-1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px}
 .variable-editor:empty{display:none}
 .variable-editor h3{margin:0;overflow-wrap:anywhere}
 .variable-pager{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px}
 .variable-json{width:100%;min-height:220px;font-family:Consolas,"Microsoft YaHei",monospace;background:var(--surface);color:var(--ink)}
-@media(max-width:700px){dialog.variable-panel{inset:0;top:var(--viewport-top);width:100%;max-width:100%;height:var(--viewport-height);border:0;border-radius:0}.variable-toolbar{grid-template-columns:1fr;gap:12px}}
+@media(max-width:700px){dialog.variable-panel{inset:0;top:var(--viewport-top);width:100%;max-width:100%;height:var(--viewport-height);border:0;border-radius:0}.variable-toolbar{grid-template-columns:1fr;gap:12px}.variable-row{grid-template-columns:minmax(0,1fr) auto}.variable-path{grid-column:1/-1}}
 
 .db-template-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;margin-top:24px;align-items:start}
 .db-template-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--control-gap)}.db-template-heading h2{display:flex;align-items:center;min-height:var(--control-size);margin:0}.db-template-heading>.button{margin:0;white-space:nowrap}.db-template-heading>.icon-button>span{display:none}

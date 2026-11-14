@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateVariables, parseVariableValue, variableRows, setVariable, defaultVariableMessage, chatVariableValue, patchChatVariables } from '../variable-manager.js';
+import { validateVariables, parseVariableValue, variableRows, setVariable, deleteVariable, defaultVariableMessage, chatVariableValue, patchChatVariables } from '../variable-manager.js';
 
 test('typed variable edits preserve strings, numbers, flags, null and nested arrays', () => {
     assert.equal(parseVariableValue('007','string'),'007');
@@ -28,6 +28,27 @@ test('editing a nested leaf keeps unrelated variables and the original snapshot'
 const fixture=()=>[{chat_metadata:{variables:{topic:'old'},other:'preserved'}},
     {mes:'first',swipe_id:1,variables:[{score:3},{score:7}],extra:{keep:true}},
     {mes:'second',variables:[{flag:true}]}];
+test('deleting draft variables removes object fields and compacts arrays', () => {
+    const original = { nested: { obsolete: true, keep: '007' }, list: ['first', 'second'], empty: {} };
+    let draft = deleteVariable(original, ['nested', 'obsolete']);
+    draft = deleteVariable(draft, ['list', '0']);
+    draft = deleteVariable(draft, ['empty']);
+    assert.deepEqual(draft, { nested: { keep: '007' }, list: ['second'] });
+    assert.deepEqual(original, { nested: { obsolete: true, keep: '007' }, list: ['first', 'second'], empty: {} });
+    for (const path of [[], ['nested', 'missing'], ['nested', 'keep', '0'], ['list', 'length'], ['__proto__']]) {
+        assert.throws(() => deleteVariable(draft, path));
+    }
+});
+test('saving a deletion keeps it absent after reading the chosen reply', () => {
+    const records = fixture(), base = { score: 7 };
+    const next = patchChatVariables(records, {
+        scope: 'message', messageId: 0, swipeId: 1, messageText: 'first',
+        base, value: deleteVariable(base, ['score']),
+    });
+    assert.deepEqual(chatVariableValue(next[0], next.slice(1), 'message', 0), {});
+    assert.deepEqual(next[1].variables[0], { score: 3 });
+    assert.deepEqual(next[2], records[2]);
+});
 test('message variable saving touches only the chosen swipe, not prose or other floors', () => {
     const original=fixture(),next=patchChatVariables(original,{scope:'message',messageId:0,swipeId:1,messageText:'first',base:{score:7},value:{score:9}});
     assert.deepEqual(next[1].variables,[{score:3},{score:9}]);
