@@ -74,6 +74,8 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(PAPER);
         webView = new WebView(this);
         webView.setBackgroundColor(PAPER);
+        // Use the page's typography instead of inheriting Android's font scale.
+        webView.getSettings().setTextZoom(100);
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
         webView.getSettings().setAllowFileAccess(false);
