@@ -196,6 +196,43 @@ test('corrupt backend download preserves both installed components', async () =>
         assert.equal(await fs.readFile(path.join(options.root, 'public/app/index.html'), 'utf8'), 'old frontend');
     });
 });
+test('HTTP 503 retries the file and falls back to GitHub Contents with checksum verification', async t => {
+    await combinedFixture(async options => {
+        const file = 'public/app/api.js', data = 'new api.js';
+        const apiHash = createHash('sha256').update(data).digest('hex');
+        const config = {
+            ...options,
+            manifest: { ...options.manifest, files: { ...options.manifest.files, [file]: apiHash } },
+            downloadFile: undefined,
+        };
+        let requests = [];
+        let fallback = new Response(null, { status: 503 });
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            const source = new URL(url);
+            if (!source.pathname.endsWith('/' + file)) return new Response(await options.downloadFile(url));
+            requests.push(source);
+            if (source.hostname === 'raw.githubusercontent.com') return new Response(null, { status: 503 });
+            assert.equal(source.href, 'https://api.github.com/repos/SuperMIke604/st_new/contents/public/app/api.js?ref=main');
+            assert.equal(init.headers.Accept, 'application/vnd.github.raw+json');
+            return fallback;
+        });
+        const index = path.join(options.root, 'public/app/index.html');
+        await assert.rejects(installUpdate(config), /public\/app\/api\.js.*HTTP 503/);
+        assert.equal(await fs.readFile(index, 'utf8'), 'old frontend');
+        fallback = new Response('corrupt');
+        await assert.rejects(installUpdate(config), /校验失败/);
+        assert.equal(await fs.readFile(options.pluginFile, 'utf8'), 'old updater');
+        assert.equal(await fs.readFile(index, 'utf8'), 'old frontend');
+        fallback = new Response(data);
+        requests = [];
+        assert.deepEqual(await installUpdate(config), { backendUpdated: true });
+        assert.equal(await fs.readFile(path.join(options.root, file), 'utf8'), data);
+        assert.deepEqual(requests.map(url => url.hostname), ['raw.githubusercontent.com', 'raw.githubusercontent.com', 'api.github.com']);
+        assert.equal(requests[0].searchParams.has('retry'), false);
+        assert.equal(requests[1].searchParams.has('retry'), true);
+        assert.equal(requests[1].searchParams.get('revision'), config.manifest.revision);
+    });
+});
 test('failed plugin replacement rolls back the frontend and original plugin together', async () => {
     await combinedFixture(async options => {
         const io = { ...fs, rename: async (from, to) => { if (from.startsWith(options.pluginFile + '.stage-')) throw Error('simulated disk failure'); return fs.rename(from, to); } };
@@ -228,15 +265,19 @@ test('confirmed installs replace only frontend; corrupt downloads preserve previ
     const cwd = process.cwd(), fetcher = globalThis.fetch;
     try {
         process.chdir(root); await fs.mkdir('public/app', { recursive: true }); await fs.writeFile('public/app/index.html', 'old'); await fs.writeFile('private-data', 'keep');
-        let corrupt = true;
+        let corrupt = true, styleRequests = 0;
         globalThis.fetch = async url => {
             const name = new URL(url).pathname.split('/main/')[1];
+            if (!corrupt && name === 'public/app/style.css' && ++styleRequests === 1) {
+                return new Response(null, { status: 503 });
+            }
             return new Response(name === 'version.json' ? JSON.stringify(manifest) : corrupt ? 'corrupt' : files[name]);
         };
         const routes = new Map(); await init({ post: (name, handler) => routes.set(name, handler) });
         const run = async () => { const result = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } }; await routes.get('/install')({ body: { revision: manifest.revision } }, result); return result; };
         assert.equal((await run()).code, 500); assert.equal(await fs.readFile('public/app/index.html', 'utf8'), 'old');
         corrupt = false; const installed = await run(); assert.equal(installed.body.ok, true, JSON.stringify(installed)); assert.equal(await fs.readFile('public/app/index.html', 'utf8'), 'new index.html'); assert.equal(await fs.readFile('private-data', 'utf8'), 'keep');
+        assert.equal(styleRequests, 2);
     } finally { process.chdir(cwd); globalThis.fetch = fetcher; await fs.rm(root, { recursive: true, force: true }); }
 });
 

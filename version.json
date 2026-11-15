@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "db68d18dbdd0d0d0adec03c7add1489ef09b0cc717a9b3079d18582e02fb9fd5",
-  "publishedAt": "2026-11-15T13:05:24.154932+00:00",
+  "revision": "65d83d66fc0dba5dd4fb968dcfb04c96225d7973328704048fd5ea42bf9e4356",
+  "publishedAt": "2026-11-15T13:20:55.593603+00:00",
   "files": {
     "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/background-generation.js": "c048030f6c9129228b3f4a0621f5f5a99b2393d9e34592ace0a3c0b5f36d9fe5",
@@ -88,10 +88,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "a0c51d2c232e025e15596476b5c3d523b9ff26548577652c4ed239d14c008308"
+    "public/app/version.js": "402e85460e336756144af9db9c32214d696057d6b3faefe06294c160e7b1bff8"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "d02f74cb7ed38b973bd8e69f279191ed6531f76038a24655d48dafe07d3def56"
+    "sha256": "66b7f6e6bf5d39131f8db824b07fc1b1cc1f8dec82f8fcc58d2c82fc558070e9"
   }
 }

@@ -3,8 +3,11 @@ import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, 
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 export const info = { id: 'st-new-updater', name: 'ST New Frontend Updater', description: 'Install confirmed frontend and updater updates from SuperMIke604/st_new only.' };
 const RAW = 'https://raw.githubusercontent.com/SuperMIke604/st_new/main/';
+const CONTENTS = 'https://api.github.com/repos/SuperMIke604/st_new/contents/';
+const retryableDownloadStatuses = new Set([429, 500, 502, 503, 504]);
 const BACKEND_FILE = 'server/st-new-updater/index.mjs';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -118,11 +121,42 @@ export function validateManifest(value) {
     return entries;
 }
 async function download(url) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(30000), redirect: 'error' });
-    if (!response.ok) throw Error(`下载失败（${response.status}）`);
-    const chunks = []; let size = 0;
-    for await (const chunk of response.body) { size += chunk.length; if (size > 8000000) throw Error('下载文件过大'); chunks.push(chunk); }
-    return Buffer.concat(chunks);
+    const retry = new URL(url);
+    const file = retry.pathname.slice(new URL(RAW).pathname.length);
+    retry.searchParams.set('retry', randomUUID());
+    const sources = [
+        { url },
+        { url: retry.href },
+        { url: CONTENTS + file + '?ref=main', headers: { Accept: 'application/vnd.github.raw+json' } },
+    ];
+    const failures = [];
+    for (const [index, source] of sources.entries()) {
+        let response;
+        try {
+            response = await fetch(source.url, {
+                signal: AbortSignal.timeout(30000), redirect: 'error', headers: source.headers,
+            });
+        } catch (error) {
+            failures.push(error.name === 'TimeoutError' ? '请求超时' : '网络错误');
+        }
+        if (response?.ok) {
+            const chunks = [];
+            let size = 0;
+            for await (const chunk of response.body) {
+                size += chunk.length;
+                if (size > 8000000) throw Error(`下载文件过大：${file}`);
+                chunks.push(chunk);
+            }
+            return Buffer.concat(chunks);
+        }
+        if (response) {
+            failures.push(`HTTP ${response.status}`);
+            await response.body?.cancel().catch(() => {});
+            if (index === 0 && !retryableDownloadStatuses.has(response.status)) break;
+        }
+        if (index === 0) await delay(300);
+    }
+    throw Error(`下载失败：${file}（${failures.join('、')}）`);
 }
 // No chat contents or PNG metadata are read to build the home list.
 export async function listRecentCharacters(directories, io = fs) {
