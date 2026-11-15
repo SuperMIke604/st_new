@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "6f981dc26eac16415746f400b8410f0aaff1f33eea784bafbb8885f3586428e3",
-  "publishedAt": "2026-11-15T12:10:35.715144+00:00",
+  "revision": "ec862754e8e9fda7e04bc6661776907768d5aa04e73e24754d1bf694102f763d",
+  "publishedAt": "2026-11-15T12:34:16.558513+00:00",
   "files": {
     "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
     "public/app/background-generation.js": "c048030f6c9129228b3f4a0621f5f5a99b2393d9e34592ace0a3c0b5f36d9fe5",
@@ -54,12 +54,12 @@
     "public/app/role-avatar-store.js": "56b22ae55b0fd42ab26298d723b92e10175112f9d48bcfd67096cb025deab261",
     "public/app/role-script-adapters.js": "afac6df88ef0ad257018168afac53f8450ed7c79ab19035e366deba05358529a",
     "public/app/role-worldbook.js": "66feaaf5db3a6126bcb32bd4821b8d35f0a5908f97f5d70e9b013fcf3ae731ac",
-    "public/app/script-bridge.js": "e9f5e3fac61fc6685c957e63652c0829e620fb7abe5cfe302625c6f8b6d07cec",
+    "public/app/script-bridge.js": "e5bb3ae07d5141440e83a7a7ff0066a914dde1e73b4b73eea769c12068b6f2c9",
     "public/app/script-chat.js": "281af946679f62205246e687c77e0446ad306f554dd4625ce4d43c9346c8ba59",
     "public/app/script-commands.js": "0803903b49940d2d381f91ee7cd79d59615edba5a7dd6b67e66790bce8d549a7",
     "public/app/script-helper.js": "8f9bc85a275d84609446d7b01b52621ce5cf2d168ae64b471b0fc527540d375d",
     "public/app/script-inline.js": "2207ddc70361c2b0f4139f5a12963bd82ef4c144ffd149fd6b1604d26038b075",
-    "public/app/script-layout.js": "40c7ae9db12e418ed83c18587f41cd4beeef45acb2802b88dcaa7e2b66905d84",
+    "public/app/script-layout.js": "68044b5f2ca95eadd923044eb80558ae35d1fff7ce16d18381ff6c04d3a4d30f",
     "public/app/script-modules.js": "68dcef3c0b5ec66511a1925a3a41bece5c481f8fe426d6bbc9857e60e29c064b",
     "public/app/script-prompts.js": "58cb89f47679fb9361f9c69a4b4b8b66be06f6904bc886ff50b407e195bffbe3",
     "public/app/script-runtime.js": "ad2ffd4881c3f11098bb2c4e420df4a00d75254fb4c0f94497697855b6bccd66",
@@ -88,7 +88,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "f931642315c96c56a820bbbb8fac2e8225e05eb75942511aee3f14510b70dc0c"
+    "public/app/version.js": "d72da3a4252e6ef8e9ac844d5cac72030de4c859b5d5e86ff4b40a7d0c9adab7"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

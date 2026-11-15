@@ -142,8 +142,8 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
             const elements = () => collectLayout ? collectLayout(document, getComputedStyle) : { nodes: [...document.body.children, ...document.documentElement.children].filter(node => node !== placeholder && !['HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK'].includes(node.tagName)), shadows: [] };
             const measure = () => {
                 scheduled = false;
-                const roots = elements().nodes;
-                const rects = roots.flatMap(node => {
+                const { nodes, rects: painted } = elements();
+                const rects = painted ?? nodes.flatMap(node => {
                     const style = getComputedStyle(node), rect = node.getBoundingClientRect();
                     return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0 ? [[rect.x, rect.y, rect.width, rect.height]] : [];
                 });
