@@ -11,7 +11,7 @@ export function createToast(element, { raise, now = () => performance.now(), sch
     const entries = new Set();
     function hideIfEmpty() {
         if (entries.size) return;
-        if (element.matches(':popover-open')) element.hidePopover();
+        if (element.hidePopover && element.matches(':popover-open')) element.hidePopover();
         element.hidden = true;
     }
     function remove(entry) {

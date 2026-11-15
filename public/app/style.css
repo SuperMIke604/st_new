@@ -26,6 +26,9 @@ dialog.preset-panel{width:min(850px,calc(100vw - 24px))}.parameter-grid{display:
 
 /* Icon-only controls must not inherit text-button alignment or padding. */
 .native-select{display:none!important}
+.searchable-select-menu:not([popover]):not([hidden]){display:flex;flex-direction:column;overflow:hidden;gap:7px}
+.parameter-grid.reading-parameters{row-gap:16px}
+.reading-parameters>.field{margin:0}
 .select-control{display:flex;align-items:center;justify-content:space-between;gap:15px;min-width:0;max-width:100%;border:1px solid var(--ui-tone-dce5d3,#dce5d3);background:#fff;color:var(--ink);text-align:left;transition:border-color .15s,box-shadow .15s}
 .select-control>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.select-chevron{flex-shrink:0;width:7px;height:7px;margin:0 3px 4px 5px;border-right:1.5px solid var(--ui-tone-7a8c72,#7a8c72);border-bottom:1.5px solid var(--ui-tone-7a8c72,#7a8c72);transform:rotate(45deg);transition:transform .15s}.select-control[aria-expanded=true] .select-chevron{transform:translateY(3px) rotate(225deg)}
 .select-control:hover{border-color:var(--ui-tone-a8b99d,#a8b99d);background:var(--ui-tone-fcfdfb,#fcfdfb)}.select-control[aria-expanded=true]{border-color:var(--ui-tone-90a780,#90a780);box-shadow:0 0 0 3px var(--ui-tone-90a7801c,#90a7801c)}.select-control:focus-visible{outline:2px solid var(--ui-tone-8ba181,#8ba181);outline-offset:2px}.field>.select-control{width:100%}
@@ -597,6 +600,9 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 }
 
 /* Ivory keeps form boundaries distinct from decorative borders. */
+:root[data-palette=ivory] body:not(.home-view) #conversation::before{
+  content:"";position:absolute;inset:0 calc(50% - 50vw);z-index:-1;pointer-events:none;background:#fff;
+}
 :root[data-palette=ivory]{
   --line:#e2dbd1;
   --muted:#6c5c4b;

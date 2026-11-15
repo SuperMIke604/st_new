@@ -283,11 +283,122 @@ export async function installUpdate({ root, pluginFile, manifest, downloadFile =
         }
     }
 }
+const loopbackAddresses = new Set(['127.0.0.1', '::ffff:127.0.0.1', '::1']);
+const jobIdPattern = /^[a-f0-9]{32}$/;
+
+export function registerBackgroundGeneration(router, { requestModel = fetch } = {}) {
+    const jobs = new Map();
+    const keepResultMs = 15 * 60_000;
+    const maxReplyChars = 4 * 1024 * 1024;
+
+    async function generate(job, url, headers, requestBody) {
+        const timeout = setTimeout(() => job.controller.abort(), 30 * 60_000);
+        timeout.unref();
+        let status = 0;
+        try {
+            const response = await requestModel(url, {
+                method: 'POST', headers, body: JSON.stringify(requestBody),
+                signal: job.controller.signal, redirect: 'error',
+            });
+            status = response.status;
+            const declaredType = response.headers.get('content-type') || '';
+            // SillyTavern's stream forwarder can pipe SSE without copying Content-Type.
+            if (!requestBody.stream || declaredType.includes('text/event-stream') || !response.ok) {
+                job.type = declaredType || 'application/json';
+                job.status = status;
+            }
+            const decoder = new TextDecoder();
+            for await (const chunk of response.body || []) {
+                job.text += decoder.decode(chunk, { stream: true });
+                if (!job.status) {
+                    const prefix = job.text.trimStart();
+                    const sse = /^(?::|(?:data|event|id|retry):)/.test(prefix);
+                    if (sse || prefix.length >= 6 || prefix.startsWith('{') || prefix.startsWith('[')) {
+                        job.type = sse ? 'text/event-stream' : declaredType || 'application/json';
+                        job.status = status;
+                    }
+                }
+                if (job.text.length > maxReplyChars) {
+                    job.text = job.text.slice(0, maxReplyChars);
+                    throw Error('后台回复超过可保留的大小。');
+                }
+            }
+            job.text += decoder.decode();
+        } catch (error) {
+            job.error = job.controller.signal.aborted
+                ? '后台生成已停止或超时。'
+                : error.message === '后台回复超过可保留的大小。' ? error.message : '后台模型连接中断，已保留收到的内容。';
+        } finally {
+            clearTimeout(timeout);
+            if (!job.status && status) {
+                job.status = status;
+                job.type = 'application/json';
+            }
+            job.done = true;
+            setTimeout(() => {
+                if (jobs.get(job.id) === job) jobs.delete(job.id);
+            }, keepResultMs).unref();
+        }
+    }
+
+    router.post('/generate-background', (request, response) => {
+        const socket = request.socket;
+        if (!socket || socket.encrypted || !loopbackAddresses.has(socket.remoteAddress) || !loopbackAddresses.has(socket.localAddress)) {
+            return response.status(404).json({ error: '后台生成仅用于手机本机的 HTTP 酒馆服务。' });
+        }
+        response.set('Cache-Control', 'no-store');
+        const owner = request.user?.directories?.root;
+        const { action, id, offset, modelRequest } = request.body || {};
+        if (!owner || typeof id !== 'string' || !jobIdPattern.test(id)) return response.status(400).json({ error: '无效的后台请求。' });
+        const job = jobs.get(id);
+        if (job && job.owner !== owner) return response.status(404).json({ error: '后台请求不存在。' });
+
+        if (action === 'start') {
+            if (job) return response.json({ id });
+            if (!record(modelRequest)) return response.status(400).json({ error: '无效的模型请求。' });
+            if (jobs.size >= 64 || [...jobs.values()].filter(entry => entry.owner === owner && !entry.done).length >= 4) {
+                return response.status(429).json({ error: '后台生成任务过多，请等待进行中的请求结束。' });
+            }
+            const localHost = socket.localAddress === '::1' ? '[::1]' : '127.0.0.1';
+            const url = `http://${localHost}:${socket.localPort}/api/backends/chat-completions/generate`;
+            const headers = { 'Content-Type': 'application/json', Connection: 'close' };
+            for (const key of ['cookie', 'authorization', 'x-csrf-token']) {
+                if (typeof request.headers[key] === 'string') headers[key] = request.headers[key];
+            }
+            const next = { id, owner, controller: new AbortController(), status: 0, type: '', text: '', done: false, error: '' };
+            jobs.set(id, next);
+            void generate(next, url, headers, modelRequest);
+            return response.json({ id });
+        }
+        if (!job) return response.status(410).json({ error: '后台生成结果已过期，或 Termux 中的酒馆已重启。' });
+        if (action === 'cancel') {
+            job.controller.abort();
+            return response.json({ ok: true });
+        }
+        if (action === 'release' && job.done) {
+            jobs.delete(id);
+            return response.json({ ok: true });
+        }
+        if (action !== 'read' || !Number.isSafeInteger(offset) || offset < 0 || offset > job.text.length) {
+            return response.status(400).json({ error: '无效的后台读取位置。' });
+        }
+        // Slice on complete Unicode characters so chunks can be encoded separately by the client.
+        let end = Math.min(offset + 64 * 1024, job.text.length);
+        const last = job.text.charCodeAt(end - 1);
+        if (last >= 0xd800 && last <= 0xdbff && end < job.text.length) end++;
+        return response.json({
+            status: job.status, type: job.type, text: job.text.slice(offset, end),
+            done: job.done && end === job.text.length, error: job.done && end === job.text.length ? job.error : '',
+        });
+    });
+}
+
 export async function init(router, { root = process.cwd(), pluginFile = fileURLToPath(import.meta.url), io = fs } = {}) {
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
     const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
     const confirmedChat = {};
+    registerBackgroundGeneration(router);
     router.post('/chat-delta', (request, response) => {
         try {
             const { timings, ...result } = applyChatDelta(request.user.directories.chats, request.body, confirmedChat);

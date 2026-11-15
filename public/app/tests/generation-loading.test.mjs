@@ -6,7 +6,7 @@ import { LoadTimings, requestFailure } from '../load-timings.js';
 import { RequestLog } from '../request-log.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const generate = source.slice(source.indexOf('function waitForReplyScriptVisibility('), source.indexOf('\nfunction beginMessageEdit('));
+const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, intercept = body => body } = {}) {
@@ -14,6 +14,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
     const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [];
     const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
@@ -38,6 +39,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
             renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
         } },
         api: { response() { requests++; return response.promise; } },
+        chatGenerationResponse: (api, body, signal) => api.response('/api/backends/chat-completions/generate', body, { signal }),
         readEvents: response => response.events,
         generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
         nativeScriptPlan: () => native ? [{ enabled: true }] : [], scriptSupport: () => ({ adapter: 'remote-module', supported: true }), scriptSnapshot: () => ({}), scriptIdentity: () => 'test', scriptRuntime,
@@ -142,6 +144,20 @@ test('prompt failure clears loading without sending a request or losing the inpu
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.notices.at(-1), '上下文准备失败');
     assert.deepEqual(f.postGeneration, []);
+});
+
+test('a model error received while hidden is shown on return and does not resend', async () => {
+    const f = fixture(), running = f.run(false);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.setVisibility('hidden');
+    f.response.reject(new Error('模型服务暂不可用')); await running;
+    assert.deepEqual(f.notices, []);
+    assert.equal(f.state.busy, false);
+    assert.match(f.statuses.at(-1), /模型服务暂不可用/);
+    f.setVisibility('visible'); await tick();
+    f.setVisibility('hidden'); f.setVisibility('visible'); await tick();
+    assert.deepEqual(f.notices, ['模型服务暂不可用']);
+    assert.equal(f.requests(), 1);
 });
 
 test('native helper receives raw model text before output regex and its saved variables survive final rendering', async () => {

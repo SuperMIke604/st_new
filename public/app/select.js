@@ -1,6 +1,6 @@
 import { installPopoverToggle } from './popover-toggle.js';
 // Keep native select values/events as the data interface; render an accessible
-// combobox in the top layer so scroll containers cannot clip its options.
+// combobox in the top layer or inside the active dialog on older WebViews.
 let sequence = 0;
 let opened = null;
 export function enhanceSelect(select) {
@@ -12,14 +12,23 @@ export function enhanceSelect(select) {
     const text = document.createElement('span'); button.append(text);
     const arrow = document.createElement('span'); arrow.className = 'select-chevron'; arrow.setAttribute('aria-hidden', 'true'); button.append(arrow);
     const menu = document.createElement('div'); menu.className = 'select-menu'; menu.id = `select-menu-${++sequence}`;
-    menu.setAttribute('role', 'listbox'); menu.setAttribute('popover', 'auto'); menu.setAttribute('aria-label', button.getAttribute('aria-label'));
+    const hasPopover = typeof menu.showPopover === 'function';
+    if (hasPopover) menu.setAttribute('popover', 'auto');
+    else menu.hidden = true;
+    const isOpen = () => hasPopover ? menu.matches(':popover-open') : !menu.hidden;
+    menu.setAttribute('role', 'listbox'); menu.setAttribute('aria-label', button.getAttribute('aria-label'));
     button.setAttribute('aria-controls', menu.id);
     select.after(button); select.classList.add('native-select'); select.tabIndex = -1; select.setAttribute('aria-hidden', 'true');
     let active = -1; let items = []; let search = ''; let searchAt = 0;
     const sync = () => { const label = select.selectedOptions[0]?.textContent || '请选择'; if (text.textContent !== label) text.textContent = label; button.disabled = select.disabled; };
     const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
     Object.defineProperty(select, 'value', { configurable: true, get() { return valueDescriptor.get.call(this); }, set(value) { valueDescriptor.set.call(this, value); sync(); } });
-    const close = () => { if (menu.matches(':popover-open')) menu.hidePopover(); button.setAttribute('aria-expanded', 'false'); button.removeAttribute('aria-activedescendant'); if (opened?.button === button) opened = null; };
+    const close = () => {
+        if (hasPopover) { if (isOpen()) menu.hidePopover(); }
+        else menu.hidden = true;
+        button.setAttribute('aria-expanded', 'false'); button.removeAttribute('aria-activedescendant');
+        if (opened?.button === button) opened = null;
+    };
     const highlight = index => {
         active = index; items.forEach((item, i) => item.classList.toggle('highlighted', i === active));
         if (items[active]) { button.setAttribute('aria-activedescendant', items[active].id); const item = items[active]; const scroller = item.parentElement; if (item.offsetTop < scroller.scrollTop) scroller.scrollTop = item.offsetTop; else if (item.offsetTop + item.offsetHeight > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = item.offsetTop + item.offsetHeight - scroller.clientHeight; }
@@ -88,12 +97,14 @@ export function enhanceSelect(select) {
         menu.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - Math.max(rect.width, 180) - 12))}px`;
         menu.style.top = `${below >= Math.min(height, 160) ? rect.bottom + 6 : Math.max(12, rect.top - height - 6)}px`;
         menu.style.maxHeight = `${Math.max(80, below >= Math.min(height, 160) ? Math.min(300, below - 6) : Math.min(300, rect.top - 18))}px`;
-        menu.showPopover(); button.setAttribute('aria-expanded', 'true'); opened = { button, close }; highlight(select.selectedIndex);
+        if (hasPopover) menu.showPopover();
+        else menu.hidden = false;
+        button.setAttribute('aria-expanded', 'true'); opened = { button, close }; highlight(select.selectedIndex);
         if (matchMedia('(hover: hover) and (pointer: fine)').matches) filterInput?.focus({ preventScroll: true });
     };
-    installPopoverToggle(button, menu, { open, close });
+    installPopoverToggle(button, menu, { open, close, isOpen });
     button.addEventListener('keydown', event => {
-        const showing = menu.matches(':popover-open');
+        const showing = isOpen();
         if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' ', 'Escape', 'Tab'].includes(event.key)) {
             if (event.key === 'Tab') { close(); return; }
             event.preventDefault();
@@ -108,7 +119,7 @@ export function enhanceSelect(select) {
             const index = [...select.options].findIndex(o => !o.disabled && o.textContent.toLowerCase().startsWith(search.toLowerCase())); if (index >= 0) highlight(index);
         }
     });
-    menu.addEventListener('toggle', () => { if (!menu.matches(':popover-open')) { button.setAttribute('aria-expanded', 'false'); button.removeAttribute('aria-activedescendant'); if (opened?.button === button) opened = null; } });
+    if (hasPopover) menu.addEventListener('toggle', () => { if (!isOpen()) close(); });
     select.addEventListener('change', sync);
     const observer = new MutationObserver(sync); observer.observe(select, { childList: true, subtree: true, characterData: true, attributes: true });
     sync();

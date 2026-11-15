@@ -1,4 +1,5 @@
 import { RecentCharacters } from './home-data.js';
+import { chatGenerationResponse } from './background-generation.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
@@ -207,7 +208,7 @@ function raiseNotification() {
     const owner = panel.open ? panel : document.body;
     // A top-layer popover outside a modal is still inert; keep it inside its dialog.
     if (notification.parentElement !== owner) {
-        if (notification.matches(':popover-open')) notification.hidePopover();
+        if (notification.hidePopover && notification.matches(':popover-open')) notification.hidePopover();
         owner.append(notification);
     }
     const viewport = window.visualViewport;
@@ -2731,16 +2732,26 @@ async function preparePrompt(chat = state.chat) {
     });
 }
 
-function waitForReplyScriptVisibility() {
-    status('等待页面恢复可见 · 角色脚本待处理…');
-    return loadTimings.measure('助手等待页面恢复可见', 'generation', () => new Promise(resolve => {
+function waitForPageVisibility() {
+    if (!document.hidden) return Promise.resolve();
+    return new Promise(resolve => {
         const onVisibility = () => {
-            if (document.visibilityState !== 'visible') return;
+            if (document.hidden) return;
             document.removeEventListener('visibilitychange', onVisibility);
             resolve();
         };
         document.addEventListener('visibilitychange', onVisibility);
-    }));
+    });
+}
+
+function notifyGeneration(message, type) {
+    if (!document.hidden) return notify(message, type);
+    void waitForPageVisibility().then(() => notify(message, type));
+}
+
+function waitForReplyScriptVisibility() {
+    status('等待页面恢复可见 · 角色脚本待处理…');
+    return loadTimings.measure('助手等待页面恢复可见', 'generation', waitForPageVisibility);
 }
 
 async function generate(mode = false) {
@@ -2812,7 +2823,7 @@ async function generate(mode = false) {
             fetch: (request, signal) => {
                 requestedStream = Number(request.stream === true);
                 finishRequest = requestLog.start('chat', request, signal, api);
-                return api.response('/api/backends/chat-completions/generate', request, { signal });
+                return chatGenerationResponse(api, request, signal);
             },
         }), response => ({ metrics: {
             requestedStream,
@@ -2854,8 +2865,8 @@ async function generate(mode = false) {
         const failure = requestFailure(error, state.controller?.signal);
         finishFirstText?.(failure.status, failure);
         finishModelResponse?.(failure.status, failure);
-        if (error.name === 'AbortError') notify('生成已停止，已收到的内容会保存', 'info');
-        else { state.error = error.message; notify(error.message, true); }
+        if (error.name === 'AbortError') notifyGeneration('生成已停止，已收到的内容会保存', 'info');
+        else { state.error = error.message; notifyGeneration(error.message, true); }
     } finally {
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
@@ -2866,7 +2877,7 @@ async function generate(mode = false) {
                 await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat());
                 if (document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
                 await loadTimings.measure('助手事件 message_received', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity()));
-            } catch (error) { notify(`回复已保留，角色脚本处理失败：${error.message}`, true); }
+            } catch (error) { notifyGeneration(`回复已保留，角色脚本处理失败：${error.message}`, true); }
         }
         const rawReplyText = reply?.mes;
         if (reply) {
@@ -2887,7 +2898,7 @@ async function generate(mode = false) {
                 try {
                     if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: !reply }));
                     await rememberChat();
-                } catch (error) { notify(error.message, true); }
+                } catch (error) { notifyGeneration(error.message, true); }
             }
             if (state.chatConflict && !userSaved && state.chat.at(-1) === user) {
                 state.chat.pop();
@@ -2902,7 +2913,7 @@ async function generate(mode = false) {
             catch (error) { notify(`角色脚本结束事件失败：${error.message}`, true); }
         }
         if (state.chatConflict) status(state.chatConflict, true);
-        else if (!state.dirty) status(state.error ? '请求未完成' : '已保存');
+        else if (!state.dirty) status(state.error ? `请求未完成 · ${state.error}` : '已保存', Boolean(state.error));
         finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
         state.error = '';
         if (completed && !state.dirty) { await autoUpdateDatabase(); preloadNextGeneration(); }
@@ -2985,7 +2996,7 @@ function toolsPanel() {
     ] });
     palette.addEventListener('change', () => applyPalette(palette.value));
     const rememberReading = value => { const settings = readingSettings(value, true); state.own.reading = settings; try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ } applyReading(settings); };
-    const reading = readingSettings(state.own.reading), typography = el('div', 'parameter-grid'); body.append(typography);
+    const reading = readingSettings(state.own.reading), typography = el('div', 'parameter-grid reading-parameters'); body.append(typography);
     const readingInputs = new Map();
     const values = () => Object.fromEntries([...readingInputs].map(([key, input]) => [key, input.value]));
     for (const [key, label, , min, max, step] of readingFields) {

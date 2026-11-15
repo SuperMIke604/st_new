@@ -25,3 +25,14 @@ test('world select surface taps and cancelled pointer gestures use the same togg
     visible = true; surface.fire('pointerdown'); surface.fire('pointercancel'); visible = false;
     button.fire('click', 0); assert.equal(visible, true);
 });
+test('legacy select menus toggle without evaluating the unsupported popover selector', () => {
+    const button = new Control();
+    const popup = { id: 'options', hidden: true, matches() { assert.fail('unsupported selector'); } };
+    installPopoverToggle(button, popup, {
+        isOpen: () => !popup.hidden,
+        open: () => { popup.hidden = false; },
+        close: () => { popup.hidden = true; },
+    });
+    button.fire('pointerdown'); button.fire('click'); assert.equal(popup.hidden, false);
+    button.fire('pointerdown'); button.fire('click'); assert.equal(popup.hidden, true);
+});
