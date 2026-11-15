@@ -16,6 +16,26 @@ UI 复用 [现有规范](docs/ui-design-guidelines.md)；剧情资料库见 [模
 2. 将此仓库的 `public/app` 文件夹复制到 SillyTavern 的 `public/app`。
 3. 启动后端，浏览器打开 `/app/`。手机使用电脑的局域网地址。
 
+## Android APK
+
+APK 在手机上打开同一设备中由 Termux 提供的 `http://127.0.0.1:8000/app/`。首次使用时先按安装说明把前端部署到 SillyTavern，再在 Termux 启动后端。已有部署时直接启动后端即可。使用其他端口时，可在连接失败页选择“修改端口”。使用账号的后端需要在 APK 内单独登录一次。
+
+启用 SillyTavern 的 HTTP Basic Auth 时，APK 会先弹出账号密码输入框。如果同时启用了酒馆用户账户，之后也可能出现酒馆自己的登录页面。
+
+Windows 构建需要 JDK 17、Android SDK Platform 34 和 Build-Tools 34.0.0。设置 `JAVA_HOME` 和 `ANDROID_HOME` 后，从项目根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\android\build-apk.ps1
+```
+
+安装包为 `android/build/st-new.apk`，适用于 Android 7.0 及以上。保留同目录的 `debug.keystore` 可为后续 APK 使用同一个签名。网页更新仍由 Termux 中的前端和更新插件处理。导出文件请用手机浏览器打开同一个地址。
+
+### 从 GitHub 更新 APK
+
+在 APK 内点输入框旁的「＋」→「检查 APK 更新」。检测到新版本后可前往 GitHub 下载，再通过 Android 安装器覆盖安装。「检查更新」仍用于更新 Termux 提供的网页前端。
+
+发布 APK 时，先增加 `android/AndroidManifest.xml` 的 `versionCode` 并更新 `versionName`，再用同一份签名密钥构建。到 [GitHub Releases](https://github.com/SuperMIke604/st_new/releases) 发布正式版，标签为 `apk-v<versionCode>`，例如 1.2 的 `versionCode` 为 3，标签为 `apk-v3`。将 `st-new.apk` 上传为该 Release 的附件。APK 会在最近 30 个 Release 中查找符合约定且版本号最高的 APK。签名密钥保留在本机。
+
 ## 手动更新
 
 页面加载时不会自动检查或安装。输入框加号菜单中选择“检查更新”；没有新版会提示已是最新，有新版弹出确认，取消关闭弹窗，确定后下载并安装。安装完成后手动刷新页面生效。
