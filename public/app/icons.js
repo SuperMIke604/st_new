@@ -1,4 +1,6 @@
-// Original inline line drawings. No icon font or external resource dependency.
+import { ivoryIconPaths } from './ivory-icons.js';
+
+// Inline line drawings. No icon font or external resource dependency.
 const paths = {
     components: "\n  <path d=\"M3 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M15 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 6l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 18l3 3l3 -3l-3 -3l-3 3\" />\n",
     parametersCollapse: "\n  <path d=\"M4 18v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2\" />\n  <path d=\"M4 9h16\" />\n  <path d=\"M10 14l2 2l2 -2\" />\n",
@@ -45,7 +47,14 @@ const paths = {
 export function icon(name) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.65', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(key, value);
-    svg.dataset.icon = Object.hasOwn(paths, name) ? name : 'tools';
-    svg.innerHTML = paths[name] || paths.tools;
+    const key = Object.hasOwn(paths, name) ? name : 'tools';
+    svg.dataset.icon = key;
+    const ivory = ivoryIconPaths[key];
+    if (ivory) {
+        svg.setAttribute('data-ivory-variant', '');
+        svg.innerHTML = `<g class="default-icon">${paths[key]}</g><g class="ivory-icon" stroke-width="2">${ivory.map(path => `<path d="${path}"/>`).join('')}</g>`;
+    } else {
+        svg.innerHTML = paths[key];
+    }
     return svg;
 }

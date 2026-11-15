@@ -2977,7 +2977,7 @@ function databasePreviewPanel() {
  });
 }
 function toolsPanel() {
-    const body = showPanel('对话工具', state.character?.name || '连接、预设与阅读'); if (!body) return;
+    const body = showPanel('对话工具', state.character?.name || '连接、预设与阅读', 'reading-tools-panel'); if (!body) return;
     const grid = el('div', 'nav-grid');
 
     body.append(action('预览下一次请求的提示词', async () => {
