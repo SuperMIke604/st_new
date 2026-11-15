@@ -3,16 +3,22 @@ export class VirtualChat {
     constructor(element, render, onRange) {
         this.element = element; this.renderMessage = render; this.onRange = onRange;
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
-        this.frame = 0; this.follow = true; this.revision = 0;
+        this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
         this.top.className = this.bottom.className = 'virtual-spacer';
         this.element.replaceChildren(this.top, this.bottom);
         this.observer = new ResizeObserver(entries => {
-            let correction = 0; let changed = false;
+            const first = this.nodes.values().next().value;
+            if (!first) return;
+            const gap = parseFloat(getComputedStyle(first).marginBlockEnd) || 0;
+            let changed = gap !== this.gap;
+            let correction = changed ? this.locate(this.element.scrollTop) * (gap - this.gap) : 0;
+            this.gap = gap;
             for (const { target, borderBoxSize } of entries) {
+                if (target === this.element) continue;
                 const index = Number(target.dataset.index);
                 if (this.nodes.get(index) !== target) continue;
-                const height = (borderBoxSize?.[0]?.blockSize || target.getBoundingClientRect().height) + 16;
+                const height = borderBoxSize?.[0]?.blockSize || target.getBoundingClientRect().height;
                 const old = this.heights.get(index) || 200;
                 if (Math.abs(height - old) < 1) continue;
                 if (this.prefix[index + 1] < this.element.scrollTop) correction += height - old;
@@ -24,6 +30,7 @@ export class VirtualChat {
                 else if (correction) this.element.scrollTop += correction;
             }
         });
+        this.observer.observe(element);
         element.addEventListener('scroll', () => {
             this.follow = element.scrollHeight - element.scrollTop - element.clientHeight < 90;
             if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.paint(); });
@@ -31,7 +38,7 @@ export class VirtualChat {
     }
     calculate() {
         this.prefix = [0];
-        for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200));
+        for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200) + this.gap);
     }
     locate(offset) {
         let low = 0; let high = this.messages.length;
@@ -42,6 +49,7 @@ export class VirtualChat {
         this.messages = messages;
         if (reset) {
             this.heights.clear(); this.observer.disconnect(); this.nodes.clear();
+            this.observer.observe(this.element);
             this.element.replaceChildren(this.top, this.bottom);
         }
         this.calculate();
@@ -73,7 +81,7 @@ export class VirtualChat {
             cursor = node.nextSibling;
         }
         this.nodes = next;
-        for (const node of next.values()) this.observer.observe(node);
+        for (const node of next.values()) this.observer.observe(node, { box: 'border-box' });
         this.spacers();
         this.onRange?.({ start: this.start, end: this.end, total: this.messages.length, follow: this.follow });
     }

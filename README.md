@@ -32,7 +32,10 @@ powershell -ExecutionPolicy Bypass -File .\android\build-apk.ps1
 
 ### 从 GitHub 更新 APK
 
-在 APK 内点输入框旁的「＋」→「检查 APK 更新」。检测到新版本后可前往 GitHub 下载，再通过 Android 安装器覆盖安装。「检查更新」仍用于更新 Termux 提供的网页前端。
+使用 Android 版时，请在同一次升级中更新 Termux 里的网页前端和更新插件，并将手机 APK 更新到对应版本。
+
+1. 在输入框旁的「＋」菜单中选择「检查更新」，安装网页前端和更新插件。按页面提示重启 SillyTavern 并刷新。
+2. 在同一个菜单中选择「检查 APK 更新」。检测到新版本后，从 GitHub 下载安装包，再通过 Android 安装器覆盖安装。
 
 发布 APK 时，先增加 `android/AndroidManifest.xml` 的 `versionCode` 并更新 `versionName`，再用同一份签名密钥构建。到 [GitHub Releases](https://github.com/SuperMIke604/st_new/releases) 发布正式版，标签为 `apk-v<versionCode>`，例如 1.2 的 `versionCode` 为 3，标签为 `apk-v3`。将 `st-new.apk` 上传为该 Release 的附件。APK 会在最近 30 个 Release 中查找符合约定且版本号最高的 APK。签名密钥保留在本机。
 
