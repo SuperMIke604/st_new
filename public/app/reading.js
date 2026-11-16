@@ -1,5 +1,5 @@
 export const readingFields = [
-    ['fontSize', '聊天正文字号（px）', 15, 12, 36, 1],
+    ['fontSize', '聊天正文字号（px）', 15, 12, null, 1],
     ['inputFontSize', '输入框字号（px）', '', 12, 36, 'any'],
     ['letterSpacing', '字间距（px）', .15, 0, 6, .1],
     ['lineHeight', '行间距（倍）', 1.95, 1.2, 3.5, .05],
@@ -9,8 +9,11 @@ export function readingSettings(value = {}, strict = false) {
     const settings = Object.fromEntries(readingFields.map(([key, label, fallback, min, max]) => {
         const number = value[key] === '' || value[key] == null ? fallback : Number(value[key]);
         if (number === '') return [key, ''];
-        if (strict && (!Number.isFinite(number) || number < min || number > max)) throw new Error(`${label}的范围是 ${min}–${max}。`);
-        return [key, Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback];
+        const upperBound = max ?? Infinity;
+        if (strict && (!Number.isFinite(number) || number < min || number > upperBound)) {
+            throw new Error(max == null ? `${label}须为不小于 ${min} 的有限数字。` : `${label}的范围是 ${min}–${max}。`);
+        }
+        return [key, Number.isFinite(number) ? Math.min(upperBound, Math.max(min, number)) : fallback];
     }));
     const color = String(value.dialogueColor ?? '').trim();
     const validColor = /^#?(?:[\da-f]{3}|[\da-f]{6})$/i.test(color);

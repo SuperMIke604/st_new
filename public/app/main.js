@@ -3123,11 +3123,17 @@ function toolsPanel() {
     const values = () => Object.fromEntries([...readingInputs].map(([key, input]) => [key, input.value]));
     for (const [key, label, fallback, min, max, step] of readingFields) {
         const optional = fallback === '';
-        const input = field(typography, label, reading[key], { type: 'number' }); input.min = min; input.max = max; input.step = step; readingInputs.set(key, input);
+        const input = field(typography, label, reading[key], { type: 'number' });
+        input.min = min;
+        if (max != null) input.max = max;
+        input.step = step;
+        readingInputs.set(key, input);
         if (optional) input.placeholder = '跟随设备';
         input.addEventListener('input', () => {
-            if (optional) {
-                if (input.validity.valid) rememberReading({ ...state.own.reading, [key]: input.value });
+            if (optional || key === 'fontSize') {
+                if (input.validity.valid && (optional || input.value !== '')) {
+                    rememberReading({ ...state.own.reading, [key]: input.value });
+                }
             } else if (input.value !== '' && [...readingInputs.values()].every(input => input.validity.valid)) {
                 rememberReading(values());
             }
