@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "revision": "b72c623425609dcf8146f47a3b9405b2e0ad2944db8c7f6ff2b5e5d18ed266ca",
-  "publishedAt": "2026-11-16T06:35:36.642871+00:00",
+  "revision": "4344ff00f9241691d1f39c2c5b74672e6f2845eddfdc208f7ef04c997dd40332",
+  "publishedAt": "2026-11-16T07:49:22.134445+00:00",
   "files": {
-    "public/app/api.js": "66f8c243c0f3a86488ec9899090acdd168810799e0173d97c54de1a68fb492d3",
-    "public/app/background-generation.js": "c048030f6c9129228b3f4a0621f5f5a99b2393d9e34592ace0a3c0b5f36d9fe5",
+    "public/app/api.js": "4ad2465b727aa5bdaf746e10881f77457da212c00953f1e5a948eafcfdba5b9a",
+    "public/app/background-generation.js": "8ebe4ec1531927f0f7d777fa1f131d4b64f163f14e6e522a4ef65960613eddd2",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
     "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
-    "public/app/chat-delta.js": "ddfce277e9e39e7434445540c2dce207c7118a5e434c4b3f933cb696270d9bcb",
+    "public/app/chat-delta.js": "ae443a49a3f2cdf375243824807e94117892b9b02373303cdbf6724e89cfa677",
     "public/app/chat-history.js": "57ecb3d5238639547ba31b71541da92cc5996a58247c6d127ae3f56ea2e8b3ab",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
     "public/app/claude-day.css": "633187c7a25bba2e3cb5cfb0dca52274fc7eae60a9f65bbf3a5cd126f337329c",
@@ -37,7 +37,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
-    "public/app/main.js": "9ece663db0f3c99987d96e949db58adb22e5261f5853553529d355b62ed06d78",
+    "public/app/main.js": "ac7086e6b3abaaa65fb7b20780882548aec72e49338aa9b74984d539b9fccb8c",
     "public/app/message-edit.js": "d5b08ef67f281c0cf0495f460e27bbba0c8859039c9e5524540d91e7cb9b3afd",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -88,10 +88,10 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "11c40a37e5515afdcc9a62c94afe2e2547eeefa590ffdbbf1e7ac75180c40cbb"
+    "public/app/version.js": "ec71fba51bf81c180fd0e530ce5c510a01253f219151e7f910c84c3b8e2290d3"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "66b7f6e6bf5d39131f8db824b07fc1b1cc1f8dec82f8fcc58d2c82fc558070e9"
+    "sha256": "ba3c80eb210070dfd77768ea18f578dd17a6db42b6ebd7971bfbd6df45601799"
   }
 }

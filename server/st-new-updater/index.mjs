@@ -382,8 +382,13 @@ export function registerBackgroundGeneration(router, { requestModel = fetch } = 
         }
         response.set('Cache-Control', 'no-store');
         const owner = request.user?.directories?.root;
-        const { action, id, offset, modelRequest } = request.body || {};
-        if (!owner || typeof id !== 'string' || !jobIdPattern.test(id)) return response.status(400).json({ error: '无效的后台请求。' });
+        const { action, id, offset, modelRequest, recovery } = request.body || {};
+        if (!owner) return response.status(400).json({ error: '无效的后台请求。' });
+        if (action === 'pending') {
+            const job = [...jobs.values()].reverse().find(entry => entry.owner === owner && entry.recovery);
+            return response.json({ job: job?.recovery ?? null });
+        }
+        if (typeof id !== 'string' || !jobIdPattern.test(id)) return response.status(400).json({ error: '无效的后台请求。' });
         const job = jobs.get(id);
         if (job && job.owner !== owner) return response.status(404).json({ error: '后台请求不存在。' });
 
@@ -400,17 +405,28 @@ export function registerBackgroundGeneration(router, { requestModel = fetch } = 
                 if (typeof request.headers[key] === 'string') headers[key] = request.headers[key];
             }
             const next = { id, owner, controller: new AbortController(), status: 0, type: '', text: '', done: false, error: '' };
+            if (record(recovery) && typeof recovery.avatar === 'string' && recovery.avatar.length <= 512
+                && typeof recovery.file === 'string' && recovery.file.length <= 512
+                && typeof recovery.base === 'string' && /^[a-f0-9]{64}$/.test(recovery.base)) {
+                next.recovery = {
+                    id, avatar: recovery.avatar, file: recovery.file, base: recovery.base,
+                    regenerate: recovery.regenerate === true,
+                    started: typeof recovery.started === 'string' ? recovery.started.slice(0, 32) : '',
+                };
+            }
             jobs.set(id, next);
             void generate(next, url, headers, modelRequest);
             return response.json({ id });
         }
         if (!job) return response.status(410).json({ error: '后台生成结果已过期，或 Termux 中的酒馆已重启。' });
         if (action === 'cancel') {
+            job.recovery = null;
             job.controller.abort();
             return response.json({ ok: true });
         }
-        if (action === 'release' && job.done) {
+        if (action === 'release') {
             jobs.delete(id);
+            if (!job.done) job.controller.abort();
             return response.json({ ok: true });
         }
         if (action !== 'read' || !Number.isSafeInteger(offset) || offset < 0 || offset > job.text.length) {

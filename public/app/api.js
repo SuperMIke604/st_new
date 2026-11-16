@@ -147,7 +147,7 @@ export class TavernAPI {
     canSaveChatDelta(avatar, file) {
         return !this.chatDeltaMissing && this.chatBase?.avatar === avatar && this.chatBase.file === file;
     }
-    async trySaveChatDelta(avatar, file, records) {
+    async trySaveChatDelta(avatar, file, records, signal) {
         if (!this.canSaveChatDelta(avatar, file)) return false;
         const base = this.chatBase;
         const prepared = await loadTimings.measure('准备聊天增量传输', 'generation', async () => {
@@ -162,7 +162,7 @@ export class TavernAPI {
         if (!prepared) return false;
         const { lines, delta, payload, serializedBody } = prepared;
         try {
-            const result = await this.post('/api/plugins/st-new-updater/chat-delta', payload, { serializedBody, fallbackStatuses: [404, 422] });
+            const result = await this.post('/api/plugins/st-new-updater/chat-delta', payload, { serializedBody, signal, fallbackStatuses: [404, 422] });
             if (!result?.ok || result.revision !== delta.result) throw new Error('聊天增量保存核验失败，请重试。');
         } catch (error) {
             if (error.status === 404) { this.chatDeltaMissing = true; return false; }
@@ -173,9 +173,9 @@ export class TavernAPI {
         this.chatBase = { avatar, file, lines, revision: delta.result };
         return true;
     }
-    async saveChat(avatar, file, header, messages, { incremental = false } = {}) {
+    async saveChat(avatar, file, header, messages, { incremental = false, signal } = {}) {
         const payload = { avatar_url: avatar, file_name: file, chat: [header, ...messages] };
-        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat)) return;
+        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat, signal)) return;
         const json = loadTimings.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
         const finishCompression = loadTimings.start('准备聊天保存传输', 'generation');
         let prepared;
@@ -183,7 +183,7 @@ export class TavernAPI {
         catch (error) { finishCompression('error'); throw error; }
         for (let attempt = 0; ; attempt++) {
             try {
-                const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
+                const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, signal, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
                 if (!result?.ok) throw new Error('聊天保存失败。');
                 this.rememberChatBase(avatar, file, payload.chat);
                 return;

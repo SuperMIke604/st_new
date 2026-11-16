@@ -1,6 +1,6 @@
 export const chatLines = records => records.map(record => JSON.stringify(record));
 
-async function revision(lines) {
+export async function chatRevision(lines) {
     const text = lines.join('\n');
     const bytes = new TextEncoder().encode(text);
     if (globalThis.crypto?.subtle) {
@@ -27,7 +27,7 @@ export async function chatDelta(before, after, knownRevision) {
     }
     const append = after.slice(before.length).map(line => JSON.parse(line));
     if (patches.length > 500 || append.length > 20) return null;
-    const baseRevision = knownRevision ?? revision(before);
-    const [base, result] = await Promise.all([baseRevision, patches.length || append.length ? revision(after) : baseRevision]);
+    const baseRevision = knownRevision ?? chatRevision(before);
+    const [base, result] = await Promise.all([baseRevision, patches.length || append.length ? chatRevision(after) : baseRevision]);
     return { base, result, patches, append };
 }

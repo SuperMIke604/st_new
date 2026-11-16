@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import test from 'node:test';
-import { chatGenerationResponse } from '../../public/app/background-generation.js';
+import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGeneration } from '../../public/app/background-generation.js';
 import { readEvents } from '../../public/app/api.js';
 import { registerBackgroundGeneration } from './index.mjs';
 
@@ -53,6 +53,7 @@ test('APK generation reads completed results after suspension and relays model f
     let jobId;
     const origin = `http://127.0.0.1:${server.address().port}`;
     const api = {
+        async post(...args) { return (await this.response(...args)).json(); },
         async response(path, body, { signal } = {}) {
             if (body.action === 'start') jobId = body.id;
             const response = await fetch(origin + path, {
@@ -64,7 +65,11 @@ test('APK generation reads completed results after suspension and relays model f
         },
     };
 
-    const response = await chatGenerationResponse(api, { stream: true }, new AbortController().signal);
+    const id = 'a'.repeat(32);
+    const recovery = { id, avatar: 'fixture.png', file: 'fixture', base: 'b'.repeat(64), regenerate: false, started: '' };
+    // Drop the first page before it consumes the stream or persists the job ID.
+    await chatGenerationResponse(api, { stream: true }, new AbortController().signal, { id, recovery });
+    assert.deepEqual(await findBackgroundGeneration(api), recovery);
     await new Promise(resolve => setTimeout(resolve, 30));
     const forbidden = await fetch(origin + '/api/plugins/st-new-updater/generate-background', {
         method: 'POST', headers: { 'fixture-user': 'another-user' },
@@ -73,9 +78,18 @@ test('APK generation reads completed results after suspension and relays model f
     assert.equal(forbidden.status, 404);
     document.hidden = false;
     document.dispatchEvent(new Event('visibilitychange'));
-    let text = '';
-    for await (const event of readEvents(response)) text += event.choices[0].delta.content;
-    assert.equal(text, '开始完成🎉');
+    const readReply = async () => {
+        const response = await chatGenerationResponse(api, null, new AbortController().signal, { id, resume: true });
+        let text = '';
+        for await (const event of readEvents(response)) text += event.choices[0].delta.content;
+        return text;
+    };
+    assert.equal(await readReply(), '开始完成🎉');
+    // The second page received the reply but closed before its save acknowledgment.
+    assert.equal(await readReply(), '开始完成🎉');
+    await releaseBackgroundGeneration(api, id);
+    assert.equal(await findBackgroundGeneration(api), null);
+    await assert.rejects(readReply, { status: 410 });
     assert.equal(generationCount, 1);
     await assert.rejects(chatGenerationResponse(api, { fail: true }, new AbortController().signal), /fixture model error/);
     assert.equal(generationCount, 2);

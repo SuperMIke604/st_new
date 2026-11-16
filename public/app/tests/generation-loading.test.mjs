@@ -9,13 +9,14 @@ const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8')
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, intercept = body => body } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, intercept = body => body } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
-    const state = { character: { name: '角色' }, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
+    const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
+    const storage = new Map(), backgroundCalls = [], releases = [];
     let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [];
     const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
         helperEvents.push(event);
@@ -29,7 +30,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, setTimeout, clearTimeout, streamFrame: 0,
+    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, setTimeout, clearTimeout, streamFrame: 0,
         $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
@@ -38,8 +39,18 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
             if (state.generation?.reply) assert.equal(requests, 1, 'start the request before painting the waiting placeholder');
             renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
         } },
-        api: { response() { requests++; return response.promise; } },
-        chatGenerationResponse: (api, body, signal) => api.response('/api/backends/chat-completions/generate', body, { signal }),
+        api: {
+            chatBase: { avatar: state.character.avatar, file: state.file, lines: [] },
+            response() { requests++; return response.promise; },
+        },
+        localStorage: { getItem: key => storage.get(key), removeItem: key => storage.delete(key) },
+        usesBackgroundGeneration: () => background,
+        chatRevision: async () => 'a'.repeat(64),
+        releaseBackgroundGeneration: async (_api, id) => releases.push({ id, saves: saved.length }),
+        chatGenerationResponse: (api, body, signal, options) => {
+            backgroundCalls.push(options);
+            return api.response('/api/backends/chat-completions/generate', body, { signal });
+        },
         readEvents: response => response.events,
         generationPreload: { cancelScheduled() {} }, preloadNextGeneration: () => postGeneration.push('preload'),
         nativeScriptPlan: () => native ? [{ enabled: true }] : [], scriptSupport: () => ({ adapter: 'remote-module', supported: true }), scriptSnapshot: () => ({}), scriptIdentity: () => 'test', scriptRuntime,
@@ -52,7 +63,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(generate, context);
-    return { state, input, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, storage, backgroundCalls, releases, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -223,5 +234,42 @@ test('hiding the page again before generation_ended defers that event until visi
     assert.deepEqual(f.helperEvents, ['generation_started', 'message_sent', 'message_received']);
     f.setVisibility('visible'); await running;
     assert.equal(f.helperEvents.at(-1), 'generation_ended');
+    assert.equal(f.state.busy, false);
+});
+
+
+test('reopening an APK resumes the existing task and acknowledges only a saved reply', async () => {
+    const f = fixture({ background: true });
+    f.state.chat.push({ is_user: true, mes: '已保存的用户消息' });
+    f.input.value = '';
+    const key = 'st-new-background-generation:default';
+    const job = { id: '1'.repeat(32), avatar: 'fixture.png', file: 'fixture', base: 'a'.repeat(64), regenerate: false };
+    f.storage.set(key, JSON.stringify(job));
+    const running = f.run(false);
+    await tick();
+    assert.match(f.statuses.at(-1), /正在恢复后台回复/);
+    assert.equal(f.backgroundCalls[0].id, job.id);
+    assert.equal(f.backgroundCalls[0].resume, true);
+    assert.equal(f.promptHistory.length, 0);
+    assert.equal(f.storage.has(key), true);
+    assert.equal(f.releases.length, 0);
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '恢复的回复' } }] }) });
+    await running;
+    assert.equal(f.saved[0].at(-1).mes, '恢复的回复');
+    assert.equal(f.saved[0].length, 3);
+    assert.deepEqual(f.releases, [{ id: job.id, saves: 1 }]);
+    assert.equal(f.storage.has(key), false);
+    assert.equal(f.state.busy, false);
+});
+
+test('APK recovery refuses to save a reply into a changed chat', async () => {
+    const f = fixture({ background: true });
+    f.storage.set('st-new-background-generation:default', JSON.stringify({
+        id: '2'.repeat(32), avatar: 'fixture.png', file: 'fixture', base: 'b'.repeat(64),
+    }));
+    await f.run(false);
+    assert.equal(f.requests(), 0);
+    assert.equal(f.saved.length, 0);
+    assert.match(f.notices[0], /聊天记录已变动/);
     assert.equal(f.state.busy, false);
 });

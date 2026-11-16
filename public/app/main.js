@@ -1,5 +1,6 @@
 import { RecentCharacters } from './home-data.js';
-import { chatGenerationResponse } from './background-generation.js';
+import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGeneration, usesBackgroundGeneration } from './background-generation.js';
+import { chatRevision } from './chat-delta.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
@@ -811,7 +812,7 @@ async function rememberChat(patch = {}) {
     if (state.own.lastChats?.[state.character.avatar] !== state.file) patch = { ...patch, lastChats };
     if (Object.keys(patch).some(key => JSON.stringify(state.own[key]) !== JSON.stringify(patch[key]))) await saveOwn(patch);
 }
-function saveChat({ incremental = false } = {}) {
+function saveChat({ incremental = false, signal } = {}) {
     if (state.chatConflict) return Promise.reject(new Error(state.chatConflict));
     incremental ||= !!state.chatDeltaRetry;
     generationPreload.invalidate();
@@ -821,7 +822,7 @@ function saveChat({ incremental = false } = {}) {
     const finishQueue = loadTimings.start('等待聊天保存队列', 'generation');
     const task = state.saves.catch(() => {}).then(async () => {
         finishQueue();
-        await api.saveChat(record.avatar, record.file, record.header, record.messages, { incremental });
+        await api.saveChat(record.avatar, record.file, record.header, record.messages, { incremental, signal });
         state.chatDeltaRetry = false;
         if (state.character?.avatar === record.avatar && state.file === record.file) state.chatUnpersisted = false;
         state.dirty = false; status('已保存'); synchronize();
@@ -2754,53 +2755,114 @@ function waitForReplyScriptVisibility() {
     return loadTimings.measure('助手等待页面恢复可见', 'generation', waitForPageVisibility);
 }
 
-async function generate(mode = false) {
+function backgroundJobKey() {
+    return `st-new-background-generation:${state.settings.username || 'default'}`;
+}
+function pendingBackgroundJob() {
+    try {
+        const job = JSON.parse(localStorage.getItem(backgroundJobKey()));
+        if (job && /^[a-f0-9]{32}$/.test(job.id) && typeof job.avatar === 'string'
+            && typeof job.file === 'string' && /^[a-f0-9]{64}$/.test(job.base)) return job;
+    } catch {}
+    return null;
+}
+function forgetBackgroundJob(job) {
+    if (pendingBackgroundJob()?.id !== job.id) return;
+    try { localStorage.removeItem(backgroundJobKey()); } catch {}
+}
+function acknowledgeBackgroundJob(job) {
+    forgetBackgroundJob(job);
+    void releaseBackgroundGeneration(api, job.id).catch(() => {});
+}
+async function resumeBackgroundChat({ discover = false } = {}) {
+    const job = pendingBackgroundJob() || (discover ? await findBackgroundGeneration(api) : null);
+    if (!job) return;
+    assertSaved();
+    const character = state.character?.avatar === job.avatar ? state.character
+        : await api.post('/api/characters/get', { avatar_url: job.avatar });
+    if (state.character !== character || state.file !== job.file) await loadChat(job.file, false, character);
+    await generate(false, job);
+}
+
+async function generate(mode = false, recovery = null) {
     assertIdle(); if (state.chatConflict) throw new Error(state.chatConflict);
     if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
+    if (!recovery && usesBackgroundGeneration() && pendingBackgroundJob()) return resumeBackgroundChat();
     generationPreload.cancelScheduled();
-    if (state.connectionPending) throw new Error('连接正在初始化，请稍候。');
-    if (state.connectionError) throw new Error('连接初始化失败，请打开 API 面板检查并保存连接。');
-    if (state.presetMissing) throw new Error('保存的预设已不存在，请打开预设面板选择有效预设；不会自动切换到第一个。');
-    const regenerate = mode === true;
+    if (!recovery) {
+        if (state.connectionPending) throw new Error('连接正在初始化，请稍候。');
+        if (state.connectionError) throw new Error('连接初始化失败，请打开 API 面板检查并保存连接。');
+        if (state.presetMissing) throw new Error('保存的预设已不存在，请打开预设面板选择有效预设；不会自动切换到第一个。');
+    }
+    const regenerate = recovery ? recovery.regenerate === true : mode === true;
     const text = $('message-input').value.trim();
-    const retry = mode === 'retry' || (!regenerate && !text && !!state.chat.at(-1)?.is_user);
+    const retry = !!recovery || mode === 'retry' || (!regenerate && !text && !!state.chat.at(-1)?.is_user);
     if (!regenerate && !retry && !text) return;
-    if (retry && !state.chat.at(-1)?.is_user) throw new Error('最后一条消息不是待回复的用户消息。');
-    if (regenerate && (!state.chat.length || state.chat.at(-1).is_user)) throw new Error('当前没有可重新生成的最后回复。');
+    if (!regenerate && retry && !recovery && !state.chat.at(-1)?.is_user) throw new Error('最后一条消息不是待回复的用户消息。');
+    if (regenerate && !recovery && (!state.chat.length || state.chat.at(-1).is_user)) throw new Error('当前没有可重新生成的最后回复。');
     const previousReply = regenerate ? copy(state.chat.at(-1)) : null;
     // Fail local validation before fetching books or running tokenizer requests.
-    generationBody(connection(), state.preset, []);
-    const user = { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
+    if (!recovery) generationBody(connection(), state.preset, []);
+    const user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
     const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
+    let backgroundJob = recovery;
+    let resumeLater = false;
+    const backgroundSaveSignal = () => backgroundJob ? AbortSignal.timeout(30000) : undefined;
+    const acknowledgeReply = () => {
+        if (!backgroundJob) return;
+        acknowledgeBackgroundJob(backgroundJob);
+        backgroundJob = null;
+    };
     const persistUser = async () => {
         state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput();
         await loadTimings.measure('发送前保存聊天', 'generation', () => saveChat({ incremental: true }));
         userSaved = true;
     };
     try {
-        if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)) {
-            if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await loadTimings.measure('初始化助手脚本环境', 'generation', () => openScriptWorkspace(false));
-            await loadTimings.measure('助手事件 generation_started', 'generation', () => scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity()));
+        let prepared, body;
+        if (recovery) {
+            const base = api.chatBase;
+            if (base?.avatar !== recovery.avatar || base.file !== recovery.file
+                || await chatRevision(base.lines) !== recovery.base) {
+                acknowledgeReply();
+                if (recovery.started && state.chat.some(message => message.gen_started === recovery.started && !message.is_user)) return;
+                throw new Error('聊天记录已变动，已跳过后台回复恢复。');
+            }
+            if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)
+                && (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity())) {
+                try { await openScriptWorkspace(false); }
+                catch (error) { notifyGeneration(`恢复回复时无法初始化角色脚本：${error.message}`, true); }
+            }
+        } else {
+            if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)) {
+                if (!scriptRuntime.frame || scriptRuntime.identity !== scriptIdentity()) await loadTimings.measure('初始化助手脚本环境', 'generation', () => openScriptWorkspace(false));
+                await loadTimings.measure('助手事件 generation_started', 'generation', () => scriptRuntime.dispatch('generation_started', [regenerate ? 'swipe' : 'normal'], scriptSnapshot(state), scriptIdentity()));
+            }
+            await loadTimings.measure('准备角色变量', 'generation', () => prepareRoleMvu(true));
+            if (!regenerate && !retry && scriptRuntime.helperReady) {
+                await persistUser();
+                state.generation.dispatchingMessageSent = true;
+                try {
+                    await loadTimings.measure('助手事件 message_sent', 'generation', () => scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity()));
+                } finally { state.generation.dispatchingMessageSent = false; }
+                if (state.chatConflict) throw new Error(state.chatConflict);
+            }
+            prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
+            body = loadTimings.measureSync('组装模型请求', 'generation', () => generationBody(connection(), state.preset, prepared.messages));
+            if (state.controller.signal.aborted) return;
+            if (!regenerate && !retry && !pendingUser) await persistUser();
+            if (state.controller.signal.aborted) return;
+            if (usesBackgroundGeneration() && state.chatUnpersisted) await saveChat();
         }
-        await loadTimings.measure('准备角色变量', 'generation', () => prepareRoleMvu(true));
-        if (!regenerate && !retry && scriptRuntime.helperReady) {
-            await persistUser();
-            state.generation.dispatchingMessageSent = true;
-            try {
-                await loadTimings.measure('助手事件 message_sent', 'generation', () => scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity()));
-            } finally { state.generation.dispatchingMessageSent = false; }
-            if (state.chatConflict) throw new Error(state.chatConflict);
+        if (state.controller.signal.aborted) {
+            if (recovery) throw state.controller.signal.reason;
+            return;
         }
-        const prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
-        const body = loadTimings.measureSync('组装模型请求', 'generation', () => generationBody(connection(), state.preset, prepared.messages));
-        if (state.controller.signal.aborted) return;
-        if (!regenerate && !retry && !pendingUser) await persistUser();
-        if (state.controller.signal.aborted) return;
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
@@ -2810,29 +2872,53 @@ async function generate(mode = false) {
             reply.swipe_info = old.swipe_info ? copy(old.swipe_info) : [{ extra: copy(old.extra || {}) }];
             reply.swipe_id = reply.swipes.length; reply.swipes.push(''); state.chat[state.chat.length - 1] = reply;
         } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
+        if (recovery?.started) reply.gen_started = recovery.started;
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
-        preview = prepared;
+        if (prepared) preview = prepared;
         const controller = state.controller;
+        const fetchReply = async (request, signal) => {
+            finishRequest = requestLog.start('chat', request, signal, api);
+            const base = api.chatBase;
+            if (usesBackgroundGeneration() && base?.avatar === state.character.avatar && base.file === state.file) {
+                const job = {
+                    id: crypto.randomUUID().replaceAll('-', ''), avatar: base.avatar, file: base.file,
+                    base: base.revision ?? await chatRevision(base.lines), regenerate, started: reply.gen_started,
+                };
+                signal.throwIfAborted();
+                backgroundJob = job;
+                try { localStorage.setItem(backgroundJobKey(), JSON.stringify(job)); }
+                catch { /* The backend can rediscover the job on startup. */ }
+            }
+            return chatGenerationResponse(api, request, signal, {
+                id: backgroundJob?.id,
+                recovery: backgroundJob,
+                onFallback: () => {
+                    if (backgroundJob) forgetBackgroundJob(backgroundJob);
+                    backgroundJob = null;
+                },
+            });
+        };
         let requestedStream;
         finishFirstText = loadTimings.start('模型请求至首段文本（含思考）', 'generation');
         finishModelResponse = loadTimings.start('模型请求至回复接收完成', 'generation');
-        const pendingResponse = loadTimings.measure('模型请求至响应头', 'generation', () => scriptRuntime.generate(body, {
-            signal: controller.signal,
-            identity: scriptIdentity(),
-            generationType: regenerate ? 'swipe' : 'normal',
-            fetch: (request, signal) => {
-                requestedStream = Number(request.stream === true);
-                finishRequest = requestLog.start('chat', request, signal, api);
-                return chatGenerationResponse(api, request, signal);
-            },
-        }), response => ({ metrics: {
+        const pendingResponse = loadTimings.measure('模型请求至响应头', 'generation', () => recovery
+            ? chatGenerationResponse(api, null, controller.signal, { id: recovery.id, resume: true })
+            : scriptRuntime.generate(body, {
+                signal: controller.signal,
+                identity: scriptIdentity(),
+                generationType: regenerate ? 'swipe' : 'normal',
+                fetch: (request, signal) => {
+                    requestedStream = Number(request.stream === true);
+                    return fetchReply(request, signal);
+                },
+            }), response => ({ metrics: {
             requestedStream,
             streamResponse: Number((response.headers.get('content-type') || '').includes('text/event-stream')),
         } }));
         try {
             loadTimings.measureSync('请求期间刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: true }));
-            status(regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
+            status(recovery ? '正在恢复后台回复…' : regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
         } catch (error) {
             controller.abort();
             void pendingResponse.catch(() => {});
@@ -2863,19 +2949,36 @@ async function generate(mode = false) {
         status('回复完成');
     } catch (error) {
         finishRequest?.(error, reply?.mes, reply?.extra?.reasoning);
+        resumeLater = !!backgroundJob && !!error.resumeBackground;
+        if (resumeLater && reply) {
+            if (regenerate) state.chat[replyIndex] = previousReply;
+            else state.chat.pop();
+            reply = null;
+            list.setMessages(state.chat, { latest: list.follow });
+        }
         const failure = requestFailure(error, state.controller?.signal);
         finishFirstText?.(failure.status, failure);
         finishModelResponse?.(failure.status, failure);
         if (error.name === 'AbortError') notifyGeneration('生成已停止，已收到的内容会保存', 'info');
-        else { state.error = error.message; notifyGeneration(error.message, true); }
+        else {
+            state.error = resumeLater ? '暂时无法读取后台回复，点击发送可继续恢复' : error.message;
+            notifyGeneration(state.error, true);
+        }
     } finally {
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
-        if (completed && reply && scriptRuntime.helperReady) {
+        let rawSaved = false;
+        if (completed && reply && (backgroundJob || scriptRuntime.helperReady)) {
             try {
                 if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
-                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat());
+                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat({ incremental: !!backgroundJob, signal: backgroundSaveSignal() }));
+                rawSaved = true;
+                acknowledgeReply();
+            } catch (error) { notifyGeneration(error.message, true); }
+        }
+        if (completed && reply && scriptRuntime.helperReady && rawSaved) {
+            try {
                 if (document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
                 await loadTimings.measure('助手事件 message_received', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity()));
             } catch (error) { notifyGeneration(`回复已保留，角色脚本处理失败：${error.message}`, true); }
@@ -2897,7 +3000,8 @@ async function generate(mode = false) {
         if (reply || pendingUser) {
             if (!state.chatConflict) {
                 try {
-                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: !reply }));
+                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: !reply || !!backgroundJob, signal: backgroundSaveSignal() }));
+                    if (!resumeLater) acknowledgeReply();
                     await rememberChat();
                 } catch (error) { notifyGeneration(error.message, true); }
             }
@@ -2907,6 +3011,7 @@ async function generate(mode = false) {
             }
             list.setMessages(state.chat, { latest: list.follow });
         }
+        if (!reply && !resumeLater && backgroundJob) acknowledgeReply();
         if (completed && scriptRuntime.helperReady && document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
         state.busy = false; state.controller = null; synchronize();
         if (completed && scriptRuntime.helperReady) {
@@ -3112,6 +3217,15 @@ window.visualViewport?.addEventListener('scroll', resizeViewport);
 window.addEventListener('resize', resizeViewport); resizeViewport(); synchronize();
 startupPromise = start();
 void run(() => startupPromise);
+const androidShellObserver = new MutationObserver(() => {
+    if (!usesBackgroundGeneration()) return;
+    androidShellObserver.disconnect();
+    void run(async () => {
+        await startupPromise;
+        await resumeBackgroundChat({ discover: true });
+    });
+});
+androidShellObserver.observe(composerTools, { childList: true });
 
 
 

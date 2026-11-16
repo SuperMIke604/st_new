@@ -17,53 +17,92 @@ function waitForPoll(signal) {
     });
 }
 
-export async function chatGenerationResponse(api, body, signal) {
+export const usesBackgroundGeneration = () => !!document.getElementById('android-apk-update');
+
+export async function findBackgroundGeneration(api) {
+    try {
+        const result = await api.post(endpoint, { action: 'pending' }, {
+            signal: AbortSignal.timeout(5000), fallbackStatuses: [400, 404],
+        });
+        return result.job;
+    } catch (error) {
+        if (![400, 404].includes(error.status)) throw error;
+        return null;
+    }
+}
+
+export async function releaseBackgroundGeneration(api, id) {
+    await api.post(endpoint, { action: 'release', id }, { signal: AbortSignal.timeout(5000) });
+}
+
+export async function chatGenerationResponse(api, body, signal, { id, resume = false, recovery, onFallback } = {}) {
     // The APK adds this menu item after connecting to the local st_new page.
-    if (!document.getElementById('android-apk-update')) {
+    if (!resume && !usesBackgroundGeneration()) {
         return api.response(directEndpoint, body, { signal });
     }
-    const id = crypto.randomUUID().replaceAll('-', '');
+    const recoverable = !!id;
+    id ||= crypto.randomUUID().replaceAll('-', '');
     const call = async (action, fields = {}, options) => {
         const response = await api.response(endpoint, { action, id, ...fields }, options);
         return response.json();
     };
+    const callWithTimeout = async (action, fields, timeout, options) => {
+        signal.throwIfAborted();
+        const request = new AbortController();
+        const stop = () => request.abort(signal.reason);
+        const timer = setTimeout(() => request.abort(new DOMException('后台请求超时。', 'TimeoutError')), timeout);
+        signal.addEventListener('abort', stop, { once: true });
+        try {
+            return await call(action, fields, { ...options, signal: request.signal });
+        } finally {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', stop);
+        }
+    };
     const cancelJob = () => { void call('cancel', {}, { signal: AbortSignal.timeout(5000) }).catch(() => {}); };
-    const release = () => { void call('release', {}, { signal: AbortSignal.timeout(5000) }).catch(() => {}); };
+    const release = () => {
+        if (!recoverable) void call('release', {}, { signal: AbortSignal.timeout(5000) }).catch(() => {});
+    };
     signal.addEventListener('abort', cancelJob, { once: true });
     let offset = 0;
 
     async function read() {
         let failures = 0;
         for (;;) {
-            signal.throwIfAborted();
-            const poll = new AbortController();
-            const stop = () => poll.abort(signal.reason);
-            const timer = setTimeout(() => poll.abort(new DOMException('后台读取超时。', 'TimeoutError')), 12000);
-            signal.addEventListener('abort', stop, { once: true });
             try {
-                const snapshot = await call('read', { offset }, { signal: poll.signal });
+                const snapshot = await callWithTimeout('read', { offset }, 12000);
                 if (snapshot.status || snapshot.done) return snapshot;
                 failures = 0;
             } catch (error) {
                 if (signal.aborted) throw signal.reason;
                 const transient = error instanceof TypeError || error.name === 'TimeoutError'
                     || [502, 503, 504].includes(error.status);
-                if (!transient || (!document.hidden && ++failures >= 3)) throw error;
-            } finally {
-                clearTimeout(timer);
-                signal.removeEventListener('abort', stop);
+                if (!transient) throw error;
+                if (!document.hidden && ++failures >= 3) {
+                    if (recoverable) error.resumeBackground = true;
+                    throw error;
+                }
             }
             await waitForPoll(signal);
         }
     }
 
     try {
-        try {
-            await call('start', { modelRequest: body }, { signal, fallbackStatuses: [404] });
-        } catch (error) {
-            if (error.status !== 404) throw error;
-            signal.removeEventListener('abort', cancelJob);
-            return api.response(directEndpoint, body, { signal });
+        if (!resume) {
+            try {
+                await callWithTimeout('start', { modelRequest: body, recovery }, 15000, { fallbackStatuses: [404] });
+            } catch (error) {
+                if (error.status !== 404) {
+                    if (recoverable && (error.name === 'TimeoutError' || error instanceof TypeError || [502, 503, 504].includes(error.status))) {
+                        // The POST may have reached Termux even when its acknowledgment was lost.
+                        error.resumeBackground = true;
+                    }
+                    throw error;
+                }
+                signal.removeEventListener('abort', cancelJob);
+                onFallback?.();
+                return api.response(directEndpoint, body, { signal });
+            }
         }
         let snapshot = await read();
         if (!snapshot.status) {
@@ -102,7 +141,7 @@ export async function chatGenerationResponse(api, body, signal) {
             },
             cancel() {
                 signal.removeEventListener('abort', cancelJob);
-                cancelJob();
+                if (!recoverable) cancelJob();
             },
         }, { highWaterMark: 0 });
         const response = new Response(stream, { headers: { 'content-type': type } });
