@@ -172,6 +172,30 @@ test('legacy tagged snapshots preserve literal closing tags and accept a missing
     }
 });
 
+test('cell repair combines bare quotes before Chinese punctuation with escaped Markdown asterisks', () => {
+    const malformed = String.raw`<dataUpdate>{"operations":[{"action":"update","sheet":"sheet_0","row":0,"data":{"1":"客服提示"已签收"，账号 j\*\*8，保留 \\* 和 \"原引号\"。"}}]}</dataUpdate>`;
+    const diagnostics = {};
+    const updated = parseUpdate(malformed, database(), {}, diagnostics);
+    assert.equal(updated.sheet_0.content[1][2], '客服提示"已签收"，账号 j**8，保留 \\* 和 "原引号"。');
+    assert.match(diagnostics.result, /已修复单元格引号或转义/);
+    assert.throws(() => parseUpdate(malformed.replace('\\*', '\\q'), database()), /JSON 解析失败/);
+});
+
+test('a rebuild with a truncated envelope or invalid writeback preserves all original rows', () => {
+    const original = database();
+    const clear = '{"action":"clear","sheet":"sheet_0"}';
+    const insert = '{"action":"insert","sheet":"人物","data":{"0":"乙"}}';
+    const truncated = referenceUpdate('<dataUpdate>{"operations":[' + clear + ',' + insert + '</dataUpdate>', original);
+    assert.equal(truncated.changed, false);
+    assert.deepEqual(truncated.data, original);
+
+    const invalid = '{"action":"insert","sheet":0,"data":{"3":"超出表头"}}';
+    const rejected = referenceUpdate('<dataUpdate>{"operations":[' + clear + ',' + insert + ',' + invalid + ']}</dataUpdate>', original);
+    assert.equal(rejected.changed, false);
+    assert.deepEqual(rejected.data, original);
+    assert.match(rejected.feedback[0].reason, /写回行无效/);
+});
+
 test('clear removes only the specified table rows and can be retried', () => {
     const original = database();
     original.sheet_0.content.push([null, '乙', '正常']);

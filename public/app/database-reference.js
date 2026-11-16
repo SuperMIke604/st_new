@@ -95,7 +95,12 @@ function repairJsonBrackets(text, taggedUpdate) {
     if (stack.length === 0 || stack.length > 20) return null;
     if (taggedUpdate && (stack.length > 2 || stack[0].close !== '}'
         || (stack.length === 2 && (stack[1].key !== 'operations' || stack[1].close !== ']')))) return null;
-    return parseJsonObject(text + stack.reverse().map(container => container.close).join(''));
+    const completed = parseJsonObject(text + stack.reverse().map(container => container.close).join(''));
+    // An open array can be a truncated rebuild with more rows still to come.
+    if (Array.isArray(completed?.operations) && completed.operations.some(operation => operation?.action === 'clear')) {
+        return null;
+    }
+    return completed;
 }
 
 function parseJsonObject(text) {
@@ -107,11 +112,11 @@ function parseJsonObject(text) {
     }
 }
 
-function repairOperationCellQuotes(payload) {
+function repairOperationCellText(payload) {
     const tokens = /("(?:0|[1-9]\d*)"\s*:\s*")|"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g;
     const quotes = /\\[\s\S]|"/g;
     const boundary = /\s*(?:}|[,，]\s*(?:"(?:0|[1-9]\d*)"\s*:|}))/y;
-    const ambiguousDelimiter = /\s*[,，}\]:]/y;
+    const ambiguousDelimiter = /\s*[,}\]:]/y;
     const parts = [];
     let copiedThrough = 0;
 
@@ -120,6 +125,11 @@ function repairOperationCellQuotes(payload) {
         quotes.lastIndex = tokens.lastIndex;
         let closed = false;
         for (let quote; (quote = quotes.exec(payload));) {
+            if (quote[0] === '\\*') {
+                // JSON does not recognize Markdown's escape for a literal asterisk.
+                parts.push(payload.slice(copiedThrough, quote.index), '*');
+                copiedThrough = quotes.lastIndex;
+            }
             if (quote[0] !== '"') continue;
             boundary.lastIndex = quotes.lastIndex;
             if (boundary.test(payload)) {
@@ -221,8 +231,8 @@ function parseDataUpdate(aiResponse, diagnostics) {
         console.warn('parseDataUpdate: 首次 JSON.parse 失败，启动修复');
         data = repairAIJson(payload, true);
         if (!data) {
-            data = repairOperationCellQuotes(payload);
-            if (data) format = '已修复单元格引号';
+            data = repairOperationCellText(payload);
+            if (data) format = '已修复单元格引号或转义';
         }
         if (!data) {
             if (diagnostics) diagnostics.result = '<dataUpdate> JSON 无效，自动修复失败';
@@ -266,10 +276,40 @@ function isClearOperation(operation) {
     return Object.keys(operation).every(key => key === 'action' || key === 'sheet');
 }
 
+function rebuildInsertIsValid(operation, table) {
+    const cells = operation.data;
+    const headerLength = table.content[0]?.length ?? 0;
+    return cells && typeof cells === 'object' && !Array.isArray(cells)
+        && Object.keys(cells).length > 0
+        && (!Object.hasOwn(operation, 'row') || (Number.isSafeInteger(operation.row) && operation.row >= 0))
+        && Object.entries(cells).every(([column, value]) => /^(0|[1-9]\d*)$/.test(column)
+            && Number(column) < headerLength - 1
+            && (value === null || ['string', 'number', 'boolean'].includes(typeof value)));
+}
+
 function applyOperations(operations, diagnostics, format) {
     const sheets = Object.keys(currentJsonTableData)
         .filter(k => k.startsWith('sheet_'))
         .map(k => currentJsonTableData[k]);
+
+    const resolveTable = sheet => {
+        if (typeof sheet === 'number') return sheets[sheet];
+        if (typeof sheet !== 'string') return null;
+        if (sheet.startsWith('sheet_')) return currentJsonTableData[sheet];
+        return sheets.find(table => table?.name === sheet);
+    };
+    const clearedTables = new Set();
+    for (const operation of operations) {
+        const table = resolveTable(operation?.sheet);
+        if (!Array.isArray(table?.content)) continue;
+        if (operation.action === 'clear' && isClearOperation(operation)) clearedTables.add(table);
+        if (operation.action === 'insert' && clearedTables.has(table) && !rebuildInsertIsValid(operation, table)) {
+            const reason = 'clear 后的写回行无效，整批操作未应用';
+            if (diagnostics) diagnostics.result = reason;
+            appendTableEditErrorLog({ reason, command: JSON.stringify(operation) });
+            return false;
+        }
+    }
 
     let appliedCount = 0;
 
@@ -280,20 +320,7 @@ function applyOperations(operations, diagnostics, format) {
         }
 
         try {
-            // 支持 sheet 为数字索引、表键或表名
-            let table;
-            let tableIndex;
-            if (typeof op.sheet === 'number') {
-                tableIndex = op.sheet;
-                table = sheets[tableIndex];
-            } else if (typeof op.sheet === 'string' && op.sheet.startsWith('sheet_')) {
-                table = currentJsonTableData[op.sheet];
-                tableIndex = sheets.indexOf(table);
-            } else if (typeof op.sheet === 'string') {
-                // 按名称查找
-                tableIndex = sheets.findIndex(t => t && t.name === op.sheet);
-                table = tableIndex >= 0 ? sheets[tableIndex] : null;
-            }
+            const table = resolveTable(op.sheet);
 
             if (!table || !table.content) {
                 appendTableEditErrorLog({
