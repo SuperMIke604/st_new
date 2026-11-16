@@ -4,10 +4,23 @@ import { readingSettings, applyReading } from '../reading.js';
 test('reading settings survive persisted values and support zero spacing', () => {
     const input = { fontSize: '21', letterSpacing: '0', lineHeight: '2.25', paragraphSpacing: '0' };
     const value = readingSettings(input, true);
-    assert.deepEqual(value, { fontSize: 21, letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '' });
+    assert.deepEqual(value, { fontSize: 21, inputFontSize: '', letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '' });
     assert.deepEqual(readingSettings(JSON.parse(JSON.stringify(value))), value);
     const style = new Map(); applyReading(value, { style: { setProperty: (key, value) => style.set(key, value) } });
     assert.equal(style.get('--reading-fontSize'), '21px'); assert.equal(style.get('--reading-lineHeight'), '2.25'); assert.equal(style.get('--reading-paragraphSpacing'), '0px');
+});
+
+test('the chat input size persists independently and can return to the device default', () => {
+    const value = readingSettings({ fontSize: 21, inputFontSize: '24.5' }, true);
+    assert.deepEqual(readingSettings(JSON.parse(JSON.stringify(value))), value);
+    const style = new Map();
+    const root = { style: { setProperty: (key, value) => style.set(key, value) } };
+    applyReading(value, root);
+    assert.equal(style.get('--reading-fontSize'), '21px');
+    assert.equal(style.get('--reading-inputFontSize'), '24.5px');
+    applyReading({ ...value, inputFontSize: '' }, root);
+    assert.equal(style.get('--reading-inputFontSize'), '');
+    assert.throws(() => readingSettings({ inputFontSize: 37 }, true), /输入框字号/);
 });
 
 test('font colors normalize, survive persistence and clear back to the theme', () => {

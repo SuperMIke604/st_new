@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "4344ff00f9241691d1f39c2c5b74672e6f2845eddfdc208f7ef04c997dd40332",
-  "publishedAt": "2026-11-16T07:49:22.134445+00:00",
+  "revision": "c08ec18a6f40c68cb36a59c54ef515dbaa8f0c4cbffbdb873b8be17357f4f965",
+  "publishedAt": "2026-11-16T10:44:07.451825+00:00",
   "files": {
     "public/app/api.js": "4ad2465b727aa5bdaf746e10881f77457da212c00953f1e5a948eafcfdba5b9a",
     "public/app/background-generation.js": "8ebe4ec1531927f0f7d777fa1f131d4b64f163f14e6e522a4ef65960613eddd2",
@@ -10,7 +10,7 @@
     "public/app/chat-delta.js": "ae443a49a3f2cdf375243824807e94117892b9b02373303cdbf6724e89cfa677",
     "public/app/chat-history.js": "57ecb3d5238639547ba31b71541da92cc5996a58247c6d127ae3f56ea2e8b3ab",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
-    "public/app/claude-day.css": "633187c7a25bba2e3cb5cfb0dca52274fc7eae60a9f65bbf3a5cd126f337329c",
+    "public/app/claude-day.css": "ef615efa89408d25460fb7e7e031bc324bb4c7df1b4416e10e029d79ade9edf6",
     "public/app/code-blocks.js": "6076efadd65749de7457459b54592a3f05c3696d07fcdd9530a673cb24db8495",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
     "public/app/controls.css": "681fde5bdd100d158fd0be163b7337af6f500c01a19061346d00ac176b445c7d",
@@ -37,7 +37,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
-    "public/app/main.js": "ac7086e6b3abaaa65fb7b20780882548aec72e49338aa9b74984d539b9fccb8c",
+    "public/app/main.js": "5d4d80288613e74c2f0bea5e57150d62da05cedfced6ab453cbbd1e49d4626c2",
     "public/app/message-edit.js": "d5b08ef67f281c0cf0495f460e27bbba0c8859039c9e5524540d91e7cb9b3afd",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -47,7 +47,7 @@
     "public/app/preset-tokens.js": "4cd2dff1db736a4045c9cadba7014f995db86c670daca783c14e594f2a00c180",
     "public/app/prompt-autosize.js": "58e2fa7e3184c890d2029925935873fead42f8316dcf683b99219b27cbde3acb",
     "public/app/prompt-drag.js": "badb1418c16868e66b76c2740159a8b9ebe80e0a301411bc942fa61c3ee32ad0",
-    "public/app/reading.js": "d27baef975571556a8719730c37b5d862b5de73929d10277f7b4f6ba33687eb6",
+    "public/app/reading.js": "c69a62d9534be006114f58ab4d68254a804a9c2144f57adfe3406137f8bcaf05",
     "public/app/README.md": "1641b2567090bcfe5d332ab3b3cdbf4c9852e45fd7825ab722813f6074a7433e",
     "public/app/regex.js": "1f221bf9228f47cf2fae8325b03f0408bd28f1321a8f6e9c0e94b09dc13f7350",
     "public/app/request-log.js": "e4de2a6fcdf2b274e88977ad1d2fee55efb9aca73c62c655ef70e20e9eaaca79",
@@ -69,7 +69,7 @@
     "public/app/style.css": "ca83a5fbbd83002b80bfb10f6eb56dceb32f4458b057985581fb38b0bfef70e7",
     "public/app/theme-init.js": "6f60ae558cb5bd96957e55c08e7c3edc3ab9a1c93cb6e58264176cdca3a00042",
     "public/app/toast.js": "7ff1909c74909d3cb404d7f2cd6a0291fc1d3f72301e7d7249440f42218c8251",
-    "public/app/typography.css": "24c9f3576fd79fafe27daf54f9326b587931abca4793ca24e9c44eee29ec3102",
+    "public/app/typography.css": "4c466e36aa96ff055ac2db7acf3af4f87b12add5e2489cf13bc8873fd370bb94",
     "public/app/update.js": "4c0f7bd86f99aa5d41060090faf5ea583c6e41cf7de0c225aad26e81e9e8288f",
     "public/app/uuid.js": "9eb7a5a67745c504318a3b55c389487f015133c2f3f924f588dae86659a9f40b",
     "public/app/variable-macros.js": "ffbb832059012d5411dc0d43996454b67e8cb686d59f717061bc7b746a016d1f",
@@ -88,7 +88,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "ec71fba51bf81c180fd0e530ce5c510a01253f219151e7f910c84c3b8e2290d3"
+    "public/app/version.js": "aa71adab33314c7f44f61d26bccdb8c25b0cc0795fe9d76eb21fb3caba2cadc3"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

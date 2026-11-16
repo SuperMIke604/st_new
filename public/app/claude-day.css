@@ -50,7 +50,8 @@
     box-shadow: inset 0 -1px var(--line);
 }
 
-[data-palette="claude-day"] :is(.welcome h1, .message-content, .reading-sample) {
+[data-palette="claude-day"] :is(.welcome h1, .message-content, .reading-sample),
+[data-palette="claude-day"] #message-input {
     font-family: var(--claude-day-serif);
 }
 

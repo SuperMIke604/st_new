@@ -11,6 +11,7 @@
     --type-body-line: 22px;
     --type-control-size: 14px;
     --type-control-line: 22px;
+    --type-chat-input-size: 16px;
     --type-label-size: 12px;
     --type-label-line: 18px;
     --type-aux-size: 12px;
@@ -138,7 +139,12 @@ textarea, .field textarea, .prompt-form textarea, .regex-rule .field textarea,
     font-weight: var(--type-regular);
 }
 .message-reasoning { font-size: var(--type-body-size); line-height: var(--type-body-line); }
-#message-input { font-size: var(--type-control-size); line-height: var(--type-control-line); font-weight: var(--type-regular); }
+#message-input {
+    font-family: inherit;
+    font-size: var(--reading-inputFontSize, var(--type-chat-input-size));
+    line-height: max(var(--type-control-line), 1.2em);
+    font-weight: var(--type-regular);
+}
 
 /* Data preview has an existing user-selected reading size, separate from UI controls. */
 .reference-preview-grid { line-height: var(--type-body-line); }
@@ -159,6 +165,7 @@ textarea, .field textarea, .prompt-form textarea, .regex-rule .field textarea,
         --type-body-size: 16px;
         --type-body-line: 24px;
         --type-control-size: 16px;
+        --type-chat-input-size: 18px;
         --type-label-size: 14px;
         --type-label-line: 20px;
         --type-code-size: 14px;

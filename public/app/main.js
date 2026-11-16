@@ -546,8 +546,12 @@ async function reloadResources() {
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     applyPalette(state.own.palette || 'paper', true);
-    try { const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null'); if (saved) state.own.reading = readingSettings(saved, true); } catch { /* Use server preferences when local data is unavailable. */ }
+    try {
+        const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null');
+        if (saved) state.own.reading = readingSettings({ ...state.own.reading, ...saved }, true);
+    } catch { /* Use server preferences when local data is unavailable. */ }
     applyReading(state.own.reading);
+    if ($('message-input').value) resizeInput();
     await presetSelection.load(legacySelection, presets().map(item => item.name));
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     selectPreset(); synchronize();
@@ -3101,13 +3105,27 @@ function toolsPanel() {
         ['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色'], ['ivory', '象牙纸白'], ['claude-day', 'Claude 白天'],
     ] });
     palette.addEventListener('change', () => applyPalette(palette.value));
-    const rememberReading = value => { const settings = readingSettings(value, true); state.own.reading = settings; try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ } applyReading(settings); };
+    const rememberReading = value => {
+        const settings = readingSettings(value, true);
+        state.own.reading = settings;
+        try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ }
+        applyReading(settings);
+        resizeInput();
+    };
     const reading = readingSettings(state.own.reading), typography = el('div', 'parameter-grid reading-parameters'); body.append(typography);
     const readingInputs = new Map();
     const values = () => Object.fromEntries([...readingInputs].map(([key, input]) => [key, input.value]));
-    for (const [key, label, , min, max, step] of readingFields) {
+    for (const [key, label, fallback, min, max, step] of readingFields) {
+        const optional = fallback === '';
         const input = field(typography, label, reading[key], { type: 'number' }); input.min = min; input.max = max; input.step = step; readingInputs.set(key, input);
-        input.addEventListener('input', () => { if (input.value !== '' && [...readingInputs.values()].every(input => input.validity.valid)) rememberReading(values()); });
+        if (optional) input.placeholder = '跟随设备';
+        input.addEventListener('input', () => {
+            if (optional) {
+                if (input.validity.valid) rememberReading({ ...state.own.reading, [key]: input.value });
+            } else if (input.value !== '' && [...readingInputs.values()].every(input => input.validity.valid)) {
+                rememberReading(values());
+            }
+        });
     }
     const dialogueColor = field(typography, '对话文字颜色', reading.dialogueColor, { hint: '仅调整聊天消息中引号内的对话文字。填写色号，例如 #75452e；留空跟随主题。' });
     dialogueColor.placeholder = '跟随主题'; dialogueColor.spellcheck = false; readingInputs.set('dialogueColor', dialogueColor);
@@ -3126,6 +3144,10 @@ function toolsPanel() {
         dialogueColor.value = ''; dialogueColor.setCustomValidity('');
         rememberReading(values()); panelDirty = true;
     }, 'refresh'), action('保存阅读设置', async () => {
+        if (readingInputs.get('inputFontSize').validity.badInput) {
+            readingInputs.get('inputFontSize').reportValidity();
+            return;
+        }
         const reading = readingSettings(values(), true);
         const selectedPalette = palette.value;
         await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
