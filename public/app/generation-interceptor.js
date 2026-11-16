@@ -58,7 +58,7 @@ export function interceptGeneration(frame, ids, body, { signal, current, fetch, 
     let cancelJob; const job = () => cancelJob?.(); jobs.add(job);
     return new Promise((resolve, reject) => {
         let sent = false, settled = false, reader, output;
-        const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); jobs.delete(job); port.close(); };
+        const cleanup = () => { signal?.removeEventListener('abort', cancel); jobs.delete(job); port.close(); };
         const fail = error => {
             if (abort.signal.aborted && settled) return;
             abort.abort(); try { port.postMessage({ type: 'abort' }); } catch {}
@@ -68,7 +68,6 @@ export function interceptGeneration(frame, ids, body, { signal, current, fetch, 
         };
         const cancel = () => fail(new DOMException('生成已取消或脚本环境已失效。', 'AbortError'));
         cancelJob = cancel;
-        const timer = setTimeout(() => fail(Error('生成处理器响应超时。')), 180000);
         signal?.addEventListener('abort', cancel, { once: true });
         if (signal?.aborted || !current()) { cancel(); return; }
         port.onmessage = async ({ data }) => {
@@ -78,7 +77,7 @@ export function interceptGeneration(frame, ids, body, { signal, current, fetch, 
                     if (sent || typeof data.body !== 'string' || data.body.length > 16000000) throw Error('生成请求重复或格式无效。');
                     sent = true;
                     const request = mergeGenerationContent(body, JSON.parse(data.body));
-                    const response = await fetch(request, AbortSignal.any([abort.signal, ...(signal ? [signal] : [])]));
+                    const response = await fetch(request, abort.signal);
                     if (abort.signal.aborted || !current()) { void response.body?.cancel().catch(() => {}); throw Error('脚本环境已失效。'); }
                     const upstream = response.body;
                     port.postMessage({ type: 'upstream', body: upstream, status: response.status, statusText: response.statusText, headers: { 'content-type': response.headers.get('content-type') || 'application/json' } }, upstream ? [upstream] : []);
@@ -91,7 +90,7 @@ export function interceptGeneration(frame, ids, body, { signal, current, fetch, 
                         cancel(reason) { void reader.cancel(reason).catch(() => {}); abort.abort(); cleanup(); },
                     });
                     const response = new Response(stream, { status: data.status, statusText: data.statusText, headers: data.headers });
-                    settled = true; clearTimeout(timer); port.close(); resolve(response);
+                    settled = true; port.close(); resolve(response);
                 } else if (data.type === 'error') throw Error(data.error || '生成处理器失败。');
             } catch (error) { fail(error); }
         };

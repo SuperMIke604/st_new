@@ -3,6 +3,7 @@ import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, 
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { request as requestHttp } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 export const info = { id: 'st-new-updater', name: 'ST New Frontend Updater', description: 'Install confirmed frontend and updater updates from SuperMIke604/st_new only.' };
 const RAW = 'https://raw.githubusercontent.com/SuperMIke604/st_new/main/';
@@ -320,14 +321,39 @@ export async function installUpdate({ root, pluginFile, manifest, downloadFile =
 const loopbackAddresses = new Set(['127.0.0.1', '::ffff:127.0.0.1', '::1']);
 const jobIdPattern = /^[a-f0-9]{32}$/;
 
-export function registerBackgroundGeneration(router, { requestModel = fetch } = {}) {
+// The target is a fixed HTTP loopback URL. Use an HTTP request with no socket
+// deadline so the fetch client's own header and body timers cannot stop a model.
+function requestLocalModel(url, { method, headers, body, signal }) {
+    return new Promise((resolve, reject) => {
+        const request = requestHttp(url, { method, headers, signal, agent: false, timeout: 0 }, response => {
+            // Keep the response cancellable after the outgoing request has finished.
+            const stop = () => response.destroy(signal.reason);
+            signal.addEventListener('abort', stop, { once: true });
+            response.once('close', () => signal.removeEventListener('abort', stop));
+            const status = response.statusCode;
+            if (status >= 300 && status < 400) {
+                response.destroy();
+                reject(new Error('后台模型请求发生重定向。'));
+                return;
+            }
+            resolve({
+                status,
+                ok: status >= 200 && status < 300,
+                headers: { get: key => response.headers[key] },
+                body: response,
+            });
+        });
+        request.once('error', reject);
+        request.end(body);
+    });
+}
+
+export function registerBackgroundGeneration(router, { requestModel = requestLocalModel } = {}) {
     const jobs = new Map();
     const keepResultMs = 15 * 60_000;
     const maxReplyChars = 4 * 1024 * 1024;
 
     async function generate(job, url, headers, requestBody) {
-        const timeout = setTimeout(() => job.controller.abort(), 30 * 60_000);
-        timeout.unref();
         let status = 0;
         try {
             const response = await requestModel(url, {
@@ -360,10 +386,9 @@ export function registerBackgroundGeneration(router, { requestModel = fetch } = 
             job.text += decoder.decode();
         } catch (error) {
             job.error = job.controller.signal.aborted
-                ? '后台生成已停止或超时。'
+                ? '后台生成已停止。'
                 : error.message === '后台回复超过可保留的大小。' ? error.message : '后台模型连接中断，已保留收到的内容。';
         } finally {
-            clearTimeout(timeout);
             if (!job.status && status) {
                 job.status = status;
                 job.type = 'application/json';

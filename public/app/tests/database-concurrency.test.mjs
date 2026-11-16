@@ -24,6 +24,8 @@ function fixture() {
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
         api: { post: async () => ({ token_count: 100 }), response: async (_path, _body, options) => { requestSignal = options.signal; return (await response)(); } },
+        chatGenerationResponse: (api, body, signal) => api.response('/api/backends/chat-completions/generate', body, { signal }),
+        notifyGeneration: (...args) => notices.push(args),
         parseUpdate: (_text, data, counts) => { counts.operations++; return { ...structuredClone(data), updated: true }; },
         databaseUpdateNotice: counts => `updated ${counts.operations}`,
         saveChat: async () => writes.push(structuredClone(state.chat)), rememberChat: async () => {},
@@ -278,6 +280,42 @@ test('update logs distinguish HTTP, parser and save failures while keeping copie
     assert.match(databaseLogText(), /阶段 · 保存聊天\n.*已解析 1 条操作/);
     assert.doesNotMatch(databaseLogText(), /private upstream response|private chat data|\bupdate\b/);
     assert.deepEqual(databaseLogExport().entries.map(entry => entry.malformedResponse?.text), [undefined, 'update', undefined]);
+});
+
+test('message summary surfaces model error responses and clears its progress without saving', async () => {
+    const f = fixture();
+    let closed = 0;
+    f.context.databaseProgress = () => ({ update() {}, close() { closed++; } });
+    const task = f.run('updateDatabase(0, 1)');
+    f.respond(Response.json({ error: true, message: 'Provider rejected the summary' }));
+    await assert.rejects(task, /Provider rejected the summary/);
+    assert.match(f.notices.at(-1)[0], /Provider rejected the summary/);
+    assert.equal(f.state.databaseController, null);
+    assert.equal(closed, 1);
+    assert.equal(f.writes.length, 0);
+});
+
+test('summary keeps waiting for its response body until explicitly stopped', async () => {
+    const f = fixture();
+    let closed = 0;
+    f.context.databaseProgress = () => ({ update() {}, close() { closed++; } });
+    let reading = false;
+    const task = f.run('updateDatabase(0, 1)');
+    f.respond({ status: 200, headers: new Headers(), text: () => {
+        reading = true;
+        return new Promise((_resolve, reject) => f.signal().addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+        }, { once: true }));
+    } });
+    await tick();
+    assert.equal(reading, true);
+    assert.equal(f.signal().aborted, false);
+    f.state.databaseController.abort();
+    assert.equal(await task, false);
+    assert.match(f.notices.at(-1)[0], /已由用户终止/);
+    assert.equal(f.state.databaseController, null);
+    assert.equal(closed, 1);
+    assert.equal(f.writes.length, 0);
 });
 
 test('JSON export includes the full latest malformed response and clearing removes it', async () => {

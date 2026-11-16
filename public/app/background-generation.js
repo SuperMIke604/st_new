@@ -1,3 +1,5 @@
+import { ApiError } from './api.js';
+
 const endpoint = '/api/plugins/st-new-updater/generate-background';
 const directEndpoint = '/api/backends/chat-completions/generate';
 
@@ -111,15 +113,14 @@ export async function chatGenerationResponse(api, body, signal, { id, resume = f
         }
         const { status, type } = snapshot;
         const encoder = new TextEncoder();
-        let waitForData = false;
         const stream = new ReadableStream({
             async pull(controller) {
                 try {
-                    while (!snapshot) {
-                        if (waitForData) await waitForPoll(signal);
+                    // A pull must produce bytes or settle the stream. The first
+                    // poll can have response headers before any body has arrived.
+                    while (!snapshot?.text && !snapshot?.done) {
+                        if (snapshot) await waitForPoll(signal);
                         snapshot = await read();
-                        waitForData = !snapshot.text;
-                        if (!snapshot.text && !snapshot.done) snapshot = null;
                     }
                     const { text, done, error } = snapshot;
                     snapshot = null;
@@ -149,11 +150,11 @@ export async function chatGenerationResponse(api, body, signal, { id, resume = f
             let message;
             try {
                 const result = await response.json();
-                message = result.message || result.error?.message || result.error;
+                message = result?.message || result?.error?.message || result?.error;
             } catch (error) {
                 if (signal.aborted) throw signal.reason;
             }
-            throw new Error(typeof message === 'string' ? message : `模型请求失败（${status}）`);
+            throw new ApiError(typeof message === 'string' ? message : `模型请求失败（${status}）`, status);
         }
         return response;
     } catch (error) {

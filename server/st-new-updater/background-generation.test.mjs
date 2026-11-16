@@ -6,8 +6,10 @@ import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGene
 import { readEvents } from '../../public/app/api.js';
 import { registerBackgroundGeneration } from './index.mjs';
 
-test('APK generation reads completed results after suspension and relays model failures', async t => {
+test('APK generation reads completed results after suspension and relays model failures', { timeout: 15000 }, async t => {
     let dispatch, generationCount = 0;
+    let closeUpstream;
+    const upstreamClosed = new Promise(resolve => { closeUpstream = resolve; });
     const server = createServer(async (request, response) => {
         let text = '';
         for await (const chunk of request) text += chunk;
@@ -20,6 +22,19 @@ test('APK generation reads completed results after suspension and relays model f
             if (body.fail) {
                 response.writeHead(429, { 'content-type': 'application/json' });
                 response.end(JSON.stringify({ error: { message: 'fixture model error' } }));
+                return;
+            }
+            if (body.wait) {
+                response.once('close', closeUpstream);
+                response.writeHead(200, { 'content-type': 'application/json' });
+                response.flushHeaders();
+                return;
+            }
+            if (body.stream === false) {
+                response.writeHead(200, { 'content-type': 'application/json' });
+                response.flushHeaders();
+                await new Promise(resolve => setTimeout(resolve, 700));
+                response.end(JSON.stringify({ error: { message: 'fixture non-streaming summary error' } }));
                 return;
             }
             response.writeHead(200);
@@ -91,6 +106,22 @@ test('APK generation reads completed results after suspension and relays model f
     assert.equal(await findBackgroundGeneration(api), null);
     await assert.rejects(readReply, { status: 410 });
     assert.equal(generationCount, 1);
-    await assert.rejects(chatGenerationResponse(api, { fail: true }, new AbortController().signal), /fixture model error/);
+    await assert.rejects(chatGenerationResponse(api, { fail: true, stream: false }, new AbortController().signal), {
+        message: 'fixture model error', status: 429,
+    });
     assert.equal(generationCount, 2);
+    document.hidden = true;
+    const summary = await chatGenerationResponse(api, { stream: false }, new AbortController().signal);
+    document.hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    assert.deepEqual(await summary.json(), { error: { message: 'fixture non-streaming summary error' } });
+    assert.equal(generationCount, 3);
+
+    const stop = new AbortController();
+    const waiting = await chatGenerationResponse(api, { wait: true, stream: false }, stop.signal);
+    const content = waiting.text();
+    stop.abort();
+    await assert.rejects(content, { name: 'AbortError' });
+    await upstreamClosed;
+    assert.equal(generationCount, 4);
 });

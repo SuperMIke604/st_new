@@ -2590,13 +2590,14 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
             const request = generationBody(config, preset, messages);
             requestText = '';
             finishRequest = requestLog.start('database', request, controller.signal, api);
-            const response = await api.response('/api/backends/chat-completions/generate', request, { signal: controller.signal });
+            const response = await chatGenerationResponse(api, request, controller.signal);
             log.stage = '读取模型响应'; log.httpStatus = response.status;
             let responseBody;
             const readChoice = value => {
                 if (value?.error) {
                     log.reason = '模型接口在响应体中返回错误';
-                    throw new Error(typeof value.error === 'string' ? value.error : value.error.message || '填表失败');
+                    const message = typeof value.error === 'string' ? value.error : value.error.message || value.message;
+                    throw new Error(typeof message === 'string' ? message : '填表失败');
                 }
                 const choice = value?.choices?.[0];
                 if (['stop', 'length', 'content_filter', 'tool_calls', 'function_call'].includes(choice?.finish_reason)) log.finishReason = choice.finish_reason;
@@ -2621,6 +2622,7 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
                 const choice = readChoice(value);
                 requestText = choice?.message?.content || choice?.text || '';
             }
+            controller.signal.throwIfAborted();
             const text = requestText;
             finishRequest?.(null, text);
             lastResponse = typeof text === 'string' && (text || responseBody === undefined)
@@ -2659,8 +2661,12 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
         if (log.stage === '解析并应用更新' || (log.stage === '校验并写入快照' && error instanceof DatabaseFormatError)) {
             retainMalformedDatabaseResponse(log, lastResponse.source, lastResponse.text);
         }
-        notify(`数据库更新失败：${error.message}`,true);throw error;
-    } finally { progress.close(); state.databaseController = null; }
+        notifyGeneration(`数据库更新失败：${error.message}`, true);
+        throw error;
+    } finally {
+        progress.close();
+        state.databaseController = null;
+    }
 }
 async function autoUpdateDatabase() {
  let checkStage, checkIndex;
