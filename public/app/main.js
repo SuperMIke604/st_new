@@ -2820,6 +2820,7 @@ async function generate(mode = false) {
         const pendingResponse = loadTimings.measure('模型请求至响应头', 'generation', () => scriptRuntime.generate(body, {
             signal: controller.signal,
             identity: scriptIdentity(),
+            generationType: regenerate ? 'swipe' : 'normal',
             fetch: (request, signal) => {
                 requestedStream = Number(request.stream === true);
                 finishRequest = requestLog.start('chat', request, signal, api);

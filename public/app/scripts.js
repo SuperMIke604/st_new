@@ -70,8 +70,15 @@ export async function savePresetScripts(api, name, tree) {
 export function isGenerationFetchScript(text) {
     return typeof text === 'string' && text.includes("Symbol.for('__ATE_FETCH_HOOK__')") && text.includes('class AntiTruncationEngine') && text.includes('function resolvePenetratedWindow()') && text.includes('engine.install(targetWin);') && text.includes('async intercept(original, thisArg, args)') && text.includes('engine.dispose();');
 }
+export function isUnicodeFloorScript(text) {
+    return typeof text === 'string' && text.includes("const VERSION = '4.1.0';")
+        && text.includes("const API_NAME = '__unicodeFloorInterceptor__';")
+        && text.includes('async function handleGeneration(original, thisArg, args)')
+        && text.includes('function installFetch()') && text.includes('function removeFetch()');
+}
 export function scriptSupport(script) {
     const text = String(script.content || '');
+    if (isUnicodeFloorScript(text)) return { supported: true, adapter: 'unicode-floor', reason: '支持正文请求处理、普通流、工具流和脚本控制台。后台生成、自动重发和原生酒馆全局设置联动未接入。' };
     if ((text.includes("'st-map-float-widget'") && text.includes('initMapWidget')) || (text.includes("'st-wb-manager-widget'") && text.includes('getLocalWorldInfo'))) return { supported: true, adapter: 'native-widget', reason: '在隔离兼容文档运行原悬浮界面，使用统一的草稿和关联世界书接口。' };
     if (text.includes('eventOnButton(') && /\bprompt\(/.test(text)) return { supported: true, adapter: 'button-input', reason: '保留原按钮菜单，文本输入使用兼容弹窗。' };
     if (text.includes('MEIMAN_ONBOARDING_BLOCK') && text.includes('__mmFormHook') && text.includes('send_textarea')) return { supported: true, adapter: 'role-chat', reason: '通过酒馆伴侣角色界面运行原开局表单；支持填入聊天输入框。' };
