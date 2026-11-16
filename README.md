@@ -20,7 +20,7 @@ UI 复用 [现有规范](docs/ui-design-guidelines.md)；剧情资料库见 [模
 
 APK 在手机上打开同一设备中由 Termux 提供的 `http://127.0.0.1:8000/app/`。首次使用时先按安装说明把前端部署到 SillyTavern，再在 Termux 启动后端。已有部署时直接启动后端即可。使用其他端口时，可在连接失败页选择“修改端口”。使用账号的后端需要在 APK 内单独登录一次。
 
-启用 SillyTavern 的 HTTP Basic Auth 时，APK 会先弹出账号密码输入框。如果同时启用了酒馆用户账户，之后也可能出现酒馆自己的登录页面。
+启用 SillyTavern 的 HTTP Basic Auth 时，APK 会先显示原生登录页，请输入 `config.yaml` 中配置的账号和密码。输入有误时可在原页重试，也可返回连接设置修改端口。如果同时启用了酒馆用户账户，通过 HTTP 认证后，仍可能需要在酒馆的用户登录页面继续登录。
 
 Windows 构建需要 JDK 17、Android SDK Platform 34 和 Build-Tools 34.0.0。设置 `JAVA_HOME` 和 `ANDROID_HOME` 后，从项目根目录运行：
 

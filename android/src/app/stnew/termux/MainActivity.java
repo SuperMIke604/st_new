@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,6 +17,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.HttpAuthHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -31,6 +34,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -49,7 +53,13 @@ public final class MainActivity extends Activity {
     private LinearLayout errorPanel;
     private TextView errorMessage;
     private ValueCallback<Uri[]> fileSelection;
-    private AlertDialog authDialog;
+    private ScrollView loginPanel;
+    private EditText loginUsername;
+    private EditText loginPassword;
+    private TextView loginStatus;
+    private Button loginButton;
+    private HttpAuthHandler authRequest;
+    private boolean signingIn;
     private WebMessagePort shellPort;
     private String shellScript;
     private boolean checkingUpdate;
@@ -105,9 +115,10 @@ public final class MainActivity extends Activity {
         addButton("检查 APK 更新", this::checkApkUpdate);
         errorPanel.setVisibility(View.GONE);
         root.addView(errorPanel, new FrameLayout.LayoutParams(-1, -1));
+        createLoginPanel(root);
         setContentView(root);
 
-        if (state == null || webView.restoreState(state) == null) {
+        if (state == null || state.getBoolean("loginPending") || webView.restoreState(state) == null) {
             loadTavern();
         } else if (state.containsKey("connectionError")) {
             showError(state.getString("connectionError"));
@@ -136,6 +147,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadTavern() {
+        closeLogin();
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         webView.stopLoading();
@@ -144,6 +156,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showError(String message) {
+        closeLogin();
         applySystemBarColor(PAPER);
         errorMessage.setText(message);
         webView.setVisibility(View.INVISIBLE);
@@ -291,47 +304,145 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void promptForHttpAuth(HttpAuthHandler handler) {
+    private void createLoginPanel(FrameLayout root) {
+        loginPanel = new ScrollView(this);
+        loginPanel.setFillViewport(true);
+        loginPanel.setBackgroundColor(PAPER);
+        loginPanel.setVisibility(View.GONE);
+        if (Build.VERSION.SDK_INT >= 26) {
+            loginPanel.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        }
+
         LinearLayout fields = new LinearLayout(this);
         fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setGravity(Gravity.CENTER_VERTICAL);
         int padding = Math.round(24 * getResources().getDisplayMetrics().density);
-        fields.setPadding(padding, 0, padding, 0);
+        fields.setPadding(padding, padding, padding, padding);
+        loginPanel.addView(fields);
 
-        EditText username = new EditText(this);
-        username.setHint("用户名");
-        username.setSingleLine(true);
-        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        fields.addView(username);
+        TextView title = new TextView(this);
+        title.setText("登录 SillyTavern");
+        title.setTextSize(28);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        if (Build.VERSION.SDK_INT >= 28) {
+            title.setAccessibilityHeading(true);
+        }
+        fields.addView(title);
 
-        EditText password = new EditText(this);
-        password.setHint("密码");
-        password.setSingleLine(true);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        fields.addView(password);
+        loginStatus = new TextView(this);
+        loginStatus.setTextSize(16);
+        loginStatus.setPadding(0, padding / 2, 0, padding / 2);
+        loginStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        fields.addView(loginStatus);
 
-        authDialog = new AlertDialog.Builder(this)
-                .setTitle("SillyTavern 需要登录")
-                .setMessage("请输入 " + HOST + ":" + port + " 的 HTTP Basic Auth 用户名和密码。")
-                .setView(fields)
-                .setPositiveButton("登录", (dialog, which) -> {
-                    authDialog = null;
-                    handler.proceed(username.getText().toString(), password.getText().toString());
-                })
-                .setNegativeButton("取消", (dialog, which) -> handler.cancel())
-                .setOnCancelListener(dialog -> handler.cancel())
-                .create();
-        authDialog.setOnDismissListener(dialog -> {
-            if (authDialog == dialog) {
-                authDialog = null;
-            }
+        loginUsername = addLoginField(fields, "用户名",
+                InputType.TYPE_TEXT_VARIATION_NORMAL | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        loginPassword = addLoginField(fields, "密码", InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        loginUsername.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        loginUsername.setOnEditorActionListener((view, action, event) -> {
+            if (action != EditorInfo.IME_ACTION_NEXT) return false;
+            loginPassword.requestFocus();
+            return true;
         });
-        authDialog.show();
+        loginPassword.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        loginPassword.setOnEditorActionListener((view, action, event) -> {
+            if (action != EditorInfo.IME_ACTION_DONE) return false;
+            submitLogin();
+            return true;
+        });
+
+        loginButton = new Button(this);
+        loginButton.setText("登录");
+        loginButton.setOnClickListener(view -> submitLogin());
+        fields.addView(loginButton);
+        Button back = new Button(this);
+        back.setText("返回连接设置");
+        back.setOnClickListener(view -> cancelLogin());
+        fields.addView(back);
+        root.addView(loginPanel, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private EditText addLoginField(LinearLayout fields, String hint, int variation) {
+        EditText input = new EditText(this);
+        input.setHint(hint);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | variation);
+        input.setSaveEnabled(false);
+        fields.addView(input);
+        return input;
+    }
+
+    private void showLogin(HttpAuthHandler handler) {
+        boolean rejected = signingIn && !handler.useHttpAuthUsernamePassword();
+        authRequest = handler;
+        signingIn = false;
+        applySystemBarColor(PAPER);
+        errorPanel.setVisibility(View.GONE);
+        webView.setVisibility(View.INVISIBLE);
+        loginPanel.setVisibility(View.VISIBLE);
+        loginStatus.setText(rejected ? "用户名或密码有误，请重试。"
+                : "请输入 " + HOST + ":" + port + " 上配置的账号和密码。");
+        loginButton.setEnabled(true);
+        if (rejected) loginPassword.requestFocus();
+        else loginUsername.requestFocus();
+    }
+
+    private void submitLogin() {
+        if (authRequest == null) return;
+        String username = loginUsername.getText().toString();
+        String password = loginPassword.getText().toString();
+        if (username.isEmpty() || username.contains(":")) {
+            loginUsername.setError(username.isEmpty() ? "请输入用户名" : "用户名不能包含冒号");
+            loginUsername.requestFocus();
+            return;
+        }
+        if (password.isEmpty()) {
+            loginPassword.setError("请输入密码");
+            loginPassword.requestFocus();
+            return;
+        }
+        HttpAuthHandler handler = authRequest;
+        authRequest = null;
+        signingIn = true;
+        loginButton.setEnabled(false);
+        loginStatus.setText("正在登录…");
+        loginPassword.setText("");
+        hideLoginKeyboard();
+        handler.proceed(username, password);
+    }
+
+    private void hideLoginKeyboard() {
+        getSystemService(InputMethodManager.class).hideSoftInputFromWindow(loginPanel.getWindowToken(), 0);
+    }
+
+    private void closeLogin() {
+        HttpAuthHandler handler = authRequest;
+        authRequest = null;
+        signingIn = false;
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            hideLoginKeyboard();
+            loginPanel.setVisibility(View.GONE);
+            loginUsername.setText("");
+            loginUsername.setError(null);
+            loginPassword.setText("");
+            loginPassword.setError(null);
+        }
+        if (handler != null) handler.cancel();
+    }
+
+    private void cancelLogin() {
+        showError("登录已取消。");
+        webView.stopLoading();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        webView.saveState(state);
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            state.putBoolean("loginPending", true);
+        } else {
+            webView.saveState(state);
+        }
         if (errorPanel.getVisibility() == View.VISIBLE) {
             state.putString("connectionError", errorMessage.getText().toString());
         }
@@ -339,6 +450,10 @@ public final class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            cancelLogin();
+            return;
+        }
         WebBackForwardList history = webView.copyBackForwardList();
         if (errorPanel.getVisibility() == View.GONE && history.getCurrentIndex() > 0
                 && isTavern(Uri.parse(history.getItemAtIndex(history.getCurrentIndex() - 1).getUrl()))) {
@@ -369,9 +484,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         disconnectShell();
-        if (authDialog != null) {
-            authDialog.cancel();
-        }
+        closeLogin();
         if (fileSelection != null) {
             fileSelection.onReceiveValue(null);
             fileSelection = null;
@@ -389,20 +502,23 @@ public final class MainActivity extends Activity {
 
         @Override
         public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
-            if (authDialog != null || !(HOST.equals(host) || (HOST + ":" + port).equals(host))) {
+            if (authRequest != null || errorPanel.getVisibility() == View.VISIBLE
+                    || !(HOST.equals(host) || (HOST + ":" + port).equals(host))) {
                 handler.cancel();
                 return;
             }
-            promptForHttpAuth(handler);
+            showLogin(handler);
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             Uri page = Uri.parse(url);
-            if (url.equals(view.getUrl()) && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
+            if (authRequest == null && url.equals(view.getUrl())
+                    && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
                 if ("/".equals(page.getPath())) {
                     view.evaluateJavascript("location.replace('/app/')", null);
                 } else {
+                    closeLogin();
                     view.setVisibility(View.VISIBLE);
                     connectShell(view, url);
                 }
@@ -435,7 +551,11 @@ public final class MainActivity extends Activity {
             }
             int status = response.getStatusCode();
             if (status == 401) {
-                showError("SillyTavern 要求认证（HTTP 401）。\n请点重试，并在登录框中输入酒馆的用户名和密码。");
+                if (authRequest == null && errorPanel.getVisibility() == View.GONE) {
+                    showError("SillyTavern 登录失败（HTTP 401）。\n请点重试。");
+                }
+            } else if (status == 429 && loginPanel.getVisibility() == View.VISIBLE) {
+                showError("登录尝试过多，请稍后重试。");
             } else if ("/app/".equals(request.getUrl().getPath()) && status == 404) {
                 showError("SillyTavern 已连接，但找不到 /app/。\n请在 Termux 安装 st_new 前端，再点重试。");
             } else {
