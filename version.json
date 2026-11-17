@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "f8c61d3ac9ccdc0664c95226fb76ea537a8aea9a150817c11d873f6b375c1bb4",
-  "publishedAt": "2026-11-17T15:13:37.412893+00:00",
+  "revision": "835003dc2710cd80859f90c1af93d4d858073b60c3dd04da1fbe7798a7b088b8",
+  "publishedAt": "2026-11-17T15:31:19.890341+00:00",
   "files": {
     "public/app/api.js": "4ad2465b727aa5bdaf746e10881f77457da212c00953f1e5a948eafcfdba5b9a",
     "public/app/background-generation.js": "e5ab164c28eb169efd70942b087d685206159b152ce3978d07db59e65913d45d",
@@ -14,7 +14,7 @@
     "public/app/claude-day.css": "ef615efa89408d25460fb7e7e031bc324bb4c7df1b4416e10e029d79ade9edf6",
     "public/app/code-blocks.js": "6076efadd65749de7457459b54592a3f05c3696d07fcdd9530a673cb24db8495",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
-    "public/app/controls.css": "df70fc33860f6f3eb9a2ca2da9d1cac6b9cb9a453740a9d032d774028470accd",
+    "public/app/controls.css": "f11367f7f61720c11652817d4e7133fa7e79db38443e1d679a382bcb22f19bf9",
     "public/app/database-defaults.js": "f6d75503375495738803667afc3abb161199eb9a54090b3e7848c348fc46201f",
     "public/app/database-injection.js": "9405245d9380c257577540272142495703692e15129cd3dd3cc281c9f7f3dbc1",
     "public/app/database-log.js": "3bb4faab294161a228f3ce7e3dead8aad93ed8a8233122d664383365e7cdd81f",
@@ -91,7 +91,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "b80a3389db5af5156ebb819c8f6a3d46161106c1b4b3aaca01f8f908a59f25b9"
+    "public/app/version.js": "cf39d50e699e54319a82ea682e7b83aa2dc2865a7fcb21d3bb2a86f0ac147aa4"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
