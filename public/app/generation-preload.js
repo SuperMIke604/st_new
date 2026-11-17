@@ -1,9 +1,9 @@
 import { databaseSettings, databaseForChat, referenceDatabaseText, sheetText } from './database.js';
 import { databaseKeywordOrder, prepareDatabaseInjection } from './database-injection.js';
 
-export function prepareDatabaseResources(chat, header, config) {
+export function prepareDatabaseResources(chat, header, config, snapshot) {
     const settings = databaseSettings(config);
-    const database = databaseForChat(chat, header, settings.template).data;
+    const database = snapshot ?? databaseForChat(chat, header, settings.template).data;
     const filter = prepareDatabaseInjection(database, settings.template, header);
     const keys = new Set([...Array.from({ length: 20 }, (_, index) => `sheet_${index}`), ...Object.keys(database).filter(key => key.startsWith('sheet_'))]);
     const tabledata = referenceDatabaseText(database, settings);
@@ -39,8 +39,8 @@ export function prepareDatabaseResources(chat, header, config) {
     };
 }
 
-export function generationDatabaseResources(chat, header, config) {
-    const prepared = prepareDatabaseResources(chat, header, config);
+export function generationDatabaseResources(chat, header, config, snapshot) {
+    const prepared = prepareDatabaseResources(chat, header, config, snapshot);
     return typeof prepared === 'function' ? prepared(chat) : prepared;
 }
 

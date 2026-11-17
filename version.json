@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "0559d9404d7e4797fe2a92bf1dc0e2faea249a53c9aebbd19f9436a740ed9057",
-  "publishedAt": "2026-11-17T13:27:57.938899+00:00",
+  "revision": "d08ab83d59021c63e3a6d718a320e4bae791d7485152940cdee69b43dd08b90c",
+  "publishedAt": "2026-11-17T15:02:32.168689+00:00",
   "files": {
     "public/app/api.js": "4ad2465b727aa5bdaf746e10881f77457da212c00953f1e5a948eafcfdba5b9a",
     "public/app/background-generation.js": "e5ab164c28eb169efd70942b087d685206159b152ce3978d07db59e65913d45d",
@@ -27,7 +27,7 @@
     "public/app/engine.js": "8233278854bad168acde80cf4889c4586140798d28aee3648527fc35bd09dd1c",
     "public/app/generation-interceptor.js": "30c05797f7e17aefe089ce9c9cbfbe019b3ab382f9c8e6b93782c03e328626d0",
     "public/app/generation-parameters.js": "89d74934b1b9f32da32ccad4d1fd36589972fdc2c16a88e99dfe1653ad48b3df",
-    "public/app/generation-preload.js": "bb9e850e61ffad0d95ab5e28ddec8f3f79f990636bda59937d11b1e83184508f",
+    "public/app/generation-preload.js": "5f4a9c453682b7b504a7157d78dda890cb5d4326c01553a2a0041b4f0e004e85",
     "public/app/helper-state.js": "4b2e8913008e57d93c2e5e55a5550b990d800545b967818a8f5fc51be4ddf403",
     "public/app/history-regex-cache.js": "a8eb4feb9b63b318972f10618f23e62c9c29cbf3da1caec6b4fea8010de088ff",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
@@ -38,7 +38,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
-    "public/app/main.js": "aa28b0d26aa439a4c66f9e34c1ca9b34114f7f89391d372215d3e7d074095779",
+    "public/app/main.js": "2c246bdee9907a547fbf11c2498d4e0d8166e79ef5db98d37f45bd2b5b94dcc4",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -46,7 +46,7 @@
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
-    "public/app/preset-tokens.js": "4cd2dff1db736a4045c9cadba7014f995db86c670daca783c14e594f2a00c180",
+    "public/app/preset-tokens.js": "017b1eee1c95ee9b31ceb67935e602ee6b2683efad0d9a143732b78482fc0529",
     "public/app/prompt-autosize.js": "58e2fa7e3184c890d2029925935873fead42f8316dcf683b99219b27cbde3acb",
     "public/app/prompt-drag.js": "badb1418c16868e66b76c2740159a8b9ebe80e0a301411bc942fa61c3ee32ad0",
     "public/app/reading.js": "6320752f6d9765fc2b28b9776afd78c81aa26fcf1baac9d9ab08e3e7d94458c1",
@@ -90,7 +90,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "479362e63e6264dea78ad65afc01ad7fb44beecc4053846089d9e56d78d3e7c6"
+    "public/app/version.js": "da9278bec8eaf3c95e2f21e8af64524e983f914246ae7a177787a375425147f1"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

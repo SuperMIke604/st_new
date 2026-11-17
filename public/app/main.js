@@ -1057,27 +1057,37 @@ async function renderPresetPanel(body, revision) {
     name.parentElement.append(nameRow); nameRow.append(name, parameterToggle);
     body.append(parameters);
     const controls = new Map();
+    let refreshPresetTokens = () => {};
     for (const [key, label, fallback, step] of [['temperature', 'Temperature', 1, .05], ['top_p', 'Top P', 1, .05], ['openai_max_context', '上下文长度', 8192, 1], ['openai_max_tokens', '最大回复 tokens', 512, 1]]) {
         const input = field(parameters, label, draft[key] ?? fallback, { type: 'number' }); input.step = step;
         controls.set(key, { input, fallback });
         if (draft[key] === undefined) draft[key] = fallback;
-        input.addEventListener('input', () => { draft[key] = Number(input.value); });
+        input.addEventListener('input', () => { draft[key] = Number(input.value); refreshPresetTokens(); });
     }
     const heading = el('div', 'section-heading');
     const count = el('span', 'item-count');
     const title = el('div'); title.append(el('h2', '', '提示词条目'), count); heading.append(title);
     const rows = el('div', 'prompt-list');
     const opened = new Set();
-    let pageReady = false, tokenPreview;
+    let pageReady = false, tokenPreview, tokenTimer;
     const promptSizes = [];
     body._onReady = () => { pageReady = true; tokenPreview?.start(); };
-    body._dispose = () => { pageReady = false; tokenPreview?.dispose(); rows._disposeDrag?.(); for(const dispose of promptSizes.splice(0))dispose(); };
+    body._dispose = () => { pageReady = false; clearTimeout(tokenTimer); tokenPreview?.dispose(); rows._disposeDrag?.(); for(const dispose of promptSizes.splice(0))dispose(); };
     const markDirty = () => { panelDirty = true; };
     const updateCount = () => { const order = promptOrder(draft); count.textContent = `${order.length} 个条目 · ${order.filter(item => item.enabled !== false).length} 个启用`; };
     const renderRows = () => {
+        clearTimeout(tokenTimer);
         for(const dispose of promptSizes.splice(0))dispose();
         rows._disposeDrag?.(); tokenPreview?.dispose();
         tokenPreview = new PresetTokenPreview({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
+        const tokenUpdates = [];
+        refreshPresetTokens = () => {
+            clearTimeout(tokenTimer);
+            tokenTimer = setTimeout(() => {
+                tokenPreview.invalidatePromptCounts();
+                for (const update of tokenUpdates) void update();
+            }, 500);
+        };
         rows.replaceChildren(); updateCount();
         for (const { order, prompt, index } of promptRows(draft)) {
             const details = el('details', 'prompt-item'); details.dataset.promptId = prompt.identifier;
@@ -1087,7 +1097,7 @@ async function renderPresetPanel(body, revision) {
             const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = order.enabled !== false;
             enabled.setAttribute('aria-label', `启用 ${prompt.name || prompt.identifier}`);
             enabled.addEventListener('click', event => event.stopPropagation());
-            enabled.addEventListener('change', () => { order.enabled = enabled.checked; details.classList.toggle('prompt-disabled', !enabled.checked); markDirty(); updateCount(); });
+            enabled.addEventListener('change', () => { order.enabled = enabled.checked; details.classList.toggle('prompt-disabled', !enabled.checked); markDirty(); updateCount(); refreshPresetTokens(); });
             const titleWrap = el('span', 'prompt-title');
             const label = el('span', '', prompt.name || markerLabels[prompt.identifier] || prompt.identifier);
             titleWrap.append(label);
@@ -1097,7 +1107,7 @@ async function renderPresetPanel(body, revision) {
             const roleLabel = () => ['chatHistory', 'dialogueExamples'].includes(prompt.identifier) && !prompt.independent_role_override ? '原消息角色' : ({ system: '系统', user: '用户', assistant: '助手' }[prompt.role || 'system']);
             const kind = el('small', 'prompt-kind', roleLabel());
             const tokenCount = el('small', 'prompt-token-count', '-');
-            let tokenVersion = 0, tokenTimer;
+            let tokenVersion = 0;
             const updateTokens = async () => {
                 const scope = tokenPreview;
                 if (scope.signal.aborted || revision !== panelRevision || (pageReady && !tokenCount.isConnected)) return;
@@ -1107,13 +1117,14 @@ async function renderPresetPanel(body, revision) {
                     const count = await scope.count(prompt);
                     if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
                     tokenCount.textContent = Number.isFinite(count) && count > 0 ? String(count) : '-';
-                    tokenCount.title = '按当前聊天数据展开宏后的条目计数，含消息封装；最终请求可能受正则与上下文裁剪影响';
+                    tokenCount.title = '按当前聊天和资料库注入预算展开后的条目计数，包含条目正文与消息封装';
                 } catch {
                     if (!scope.signal.aborted && version === tokenVersion && tokenCount.isConnected) tokenCount.textContent = '-';
                 }
             };
             titleWrap.append(kind);
             summary.append(enabled, titleWrap, tokenCount);
+            tokenUpdates.push(updateTokens);
             void updateTokens();
             details.append(summary);
             const content = el('div', 'prompt-form');
@@ -1159,13 +1170,14 @@ async function renderPresetPanel(body, revision) {
                     if (role.value === 'inherit') delete prompt.independent_role_override;
                     else { prompt.role = role.value; if (block) prompt.independent_role_override = true; }
                     kind.textContent = roleLabel();
+                    refreshPresetTokens();
                 });
                 if (block) note(content, '默认保留用户与角色各自的发言身份。选择固定角色会将此条目内的全部消息统一为该角色。');
                 if (prompt.marker) note(content, `自动填充${markerLabels[prompt.identifier] || prompt.name}。可以调整顺序或开关，内容来自对应的角色、用户设定、世界书或聊天记录。`);
                 else {
                     const text = field(content, '提示词内容', prompt.content || '', { multiline: true, rows: 7, hint: '可使用 {{char}}、{{user}} 等已支持的宏。' });
                     promptSizes.push(autosizePrompt(text));
-                    text.addEventListener('input', () => { prompt.content = text.value; tokenVersion++; clearTimeout(tokenTimer); tokenTimer = setTimeout(updateTokens, 500); });
+                    text.addEventListener('input', () => { prompt.content = text.value; tokenVersion++; refreshPresetTokens(); });
                     const injection = el('div', 'parameter-grid');
                     const position = field(injection, '插入位置', Number(prompt.injection_position) || 0, { options: [[0, '按条目顺序'], [1, '插入聊天深度']] });
                     const depth = field(injection, '聊天深度', prompt.injection_depth ?? 0, { type: 'number', hint: '0 表示聊天记录末尾。' }); depth.min = 0; depth.step = 1;
