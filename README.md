@@ -28,7 +28,9 @@ Windows 构建需要 JDK 17、Android SDK Platform 34 和 Build-Tools 34.0.0。�
 powershell -ExecutionPolicy Bypass -File .\android\build-apk.ps1
 ```
 
-安装包为 `android/build/st-new.apk`，适用于 Android 7.0 及以上。保留同目录的 `debug.keystore` 可为后续 APK 使用同一个签名。网页更新仍由 Termux 中的前端和更新插件处理。导出文件请用手机浏览器打开同一个地址。
+安装包为 `android/build/st-new.apk`，适用于 Android 7.0 及以上。保留同目录的 `debug.keystore` 可为后续 APK 使用同一个签名。网页更新仍由 Termux 中的前端和更新插件处理。
+
+在 APK 内点击聊天、角色卡、预设、世界书、脚本、资料库或日志的导出按钮，会弹出 Android 系统保存界面，可选择目录并修改文件名。
 
 ### 从 GitHub 更新 APK
 

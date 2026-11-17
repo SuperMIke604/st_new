@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
     private LinearLayout errorPanel;
     private TextView errorMessage;
     private ValueCallback<Uri[]> fileSelection;
+    private FileExports fileExports;
     private AlertDialog authDialog;
     private WebMessagePort shellPort;
     private String shellScript;
@@ -58,6 +59,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        fileExports = new FileExports(this, state);
         port = getPreferences(MODE_PRIVATE).getInt("port", DEFAULT_PORT);
         Window window = getWindow();
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
@@ -83,11 +85,7 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(new TavernClient());
         webView.setWebChromeClient(new TavernChromeClient());
         webView.setDownloadListener((url, userAgent, disposition, mimeType, size) ->
-                new AlertDialog.Builder(this)
-                        .setMessage("请在手机浏览器中打开酒馆，再执行导出。")
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("打开浏览器", (dialog, which) -> openBrowser(Uri.parse(appUrl())))
-                        .show());
+                Toast.makeText(this, "无法在 APK 中保存此下载链接。", Toast.LENGTH_SHORT).show());
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         errorPanel = new LinearLayout(this);
@@ -190,6 +188,8 @@ public final class MainActivity extends Activity {
                     applySystemBarColor(Color.parseColor(data));
                 } else if ("check-apk-update".equals(data)) {
                     checkApkUpdate();
+                } else if (data.startsWith("export-")) {
+                    fileExports.onMessage(port, data);
                 }
             }
         });
@@ -204,6 +204,7 @@ public final class MainActivity extends Activity {
     }
 
     private void disconnectShell() {
+        fileExports.cancelTransfer();
         if (shellPort != null) {
             shellPort.close();
             shellPort = null;
@@ -332,6 +333,7 @@ public final class MainActivity extends Activity {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         webView.saveState(state);
+        fileExports.saveState(state);
         if (errorPanel.getVisibility() == View.VISIBLE) {
             state.putString("connectionError", errorMessage.getText().toString());
         }
@@ -351,7 +353,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_FILE && fileSelection != null) {
+        if (requestCode == FileExports.SAVE_FILE) {
+            fileExports.onActivityResult(resultCode, data);
+        } else if (requestCode == PICK_FILE && fileSelection != null) {
             Uri[] selection = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             if (selection != null) {
                 for (Uri file : selection) {
@@ -369,6 +373,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         disconnectShell();
+        fileExports.destroy();
         if (authDialog != null) {
             authDialog.cancel();
         }
