@@ -44,6 +44,8 @@ test('summary bindings survive editor selection, round trips, and deleted preset
     assert.equal(restored.databaseSummaryPreset, 'compact');
     assert.deepEqual(restored.unknown, { keep: true });
     assert.equal('autoHideMessages' in restored, false);
+    assert.equal(restored.hideAfterMessageSummary, false);
+    assert.equal(databaseSettings(JSON.parse(JSON.stringify({ ...restored, hideAfterMessageSummary: true }))).hideAfterMessageSummary, true);
     assert.ok(fillMessages(restored, filled(), messages(), 0, 2)[0].content.startsWith('消息 '));
     const compact = fillMessages(restored, filled(), [], 0, 0, '', 'database')[0].content;
     assert.ok(compact.startsWith('数据库 ')); assert.ok(compact.includes('书店')); assert.ok(!compact.includes('开场白'));

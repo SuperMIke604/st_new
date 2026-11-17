@@ -48,7 +48,7 @@ test('database summary applies bare operations to the latest snapshot without di
     const f = fixture();
     f.context.parseUpdate = parseUpdate;
     storeDatabase(f.state.chat, f.state.header, { ...defaultDatabase(), marker: 'latest' }, 1, { kind: 'message', to: 1 });
-    f.settings.autoHideMessages = true; // Old settings cannot re-enable removed behavior.
+    f.settings.hideAfterMessageSummary = true;
     const task = f.run("updateDatabase(0, 0, false, 'database')"); await tick();
     assert.equal(f.requests[0][1].marker, 'latest'); assert.equal(f.requests[0][2].length, 0); assert.equal(f.requests[0][6], 'database');
     f.finish('{"operations":[{"action":"insert","sheet":"sheet_0","data":{"0":"状态","1":"已总结"}}]}'); await task;
@@ -142,9 +142,11 @@ test('automatic database summary runs with message summary disabled and avoids r
 
 test('automatic message summary completes before database threshold evaluation', async () => {
     const f = fixture();f.settings.auto = true; f.settings.databaseSummaryAuto = true;
+    f.settings.hideAfterMessageSummary = true;
     f.settings.databaseSummaryTokens = 100;
     const task = f.run('autoUpdateDatabase()'); await tick();f.finish(); await task;
     assert.equal(f.writes.length, 2); assert.deepEqual(f.requests.map(args => args[6]), ['message', 'database']);
+    assert.deepEqual(f.writes[0].map(message => message.is_system), [true, true]);
     assert.equal(f.state.chat[1].extra.independentDatabase.messageSummaryTo, 1);
 });
 
@@ -159,8 +161,25 @@ test('reached table threshold does not depend on tokenizer availability', async 
 
 test('stopping automatic message summary cancels the following database summary', async () => {
     const f = fixture();Object.assign(f.settings,{auto:true,databaseSummaryAuto:true,databaseSummaryTokens:100});
+    f.settings.hideAfterMessageSummary = true;
     const task=f.run('autoUpdateDatabase()');await tick();f.state.databaseController.abort();f.finish();await task;
     assert.equal(f.writes.length,0);assert.equal(f.requests.length,1);
+    assert.ok(f.state.chat.every(message => !message.is_system));
+});
+
+test('manual message summary hides selected and processed floors in the snapshot save', async () => {
+    const f = fixture();
+    f.settings.hideAfterMessageSummary = true;
+    f.state.chat.push({ is_user: true, mes: 'another question' }, { is_user: false, mes: 'another answer' }, { is_user: true, mes: 'waiting for an answer' });
+    const task = f.run('updateDatabase(1, 4)'); await tick();
+    assert.deepEqual(f.requests[0].slice(3, 5), [0, 3]);
+    assert.ok(f.state.chat.every(message => !message.is_system));
+
+    f.finish(); await task;
+    assert.equal(f.writes.length, 1);
+    assert.deepEqual(f.writes[0].map(message => !!message.is_system), [false, true, true, true, false]);
+    assert.deepEqual(f.writes[0].map(message => message.mes), f.state.chat.map(message => message.mes));
+    assert.equal(f.writes[0][3].TavernDB_ACU_Data.updated, true);
 });
 
 test('fill preserves chat generation state and accepts appended or streaming later replies', async () => {
@@ -174,6 +193,7 @@ test('fill preserves chat generation state and accepts appended or streaming lat
     f.context.panelDirty = true;
     f.finish(); await task;
     assert.equal(f.writes.length, 1); assert.equal(f.state.chat[1].TavernDB_ACU_Data.updated, true);
+    assert.ok(f.writes[0].every(message => !message.is_system));
     assert.equal(f.state.chat.at(-1).mes, 'streaming'); assert.equal(f.state.chat[1].extra.keep, true);
     assert.equal(f.state.header.chat_metadata.integrity, 'keep');
     assert.equal(f.state.busy, true); assert.equal(f.state.controller, controller);

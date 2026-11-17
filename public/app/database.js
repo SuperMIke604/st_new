@@ -45,6 +45,7 @@ export function databaseSettings(value = {}) {
         settings[key] = number;
     }
     delete settings.autoHideMessages;
+    settings.hideAfterMessageSummary = source.hideAfterMessageSummary === true;
     settings.template = validateDatabase(source.template || settings.presets.find(preset => preset.id === settings.activePreset).template || defaultDatabase());
     settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(settings.template);
     for (const [key, min, max] of [['frequency', 1, 100], ['batch', 1, 500], ['maxTokens', 1, 2000000], ['temperature', 0, 2]]) {

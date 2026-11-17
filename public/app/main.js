@@ -2758,6 +2758,11 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
         const metadata = summarizing ? { kind, messageSummaryTo: previousMeta?.messageSummaryTo ?? previousMeta?.to ?? current.index, batches } : { kind, from: rangeStart, to, batches };
         log.stage = '校验并写入快照';
         storeDatabase(state.chat, state.header, result, to, metadata);
+        if (!summarizing && settings.hideAfterMessageSummary) {
+            for (let index = Math.max(rangeStart, from); index <= to; index++) {
+                state.chat[index].is_system = true;
+            }
+        }
         log.stage = '保存聊天';
         progress.update('正在保存数据库…');await saveChat();
         log.stage = '保存最近聊天设置';

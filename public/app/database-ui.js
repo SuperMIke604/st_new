@@ -13,7 +13,7 @@ export function renderDatabasePanel(body, context) {
     let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
     const promptSizes = [];
-    const statusFields = ['inject','keywordInjectionTokens','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
+    const statusFields = ['inject','keywordInjectionTokens','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','hideAfterMessageSummary','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
     const overviewDraft = { pending: new Set() };
@@ -496,6 +496,7 @@ export function renderDatabasePanel(body, context) {
         const run=async callback=>{if(dataDirty)throw Error('请先保存数据');if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
         const message=card('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');
         bindPreset(message,'消息总结预设','messageSummaryPreset');check(message,'自动总结消息','auto');
+        check(message,'总结后向 AI 隐藏对应楼层','hideAfterMessageSummary');
         const messageConfig=el('div','dm-config-grid');message.append(messageConfig);
         setting(messageConfig,'autoUpdateFrequency','保留最新 N 层', 'number',0);
         setting(messageConfig,'updateBatchSize','每次总结楼层数','number',1);
