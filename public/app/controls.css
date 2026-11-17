@@ -287,3 +287,64 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     }
     .list-view .character-file:has(.card-action-menu.is-open) { overflow: visible; z-index: 2; }
 }
+
+/* Keep category navigation to one row on narrow screens. */
+.category-select, .db-category-bar { display: none; }
+@media (max-width: 820px) {
+    .desktop-category { display: none !important; }
+    .category-select { display: block; min-width: 0; }
+    .category-select > :is(select, .select-control) { width: 100%; min-width: 0; text-align: start; }
+    .category-select > .select-control > span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .category-select > .select-control > .select-chevron { flex-shrink: 0; }
+    .db-category-bar { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--control-gap); }
+    .db-category-table { min-width: 0; }
+    .db-category-table:empty { display: none; }
+    :is(.regex-category, .db-category-bar) {
+        position: sticky;
+        top: 0;
+        z-index: 6;
+        padding-block: var(--control-gap);
+        border-bottom: 1px solid var(--line);
+        background: var(--paper);
+    }
+    #panel-body:has(.regex-category, .db-category-bar) {
+        --category-bar-height: calc(var(--control-size) + 2 * var(--control-gap) + 1px);
+        scroll-padding-block-start: var(--category-bar-height);
+    }
+    #panel-body:has(.db-category-table > .category-select) {
+        --category-bar-height: calc(2 * var(--control-size) + 3 * var(--control-gap) + 1px);
+    }
+    .db-template-save { top: var(--category-bar-height, 0px); }
+    .db-table-actions { position: static; }
+    .db-overview-navigation { display: none; }
+}
+@media (max-width: 700px) {
+    .library-layout { display: block; }
+    .library-folders { display: contents; }
+    .library-folder-navigation {
+        position: sticky;
+        top: 0;
+        z-index: 6;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) var(--control-size);
+        gap: var(--control-gap);
+        padding-block: var(--control-gap);
+        border-bottom: 1px solid var(--line);
+        background: var(--paper);
+    }
+    .library-main { margin-top: 12px; }
+    .library-panel #panel-body {
+        scroll-padding-block-start: calc(var(--control-size) + 2 * var(--control-gap) + 1px);
+    }
+    .library-folder-tabs { display: none; }
+    .library-folder-tabs[data-managing=true] {
+        display: block;
+        margin: var(--control-gap) 0 0;
+        padding: 0;
+        overflow: visible;
+    }
+}

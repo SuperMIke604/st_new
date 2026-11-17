@@ -1,3 +1,4 @@
+import { categorySelect } from './category-select.js';
 import { RecentCharacters } from './home-data.js';
 import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGeneration, usesBackgroundGeneration } from './background-generation.js';
 import { chatRevision } from './chat-delta.js';
@@ -1301,12 +1302,18 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     body.classList.add('regex-panel-content');
     const fresh = { settings: state.settings, bundle: state.bundle }; if (revision !== panelRevision) return;
     const available = presetCatalog(fresh.bundle);
-    const tabs = el('nav', 'regex-tabs'); tabs.setAttribute('aria-label', '正则与脚本分类');
-    for (const [id, label] of [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['preset-script', '预设脚本'], ['character-script', '角色卡脚本']]) {
+    const scopes = [['global', '全局正则'], ['preset', '预设正则'], ['character', '角色卡正则'], ['global-script', '全局脚本'], ['preset-script', '预设脚本'], ['character-script', '角色卡脚本']];
+    const tabs = el('nav', 'regex-tabs desktop-category'); tabs.setAttribute('aria-label', '正则与脚本分类');
+    for (const [id, label] of scopes) {
         const button = action(label, () => { if (scope !== id) return regexPanel(id); }, id === 'global' ? 'regex' : id === 'preset' || id === 'preset-script' ? 'tools' : 'card');
         button.setAttribute('aria-pressed', String(scope === id)); tabs.append(button);
     }
-    body.append(tabs);
+    const picker = categorySelect(el, '正则与脚本分类', scopes, scope, (id, select) => {
+        select.value = scope; // Keep the current category if switching is cancelled.
+        return run(() => regexPanel(id));
+    });
+    picker.classList.add('regex-category');
+    body.append(tabs, picker);
     if (scope.endsWith('-script')) {
         const manager = el('div', 'script-manager'); body.append(manager);
         finishData?.('success', { metrics: { scopeCode: scope === 'global-script' ? 4 : scope === 'preset-script' ? 6 : 5 } }); await renderScriptManager(manager, revision, scope, target, timing); return;
@@ -1894,7 +1901,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     const currentAvatar = state.character?.avatar;
     let folder = (currentAvatar && library.assignments[currentAvatar]) || 'unfiled';
     let mode = 'grid'; let page = 0;
-    let foldersExpanded = false;
+    let managingFolders = false;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
@@ -1949,7 +1956,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         editingFolder = id; formTitle.textContent = id ? '重命名分类' : '新建分类';
         folderName.value = id ? library.folders.find(item => item.id === id).name : '';
         const targetRow = id ? [...sidebar.querySelectorAll('[data-folder-id]')].find(row => row.dataset.folderId === id) : null;
-        if (targetRow) targetRow.append(form); else { const first = sidebar.querySelector('[data-folder-id]'); if (first) sidebar.insertBefore(form, first.parentElement); else sidebar.append(form); }
+        if (targetRow) targetRow.append(form); else sidebar.insertBefore(form, sidebar.querySelector('.library-folder-tabs'));
         form.hidden = false; form.scrollIntoView({ block: 'nearest' }); folderName.focus();
     }
     function chooseFolder(id) { folder = id; page = 0; selected.clear(); renderFolders(); renderCards(); }
@@ -1959,28 +1966,34 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         if (sidebar.contains(form)) body.prepend(form); sidebar.replaceChildren();
         const heading = el('div', 'folder-heading'); heading.append(el('h2', '', '分类'), action('新建分类', () => folderForm(), 'plus'));
         sidebar.append(heading);
-        const navigation = el('div', 'reference-table-navigation library-folder-navigation');
+        const navigation = el('div', 'library-folder-navigation');
         const folderTabs = el('nav', 'db-table-tabs library-folder-tabs');
         folderTabs.id = `library-folder-tabs-${uuid()}`;
         folderTabs.setAttribute('aria-label', '分类列表');
-        const folderToggle = action('展开全部分类', () => {
-            foldersExpanded = !foldersExpanded; updateFolderToggle();
-        }, 'chevron', 'icon-button library-folder-toggle');
+        const options = [];
+        const folderToggle = action('管理分类', () => {
+            managingFolders = !managingFolders;
+            if (!managingFolders && folderTabs.contains(form)) sidebar.insertBefore(form, folderTabs);
+            updateFolderToggle();
+            if (managingFolders) folderTabs.scrollIntoView({ block: 'nearest' });
+        }, 'more', 'icon-button library-folder-toggle');
         const updateFolderToggle = () => {
-            const label = foldersExpanded ? '收起分类' : '展开全部分类';
-            folderTabs.dataset.expanded = String(foldersExpanded);
+            const label = managingFolders ? '收起分类管理' : '管理分类';
+            folderTabs.dataset.managing = String(managingFolders);
             folderToggle.title = label; folderToggle.setAttribute('aria-label', label);
-            folderToggle.setAttribute('aria-expanded', String(foldersExpanded));
+            folderToggle.setAttribute('aria-expanded', String(managingFolders));
         };
         folderToggle.querySelector('span')?.remove();
         folderToggle.setAttribute('aria-controls', folderTabs.id); updateFolderToggle();
-        navigation.append(folderToggle, folderTabs); sidebar.append(navigation);
+        sidebar.append(navigation, folderTabs);
         const customFolders = el('div', 'custom-folders');
         const append = (id, label) => {
             const row = el('div', 'folder-row');
             const button = action(label, () => chooseFolder(id), 'folder', 'folder-button'); button.draggable = false;
             button.classList.toggle('active', folder === id); button.setAttribute('aria-pressed', String(folder === id));
-            const count = el('small', 'folder-count', String(filterCards(state.characters, library, id).length)); button.append(count); row.append(button);
+            const total = filterCards(state.characters, library, id).length;
+            options.push([id, `${label}（${total}）`]);
+            const count = el('small', 'folder-count', String(total)); button.append(count); row.append(button);
             if (!['all', 'unfiled'].includes(id)) {
                 const rename = action(`重命名 ${label}`, () => folderForm(id), 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
                 const remove = action(`删除 ${label}`, async () => { if (!confirm(`删除分类「${label}」？角色卡将保留并回到未分类。`)) return; await persist(raw => deleteFolder(raw, id)); if (folder === id) chooseFolder('unfiled'); }, 'trash', 'folder-edit danger'); remove.title = '删除分类'; remove.setAttribute('aria-label', `删除分类 ${label}`);
@@ -1990,7 +2003,6 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                     const expand = menu.hidden;
                     for (const other of sidebar.querySelectorAll('.folder-inline-menu')) other.hidden = true;
                     for (const other of sidebar.querySelectorAll('.folder-actions-toggle')) other.setAttribute('aria-expanded', 'false');
-                    if (expand && matchMedia('(max-width:700px)').matches) { foldersExpanded = true; updateFolderToggle(); }
                     menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
                 }, 'more', 'folder-edit folder-actions-toggle');
                 more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作';
@@ -2016,6 +2028,11 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         append('unfiled', '未分类');
         for (const item of library.folders) append(item.id, item.name);
         folderTabs.append(customFolders);
+        navigation.append(categorySelect(el, '角色分类', options, folder, id => {
+            const option = options.find(([key]) => String(key) === id);
+            if (option) chooseFolder(option[0]);
+        }), folderToggle);
+        folderToggle.disabled = !library.folders.length;
         disposeFolderDrag = installPromptDrag(customFolders, body, order => {
             void run(async () => {
                 try { await persist(raw => {
@@ -2120,12 +2137,6 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     search.addEventListener('input', () => { page = 0; renderCards(); });
     sort.addEventListener('change', () => { page = 0; renderCards(); });
     renderFolders(); renderCards();
-    body._onReady = () => {
-        const tabs = sidebar.querySelector('.library-folder-tabs');
-        if (tabs.scrollWidth <= tabs.clientWidth) return;
-        const active = tabs.querySelector('.folder-button.active');
-        if (active) tabs.scrollLeft += Math.max(0, active.getBoundingClientRect().right - tabs.getBoundingClientRect().right);
-    };
 }
 
 async function characterEditor(avatar = state.character?.avatar) {

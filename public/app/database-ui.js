@@ -1,3 +1,4 @@
+import { categorySelect } from './category-select.js';
 import { uuid } from './uuid.js';
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings, recentFillRows } from './database.js';
 import { databaseInjection, splitDatabaseKeywords } from './database-injection.js';
@@ -36,19 +37,31 @@ export function renderDatabasePanel(body, context) {
     const toolbarButton = (parent, label, glyph, callback, type = '') => {
         const control = action(label, callback, glyph, type); control.title = label; control.setAttribute('aria-label', label); parent.append(control); return control;
     };
-    const tabs = el('nav', 'db-tabs'); tabs.setAttribute('aria-label', '数据库功能');
+    const categories = context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['data', '聊天数据'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']];
+    const tabs = el('nav', 'db-tabs desktop-category'); tabs.setAttribute('aria-label', '数据库功能');
+    const picker = categorySelect(el, '数据库功能', categories, tab, key => { tab = key; render(); });
+    const categoryBar = el('div', 'db-category-bar');
+    const tablePickerSlot = el('div', 'db-category-table');
+    categoryBar.append(picker, tablePickerSlot);
+    const showTablePicker = tablePicker => {
+        if (tablePicker) tablePickerSlot.replaceChildren(tablePicker);
+        else tablePickerSlot.replaceChildren();
+    };
     const content = el('div', 'db-content');
-    body.append(tabs, content);
+    body.append(tabs, categoryBar, content);
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['data', '聊天数据'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
+        picker.firstElementChild.value = tab;
+        picker.firstElementChild.disabled = !!overviewDraft.saving;
+        for (const [key, label] of categories) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); control.disabled = !!overviewDraft.saving; tabs.append(control);
         }
+        showTablePicker(null);
         content.replaceChildren();
         content.classList.toggle('preset-panel', tab === 'presets');
         if (tab === 'overview') renderDatabaseOverview(content, {
-            ...context,
+            ...context, showTablePicker,
             dirty: () => context.dirty(hasDraft()),
             refresh: () => { if (!disposed && tab === 'overview') render(); },
         }, overviewDraft);
@@ -156,7 +169,7 @@ export function renderDatabasePanel(body, context) {
             }), 'icon-button'); sidebar.append(listHeading);
             const tables = sheets(book);
             if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
-            const navigation = el('div', 'reference-table-navigation db-template-navigation');
+            const navigation = el('div', 'reference-table-navigation db-template-navigation desktop-category');
             const list = el('nav', 'db-table-tabs db-template-list'); list.setAttribute('aria-label', '模板表格');
             list.id = 'database-template-tables'; list.dataset.expanded = String(templateTablesExpanded);
             for (const [key, table] of tables) {
@@ -175,7 +188,9 @@ export function renderDatabasePanel(body, context) {
             }, 'icon-button');
             expandTables.setAttribute('aria-expanded', String(templateTablesExpanded));
             expandTables.setAttribute('aria-controls', list.id); expandTables.disabled = tables.length < 2;
+            const tablePicker = categorySelect(el, '模板表格', tables.map(([key, table]) => [key, `${table.name || key}（${table.content[0].length - 1}）`]), activeTable, key => { activeTable = key; render(); });
             navigation.append(list); sidebar.append(navigation);
+            if (tables.length) showTablePicker(tablePicker);
             if (!tables.length) sidebar.append(el('p', 'note', '暂无表格，点击“新增表格”开始设计。'));
             const entry = tables.find(([key]) => key === activeTable);
             if (entry) {
@@ -186,7 +201,9 @@ export function renderDatabasePanel(body, context) {
                 name.addEventListener('focus', remember, { once: true });
                 name.addEventListener('input', () => {
                     table.name = name.value;
-                    list.querySelector('[aria-pressed=true] > span').textContent = `${name.value || key}（${table.content[0].length - 1}）`;
+                    const label = `${name.value || key}（${table.content[0].length - 1}）`;
+                    list.querySelector('[aria-pressed=true] > span').textContent = label;
+                    tablePicker.firstElementChild.selectedOptions[0].textContent = label;
                     dirty(kind);
                 });
                 const recent = recentFillRows(table);
@@ -301,13 +318,27 @@ export function renderDatabasePanel(body, context) {
             const labels = columns.value.split(',').map(text => text.trim()).filter(Boolean); if (!labels.length) throw new Error('请填写列名。');
             change(() => { let index = 0; while (Object.hasOwn(book, `sheet_${index}`)) index++; book[`sheet_${index}`] = { name: name.value.trim() || '新表', content: [[null, ...labels]] }; });
         }); content.append(create);
-        const tableTabs = el('nav', 'db-table-tabs'); content.append(tableTabs);
+        const tableTabs = el('nav', 'db-table-tabs desktop-category'); content.append(tableTabs);
         const tables = sheets(book); if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
-        for (const [key, table] of tables) { const button = action(`${table.name || key} · ${Math.max(0,table.content.length-1)}`, () => { activeTable = key; render(); }); button.setAttribute('aria-pressed', String(key === activeTable)); tableTabs.append(button); }
+        const tableLabel = (key, table) => `${table.name || key} · ${Math.max(0, table.content.length - 1)}`;
+        const tableOptions = tables.map(([key, table]) => [key, tableLabel(key, table)]);
+        const selectTable = key => { activeTable = key; render(); };
+        for (const [key, label] of tableOptions) {
+            const button = action(label, () => selectTable(key));
+            button.setAttribute('aria-pressed', String(key === activeTable)); tableTabs.append(button);
+        }
+        const tablePicker = categorySelect(el, '聊天数据表格', tableOptions, activeTable, selectTable);
+        if (tables.length) showTablePicker(tablePicker);
         for (const [key, table] of tables.filter(([key]) => key === activeTable)) {
             const section = el('section', 'db-sheet'); section.setAttribute('aria-label', table.name || key);
             const heading = el('div', 'db-sheet-heading');
-            const tableName = el('input'); tableName.value = table.name || key; tableName.setAttribute('aria-label', `表名 ${key}`); tableName.addEventListener('focus', remember, { once: true }); tableName.addEventListener('input', () => { table.name = tableName.value; dirty(kind); });
+            const tableName = el('input'); tableName.value = table.name || key; tableName.setAttribute('aria-label', `表名 ${key}`); tableName.addEventListener('focus', remember, { once: true }); tableName.addEventListener('input', () => {
+                table.name = tableName.value;
+                const label = tableLabel(key, table);
+                tablePicker.firstElementChild.selectedOptions[0].textContent = label;
+                tableTabs.querySelector('[aria-pressed=true] > span').textContent = label;
+                dirty(kind);
+            });
             heading.append(tableName, el('small', '', key));
             const keywords = el('div');
             const savedWords = () => context.blockedKeywords(key).join('\n');

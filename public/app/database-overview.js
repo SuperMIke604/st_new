@@ -1,3 +1,4 @@
+import { categorySelect } from './category-select.js';
 import { sheets, validateDatabase } from './database.js';
 import { extractDataFromMessage } from './database-reference.js';
 
@@ -163,9 +164,9 @@ export function renderDatabaseOverview(body, context, draft) {
         if (pending) status.append(el('p', 'note warning', '待删除，保存后生效。'));
         if (record.stale) status.append(el('p', 'note warning', '来源消息已修改，此快照仍保留供查阅。'));
         detail.append(status);
-        if (!tables.length) { detail.append(el('p', 'note', '此快照暂无数据表。')); return; }
+        if (!tables.length) { context.showTablePicker(null); detail.append(el('p', 'note', '此快照暂无数据表。')); return; }
         if (!tables.some(([key]) => key === selectedTable)) selectedTable = tables[0][0];
-        const fixed = el('div', 'reference-preview-fixed db-overview-navigation'), navigation = el('div', 'reference-table-navigation'), tabs = el('nav', 'db-table-tabs');
+        const fixed = el('div', 'reference-preview-fixed db-overview-navigation'), navigation = el('div', 'reference-table-navigation desktop-category'), tabs = el('nav', 'db-table-tabs');
         tabs.id = 'database-overview-tables'; tabs.dataset.expanded = String(expanded); tabs.setAttribute('aria-label', '历史总结数据表');
         for (const [key, table] of tables) {
             const button = action(`${table.name || key}（${table.content.length - 1}）`, () => { selectedTable = key; page = 0; draw(); });
@@ -173,6 +174,8 @@ export function renderDatabaseOverview(body, context, draft) {
         }
         const toggle = action(expanded ? '收起表格' : '展开全部表格', () => { expanded = !expanded; draw(); }, 'chevron', 'icon-button');
         toggle.title = expanded ? '收起表格' : '展开全部表格'; toggle.setAttribute('aria-label', toggle.title); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', tabs.id); toggle.disabled = tables.length < 2;
+        const picker = categorySelect(el, '历史总结数据表', tables.map(([key, table]) => [key, `${table.name || key}（${table.content.length - 1}）`]), selectedTable, key => { selectedTable = key; page = 0; draw(); });
+        context.showTablePicker(picker);
         navigation.append(toggle, tabs); fixed.append(navigation); detail.append(fixed);
         const table = record.data[selectedTable], rows = table.content.slice(1), pageCount = Math.max(1, Math.ceil(rows.length / 20));
         page = Math.min(page, pageCount - 1);

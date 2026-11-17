@@ -652,27 +652,9 @@ svg[data-ivory-variant]>.ivory-icon{display:none}
 
 /* Match the data preview's compact chevron disclosure. */
 .preset-parameters-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
-.library-folder-navigation,.library-folder-tabs{display:contents}
-.library-folder-toggle{display:none!important}
+.library-folder-navigation{display:none}
+.library-folder-tabs{display:contents}
 .library-folder-tabs>.custom-folders{display:block}
-@media(max-width:700px){
-  .library-folders{display:block}
-  .library-folders>.folder-heading{margin-bottom:8px}
-  .library-folder-navigation{display:grid;grid-template-columns:minmax(0,1fr) var(--control-size);gap:var(--control-gap);align-items:start;min-width:0}
-  .library-folder-toggle{display:inline-flex!important;grid-column:2;grid-row:1}
-  .library-folders .library-folder-tabs{display:flex;grid-column:1;grid-row:1;flex-wrap:nowrap;gap:8px;min-width:0;max-width:100%;margin:0;padding:0;border:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain}
-  .library-folder-tabs>.custom-folders{display:contents}
-  .library-folder-tabs .folder-row{flex:0 0 auto;flex-wrap:nowrap;margin:0;max-width:100%}
-  .library-folder-tabs .folder-button{flex:0 1 auto}
-  .library-folder-navigation:has(>.library-folder-toggle[aria-expanded=true]){display:flow-root;max-height:40vh;overflow-y:auto}
-  .library-folders .library-folder-tabs[data-expanded=true]{display:flex;flex-wrap:wrap;overflow:visible;max-width:none}
-  .library-folder-navigation:has(>.library-folder-toggle[aria-expanded=true])>.library-folder-toggle{float:right;margin-left:8px}
-}
-
-@media(min-width:701px){
-  .library-folders .library-folder-navigation,.library-folders .library-folder-tabs{display:contents!important;overflow:visible;max-height:none}
-  .library-folders .library-folder-toggle{display:none!important}
-}
 
 /* Secondary text/icon actions (add, import, etc.) have no painted tile.
    Primary actions, selection surfaces and content cards retain their semantics. */
