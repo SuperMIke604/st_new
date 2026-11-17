@@ -439,6 +439,10 @@ dialog.timing-panel{width:min(850px,calc(100vw - 24px))}.timing-body{padding:20p
 .connection-model-row{display:flex;align-items:center;gap:8px;min-width:0}.connection-model-row>.select-control{flex:1;min-width:0}.connection-model-row>select{flex:1;min-width:0}
 
 /* Variable manager: paged values are edited as drafts before persistence. */
+#message-edit-confirmation[open]{inset:0!important;margin:auto;width:min(400px,calc(100vw - 32px));height:max-content!important;max-height:calc(var(--viewport-height) - 32px)!important;padding:20px;overflow:auto}
+#message-edit-confirmation::backdrop{inset:0}
+#message-edit-confirmation h2{margin:0 0 16px}
+.message-edit-confirmation-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 .variable-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .variable-toolbar .field{margin:0}

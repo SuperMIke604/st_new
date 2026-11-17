@@ -3,7 +3,7 @@ import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGene
 import { chatRevision } from './chat-delta.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
-import { installMessageEdit, installMessageEditDismiss } from './message-edit.js';
+import { installMessageEdit, installMessageEditGuard } from './message-edit.js';
 import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScriptPlan, usesMvuCompat, inlineScriptMessage, latestMvuData, scriptSnapshot as baseScriptSnapshot, validateScriptTree, saveCharacterScripts, savePresetScripts, patchGlobalScripts } from './scripts.js';
 import { ScriptRuntime } from './script-runtime.js';
 import { validateExtensionPrompt } from './script-prompts.js';
@@ -105,6 +105,7 @@ let panelRevision = 0;
 let preview = null;
 let streamFrame = 0;
 let inlineEdit = null;
+let resolvingMessageEdit = false;
 const sessionKeys = new Map();
 let profileStore = { version: 1, activeId: '', profiles: [] };
 const copy = value => structuredClone(value);
@@ -244,9 +245,60 @@ function cancelMessageEdit() {
     inlineEdit = null;
     if (index >= 0) list.update(index);
 }
-installMessageEditDismiss(document, cancelMessageEdit);
-function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); cancelMessageEdit(); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
-function assertSaved() { assertIdle(); cancelMessageEdit(); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
+async function saveMessageEdit(message) {
+    assertIdle();
+    if (state.dirty) throw new Error('请先重试保存当前聊天。');
+    const index = state.chat.indexOf(message);
+    if (index < 0 || inlineEdit?.message !== message) throw new Error('消息已变化，请重新打开编辑。');
+    message.mes = regexText(inlineEdit.text, message.is_user ? 1 : 2, { edit: true, depth: state.chat.length - index - 1 });
+    invalidateDatabases(state.chat, index);
+    if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.mes;
+    cancelMessageEdit();
+    await saveChat();
+}
+
+async function resolveMessageEdit() {
+    if (resolvingMessageEdit) return false;
+    const edit = inlineEdit;
+    if (!edit) return true;
+    if (edit.text === edit.originalText) {
+        cancelMessageEdit();
+        return true;
+    }
+
+    resolvingMessageEdit = true;
+    try {
+        const dialog = $('message-edit-confirmation');
+        dialog.returnValue = '';
+        const closed = new Promise(resolve => dialog.addEventListener('close', resolve, { once: true }));
+        dialog.showModal();
+        await closed;
+        if (inlineEdit !== edit) return false;
+        if (dialog.returnValue === 'save') {
+            await saveMessageEdit(edit.message);
+        } else if (dialog.returnValue === 'discard') {
+            cancelMessageEdit();
+        } else {
+            document.querySelector('.inline-editor textarea')?.focus({ preventScroll: true });
+            return false;
+        }
+        return true;
+    } finally {
+        resolvingMessageEdit = false;
+    }
+}
+
+function afterMessageEdit(callback) {
+    return run(async () => { if (await resolveMessageEdit()) return callback(); });
+}
+
+installMessageEditGuard(document, () => !!inlineEdit || resolvingMessageEdit, afterMessageEdit);
+
+function assertMessageEditClosed(ErrorType = Error) {
+    if (inlineEdit || resolvingMessageEdit) throw new ErrorType('请先处理聊天记录中尚未保存的修改。');
+}
+function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); assertMessageEditClosed(); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
+function assertSaved() { assertIdle(); assertMessageEditClosed(); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
     settings.extension_settings ||= {};
     const own = settings.independent_frontend = settings.extension_settings.independent_frontend ||= settings.independent_frontend || {};
@@ -336,6 +388,11 @@ function messageNumber(message, index, tokens = '-') {
     }
     return text;
 }
+function messageAtNode(node) {
+    const current = state.chat[Number(node.dataset.index)];
+    if (node.isConnected && node._message === current) return current;
+}
+
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
     const names = { user: persona().name, char: state.character?.name || 'Assistant' };
@@ -349,12 +406,11 @@ function renderMessage(message, index, existing) {
             const bottom = el('div', 'message-jumps message-jumps-bottom'); bottom.append(action('回到本条顶部', () => node.scrollIntoView({block:'start',behavior:'instant'}), 'up')); node.append(top, bottom);
             let touch;
             node.addEventListener('touchstart', event => { if (event.target.closest('button,input,textarea,pre,iframe')) return; const t=event.touches[0]; touch={x:t.clientX,y:t.clientY}; }, {passive:true});
-            node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy) return; void run(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0 && index !== 0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
+            node.addEventListener('touchend', event => { if (!touch) return; const t=event.changedTouches[0], dx=t.clientX-touch.x, dy=t.clientY-touch.y; touch=null; if (Math.abs(dx)<65 || Math.abs(dx)<Math.abs(dy)*1.5 || index!==state.chat.length-1 || state.busy || event.target.closest('.inline-editor')) return; void afterMessageEdit(async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const message=state.chat[index]; const current=Number(message.swipe_id)||0; const next=current+(dx<0?1:-1); if (next<0) return; if (next>=(message.swipes?.length||1)) { if(dx<0 && index !== 0) await generate(true); return; } message.swipe_id=next; message.mes=message.swipes[next]; if(message.swipe_info?.[next]) Object.assign(message,copy(message.swipe_info[next])); invalidateDatabases(state.chat,index); list.update(index); await saveChat(); }); }, {passive:true});
         }
         const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop);
         node.prepend(header);
         const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
-        installMessageEdit(node, () => beginMessageEdit(node._message));
     }
     let switches = node.querySelector('.message-swipe-buttons');
     if (!message.is_user && index === state.chat.length - 1) {
@@ -390,13 +446,7 @@ function renderMessage(message, index, existing) {
             const text = el('textarea'); text.value = inlineEdit.text; text.rows = 8; text.setAttribute('aria-label', `修改第 ${index} 楼消息`);
             text.addEventListener('input', () => { inlineEdit.text = text.value; });
             const buttons = el('div', 'inline-edit-buttons');
-            buttons.append(action('保存', async () => {
-                assertIdle(); if (state.dirty) throw new Error('请先重试保存当前聊天。');
-                message.mes = regexText(inlineEdit.text, message.is_user ? 1 : 2, { edit: true, depth: state.chat.length - index - 1 });
-                invalidateDatabases(state.chat, index);
-                if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.mes;
-                inlineEdit = null; list.update(index); await saveChat();
-            }, undefined, 'primary'), action('取消', cancelMessageEdit), action('删除', () => deleteEditedMessage(message), undefined, 'danger'));
+            buttons.append(action('保存', () => saveMessageEdit(message), undefined, 'primary'), action('取消', cancelMessageEdit), action('删除', () => deleteEditedMessage(message), undefined, 'danger'));
             editor.append(text, buttons); node.append(editor);
         }
         node.querySelector('.message-content').hidden = true;
@@ -448,7 +498,7 @@ function renderMessage(message, index, existing) {
                 return (await helperHostAction('set-messages', { messages: patches }, previewIdentity, previewCheck))?.value;
             },
             getAvatars: previewAvatar ? () => previewAvatars ||= roleAvatars.run(previewAvatar, { operation: 'list' }) : undefined,
-            edit: () => beginMessageEdit(message), send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
+            edit: () => { const current = messageAtNode(node); if (current) return beginMessageEdit(current); }, send: text => run(async () => { assertSaved(); if ($('message-input').value.trim()) throw new Error('请先发送或清空输入框中的内容。'); $('message-input').value = text; resizeInput(); await generate(false); }) });
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;
@@ -462,6 +512,7 @@ const list = new VirtualChat($('message-list'), renderMessage, range => {
     const viewportLast = list.locate(list.element.scrollTop + list.element.clientHeight);
     $('back-latest').hidden = !state.character || range.total <= 2 || viewportLast >= range.total - 2;
 });
+installMessageEdit(list.element, messageAtNode, beginMessageEdit);
 $('back-latest').addEventListener('click', () => list.jump(state.chat.length - 1, true));
 function welcome() {
     list.setMessages([], { reset: true });
@@ -632,7 +683,7 @@ function disposePanelWork() {
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
-    cancelMessageEdit();
+    assertMessageEditClosed();
     if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
     if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
     if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
@@ -2404,7 +2455,7 @@ function assertDatabaseWritable() {
     if (state.historySaving) throw new DatabaseWriteError('正在保存聊天记录，请稍候。');
     if (state.databaseHistorySaving) throw new DatabaseWriteError('正在保存历史总结删除，请稍候。');
     if (state.loading) throw new DatabaseWriteError('正在切换聊天，请稍候。');
-    cancelMessageEdit();
+    assertMessageEditClosed(DatabaseWriteError);
     if (state.dirty && !state.busy) throw new DatabaseWriteError('当前聊天尚未保存，请先重试保存。');
 }
 function databaseWriteGuard(index, { allowReload = false } = {}) {
@@ -3043,11 +3094,12 @@ async function generate(mode = false, recovery = null) {
 }
 
 function beginMessageEdit(message) {
-    return run(() => {
-        if (inlineEdit?.message === message) return;
+    if (inlineEdit?.message === message) return;
+    return afterMessageEdit(() => {
         assertSaved(); const index = state.chat.indexOf(message); if (index < 0) return;
-        inlineEdit = { message, text: message.mes }; list.update(index);
-        document.querySelector('.inline-editor textarea')?.focus();
+        const originalText = String(message.mes ?? '').replace(/\r\n?/g, '\n');
+        inlineEdit = { message, text: originalText, originalText }; list.update(index);
+        list.nodes.get(index)?.querySelector('.inline-editor textarea')?.focus();
     });
 }
 async function deleteEditedMessage(message) {
@@ -3219,7 +3271,9 @@ quickRepliesToggle.addEventListener('click', () => {
 });
 document.addEventListener('click', event => { if (!quickReplies.contains(event.target) && !quickRepliesToggle.contains(event.target)) closeQuickReplies(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
-for (const [label, glyph, callback] of [['最近请求记录', 'history', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle') })], ['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['聊天记录管理', 'history', chatHistoryPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+for (const [label, glyph, callback] of [
+    ['刷新页面', 'refresh', () => { assertIdle(); window.location.reload(); }],
+    ['最近请求记录', 'history', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle') })], ['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['聊天记录管理', 'history', chatHistoryPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
@@ -3231,7 +3285,7 @@ $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
-$('composer').addEventListener('submit', event => { event.preventDefault(); void run(() => generate(false)); });
+$('composer').addEventListener('submit', event => { event.preventDefault(); void afterMessageEdit(() => generate(false)); });
 composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
@@ -3241,7 +3295,7 @@ $('message-input').addEventListener('input', resizeInput);
 $('message-input').addEventListener('focus', preloadNextGeneration);
 $('message-input').addEventListener('input', preloadNextGeneration);
 $('message-input').addEventListener('keydown', event => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && state.own.enterSend !== false && matchMedia('(hover:hover) and (pointer:fine)').matches) { event.preventDefault(); void run(() => generate(false)); }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && state.own.enterSend !== false && matchMedia('(hover:hover) and (pointer:fine)').matches) { event.preventDefault(); $('composer').requestSubmit(); }
 });
 $('stop-button').addEventListener('click', () => state.controller?.abort(new DOMException('user-stop', 'AbortError')));
 

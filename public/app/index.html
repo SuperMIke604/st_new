@@ -43,6 +43,16 @@
     <header class="panel-header"><div><small id="panel-kicker">工作空间</small><h1 id="panel-title"></h1></div><button id="close-panel" class="icon-button" aria-label="关闭面板"></button></header>
     <div id="panel-body"></div>
   </dialog>
+  <dialog id="message-edit-confirmation" role="alertdialog" aria-labelledby="message-edit-confirmation-title">
+    <form method="dialog">
+      <h2 id="message-edit-confirmation-title">保存对聊天记录的修改？</h2>
+      <div class="message-edit-confirmation-actions">
+        <button class="button" value="continue" autofocus>继续编辑</button>
+        <button class="button danger" value="discard">放弃修改</button>
+        <button class="button primary" value="save">保存</button>
+      </div>
+    </form>
+  </dialog>
   <div id="notification" aria-label="操作提示" hidden></div>
   <noscript>请启用 JavaScript 后使用此页面。</noscript>
 </body>

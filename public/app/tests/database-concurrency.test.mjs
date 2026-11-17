@@ -18,7 +18,7 @@ function fixture() {
     const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [];
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
-    const context = vm.createContext({ state, requestLog: new RequestLog(), cancelMessageEdit() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
+    const context = vm.createContext({ state, requestLog: new RequestLog(), assertMessageEditClosed() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
         sourceHash, storeDatabase, findDatabaseSnapshot, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: (_config, _preset, messages) => ({ messages }), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
