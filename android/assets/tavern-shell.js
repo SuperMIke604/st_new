@@ -3,8 +3,13 @@
         const chunkSize = 48 * 1024;
         let exporting = false;
         let reply;
-        port.onmessage = event => {
-            if (reply) reply(event.data === 'export-ok');
+        port.onmessage = ({ data }) => {
+            if (data.startsWith('download:')) {
+                const { url, name } = JSON.parse(data.slice('download:'.length));
+                void exportFile(url, name);
+            } else if (reply) {
+                reply(data === 'export-ok');
+            }
         };
 
         function send(message) {
@@ -24,11 +29,14 @@
         }
 
         async function exportFile(url, name) {
-            if (exporting) return;
+            if (exporting) {
+                port.postMessage('export-busy');
+                return;
+            }
             exporting = true;
             try {
                 // Start reading before the page revokes the Blob URL.
-                const response = await fetch(url, { mode: 'same-origin' });
+                const response = await fetch(url, { mode: 'same-origin', redirect: 'error' });
                 if (!response.ok) throw new Error('Download failed');
                 const blob = await response.blob();
                 if (!await send('export-start:' + JSON.stringify({ name, type: blob.type, size: blob.size }))) return;
@@ -45,17 +53,31 @@
             }
         }
 
+        const downloadSelector = 'a[download][href]';
+        const anchor = HTMLAnchorElement.prototype;
+        const click = anchor.click;
+        function clickDownload() {
+            // A detached anchor does not bubble its click through the document.
+            if (!this.isConnected && this.matches(downloadSelector)) {
+                void exportFile(this.href, this.download);
+            } else {
+                click.call(this);
+            }
+        }
+        anchor.click = clickDownload;
+
         function onDownload(event) {
             if (event.defaultPrevented || !(event.target instanceof Element)) return;
-            const link = event.target.closest('a[download][href]');
+            const link = event.target.closest(downloadSelector);
             if (!link) return;
-            const url = new URL(link.href, location.href);
-            if (url.protocol !== 'data:' && url.origin !== location.origin) return;
             event.preventDefault();
-            void exportFile(url.href, link.download);
+            void exportFile(link.href, link.download);
         }
         document.addEventListener('click', onDownload, true);
-        window.addEventListener('pagehide', () => document.removeEventListener('click', onDownload, true), { once: true });
+        window.addEventListener('pagehide', () => {
+            document.removeEventListener('click', onDownload, true);
+            if (anchor.click === clickDownload) anchor.click = click;
+        }, { once: true });
     }
 
     window.addEventListener('message', function connect(event) {

@@ -54,7 +54,10 @@ final class FileExports {
     void onMessage(WebMessagePort port, String message) {
         boolean ok = false;
         try {
-            if (message.startsWith(START)) {
+            if ("export-busy".equals(message)) {
+                showToast("请先完成当前导出。");
+                return;
+            } else if (message.startsWith(START)) {
                 if (stagedFile != null || saving) {
                     showToast("请先完成当前导出。");
                 } else {

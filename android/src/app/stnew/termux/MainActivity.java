@@ -29,6 +29,7 @@ import android.webkit.WebMessagePort;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.ValueCallback;
+import android.webkit.URLUtil;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -37,6 +38,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -91,7 +93,7 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(new TavernClient());
         webView.setWebChromeClient(new TavernChromeClient());
         webView.setDownloadListener((url, userAgent, disposition, mimeType, size) ->
-                Toast.makeText(this, "无法在 APK 中保存此下载链接。", Toast.LENGTH_SHORT).show());
+                downloadFile(url, disposition, mimeType));
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         errorPanel = new LinearLayout(this);
@@ -218,6 +220,17 @@ public final class MainActivity extends Activity {
             shellPort.close();
             shellPort = null;
         }
+    }
+
+    private void downloadFile(String url, String disposition, String mimeType) {
+        String resource = url.startsWith("blob:") ? url.substring("blob:".length()) : url;
+        if (shellPort == null || (!url.startsWith("data:") && !isTavern(Uri.parse(resource)))) {
+            Toast.makeText(this, "无法在 APK 中保存此下载链接。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String filename = URLUtil.guessFileName(url, disposition, mimeType);
+        shellPort.postMessage(new WebMessage("download:{\"url\":" + JSONObject.quote(url)
+                + ",\"name\":" + JSONObject.quote(filename) + "}"));
     }
 
     private void checkApkUpdate() {
