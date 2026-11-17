@@ -1,5 +1,5 @@
 import { databaseSettings, databaseForChat, referenceDatabaseText, sheetText } from './database.js';
-import { prepareDatabaseInjection } from './database-injection.js';
+import { databaseKeywordOrder, prepareDatabaseInjection } from './database-injection.js';
 
 export function prepareDatabaseResources(chat, header, config) {
     const settings = databaseSettings(config);
@@ -11,13 +11,28 @@ export function prepareDatabaseResources(chat, header, config) {
     for (const key of keys) databaseMacros[key] = database[key] ? sheetText(database, key, settings.summaryTableMaxEntries || 10) : '';
     if (!filter) return { databaseText: settings.inject ? tabledata : '', databaseMacros };
     return currentChat => {
-        const selected = filter(currentChat);
-        const databaseText = settings.inject && Object.keys(selected).some(key => key.startsWith('sheet_')) ? referenceDatabaseText(selected, settings) : '';
-        const selectedMacros = { ...databaseMacros };
-        for (const key of keys) {
-            if (selected[key] !== database[key]) selectedMacros[key] = sheetText(selected, key, settings.summaryTableMaxEntries || 10);
-        }
-        return { databaseText, databaseMacros: selectedMacros };
+        const matches = filter(currentChat);
+        const render = counts => {
+            const selected = { ...database }, selectedMacros = { ...databaseMacros };
+            const databaseKeywordRows = matches.map(({ key, table, matched, rows }) => {
+                const accepted = counts ? (counts.get(key) ?? 0) : rows.length;
+                if (accepted) selected[key] = { ...table, content: [table.content[0], ...rows.slice(0, accepted).map(({ row }) => row)] };
+                else delete selected[key];
+                selectedMacros[key] = sheetText(selected, key, settings.summaryTableMaxEntries || 10);
+                return { key, name: table.name || key, matched, limited: rows.length, sent: accepted };
+            });
+            const databaseText = settings.inject && Object.keys(selected).some(key => key.startsWith('sheet_')) ? referenceDatabaseText(selected, settings) : '';
+            return { databaseText, databaseMacros: selectedMacros, databaseKeywordRows, databaseAutomatic: !!settings.inject };
+        };
+        const budget = settings.keywordInjectionTokens;
+        return { ...render(), databaseKeywordBudget: budget, selectDatabaseKeywords(usage) {
+            const order = databaseKeywordOrder(usage === 'automatic' ? matches : matches.filter(table => usage.includes(table.key)));
+            return { length: order.length, render(limit) {
+                const counts = new Map();
+                for (const key of order.slice(0, limit)) counts.set(key, (counts.get(key) || 0) + 1);
+                return render(counts);
+            } };
+        } };
     };
 }
 

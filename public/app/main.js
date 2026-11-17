@@ -2972,8 +2972,10 @@ async function generate(mode = false, recovery = null) {
         state.generation.reply = reply;
         if (prepared) preview = prepared;
         const controller = state.controller;
+        const keywordPrompt = requestLog.enabled && prepared?.databaseKeywordRows?.length ? JSON.stringify(body.messages) : null;
         const fetchReply = async (request, signal) => {
-            finishRequest = requestLog.start('chat', request, signal, api);
+            const keywordRows = keywordPrompt && JSON.stringify(request.messages) === keywordPrompt ? prepared.databaseKeywordRows : undefined;
+            finishRequest = requestLog.start('chat', request, signal, api, keywordRows);
             const base = api.chatBase;
             if (usesBackgroundGeneration() && base?.avatar === state.character.avatar && base.file === state.file) {
                 const job = {

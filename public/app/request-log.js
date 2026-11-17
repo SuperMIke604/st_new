@@ -31,13 +31,14 @@ export class RequestLog extends EventTarget {
         this.dispatchEvent(new Event('change'));
     }
 
-    start(source, body, signal, api) {
+    start(source, body, signal, api, keywordRows) {
         if (!this.enabled || signal?.aborted || !Array.isArray(body.messages)) return;
         let messages;
         try { messages = structuredClone(body.messages); } catch { return; }
         const id = ++this.#sequence;
         const processing = body.custom_prompt_post_processing ? 'pending' : 'none';
         const entry = { id, source, model: body.model, stream: body.stream === true, time: new Date(), messages, status: 'pending', processing };
+        if (keywordRows?.length) entry.keywordRows = structuredClone(keywordRows);
         this.#entries.unshift(entry);
         if (this.#entries.length > REQUEST_LOG_LIMIT) this.#entries.pop();
         this.dispatchEvent(new Event('change'));
@@ -158,6 +159,10 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
                     return;
                 }
                 if (entry.processing === 'unavailable') content.append(el('p', 'note', '无法读取后处理结果。以下是提交给 SillyTavern 的原始消息。'));
+                if (entry.keywordRows?.length) {
+                    const rows = entry.keywordRows.map(({ name, matched, limited, sent }) => `${name} · 命中 ${matched} 条 · 行数上限后 ${limited} 条 · 随请求提交 ${sent} 条`);
+                    content.append(disclosure('资料库关键词注入', parent => renderText(parent, rows.join('\n'))).details);
+                }
                 content.append(action('复制全部提示词', () => copyText(JSON.stringify(entry.messages, null, 2)), 'copy'));
                 messages = el('div', 'request-log-messages');
                 for (const [index, group] of groupAdjacentMessages(entry.messages).entries()) {

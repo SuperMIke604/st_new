@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GenerationPreload, generationDatabaseResources, prepareDatabaseResources } from '../generation-preload.js';
 import { databaseSettings, defaultDatabase, fillMessages } from '../database.js';
+import { fitPrompt } from '../engine.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 
@@ -97,6 +98,38 @@ test('blocked keywords only suppress their own trigger in the selected chat and 
     assert.match(cache.get([{ mes: '周老师和Zhao', is_user: true }], header, config).databaseText, /record-sheet_0/);
     delete metadata.blockedKeywords;
     assert.match(cache.get(chat, header, config).databaseText, /record-sheet_0/);
+});
+
+test('keyword budget ranks within each table, reserves high priority current hits and reports the final macro rows', async () => {
+    const template = {
+        mate: { type: 'chatSheets' },
+        sheet_0: { name: '过往事件', injection: { mode: 'keyword', columns: [1], priority: 'low', maxRows: 3 }, content: [
+            [null, '参与者', '内容'], [null, '陈澄、周凛', 'row-multi-old'], [null, '陈澄、周凛', 'row-multi-new'],
+            [null, '陈澄', 'row-single'], [null, '赵月、王平、李强', 'row-history'],
+        ] },
+        sheet_1: { name: '重要角色', injection: { mode: 'keyword', columns: [1], priority: 'high' }, content: [
+            [null, '姓名', '身份'], [null, '陈澄', 'row-character'],
+        ] },
+        sheet_2: { name: '物品', injection: { mode: 'keyword', columns: [1] }, content: [
+            [null, '相关人物', '名称'], [null, '陈澄', 'row-item'],
+        ] },
+    };
+    const chat = [{ mes: '赵月、王平、李强' }, { is_user: true, mes: '陈澄问周凛，陈澄再次开口。' }];
+    const config = { template, inject: true, keywordInjectionTokens: 2 };
+    const resources = generationDatabaseResources(chat, {}, config);
+    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-new') < resources.databaseMacros.sheet_0.indexOf('row-multi-old'));
+    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-old') < resources.databaseMacros.sheet_0.indexOf('row-single'));
+    assert.doesNotMatch(resources.databaseMacros.sheet_0, /row-history/);
+    assert.match(resources.databaseMacros.tabledata, /row-history/);
+    // Charge one unit per record, including repeated macros, using the same final-prompt path as the tokenizer.
+    const count = async messages => messages.map(message => message.content).join('\n').match(/row-[a-z-]+/g)?.length ?? 0;
+    const input = { character: { name: '角色' }, chat, preset: {}, settings: {}, ...resources };
+    const automatic = await fitPrompt(input, count);
+    assert.deepEqual(automatic.databaseKeywordRows.map(row => [row.matched, row.limited, row.sent]), [[4, 3, 0], [1, 1, 1], [1, 1, 1]]);
+    const explicit = await fitPrompt({ ...input, preset: { prompts: [{ identifier: 'main', role: 'system', content: '{{sheet_0}}\n{{sheet_0}}' }] } }, count);
+    assert.deepEqual(explicit.databaseKeywordRows.map(row => [row.key, row.sent]), [['sheet_0', 1]]);
+    assert.equal(await count(explicit.messages), 2);
+    assert.match(explicit.messages.map(message => message.content).join('\n'), /row-multi-new/);
 });
 
 test('table macros use archived fallback and refresh when the archive is removed', () => {

@@ -39,7 +39,7 @@ export function databaseSettings(value = {}) {
     settings.databaseSummaryPreset = presets.some(preset => preset.id === source.databaseSummaryPreset) ? source.databaseSummaryPreset : (presets.find(preset => preset.id === 'database-summary') || presets[0]).id;
     settings.databaseSummaryAuto = !!source.databaseSummaryAuto;
     settings.databaseSummaryTable = String(source.databaseSummaryTable || '');
-    for (const [key, fallback, min] of [['databaseSummaryTokens', 0, 0], ['databaseSummaryRows', 0, 0], ['autoUpdateFrequency', 0, 0], ['updateBatchSize', 1, 1]]) {
+    for (const [key, fallback, min] of [['databaseSummaryTokens', 0, 0], ['databaseSummaryRows', 0, 0], ['keywordInjectionTokens', 0, 0], ['autoUpdateFrequency', 0, 0], ['updateBatchSize', 1, 1]]) {
         const number = Number(source[key] ?? fallback);
         if (!Number.isSafeInteger(number) || number < min) throw new Error(`数据库设置 ${key} 超出范围。`);
         settings[key] = number;

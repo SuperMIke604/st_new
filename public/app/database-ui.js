@@ -12,7 +12,7 @@ export function renderDatabasePanel(body, context) {
     let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
     const promptSizes = [];
-    const statusFields = ['inject','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
+    const statusFields = ['inject','keywordInjectionTokens','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
     const overviewDraft = { pending: new Set() };
@@ -204,6 +204,19 @@ export function renderDatabasePanel(body, context) {
                         if (value === databaseInjection(table).depth) return;
                         remember(); setInjection({ depth: value }); dirty(kind);
                     });
+                    const maxRows = field(editor, '最大注入行数', injection.maxRows || '', { type: 'number', hint: '留空或填 0 表示不限。' });
+                    maxRows.min = 0; maxRows.step = 1;
+                    maxRows.addEventListener('change', () => {
+                        const value = maxRows.valueAsNumber;
+                        const limit = Number.isSafeInteger(value) && value > 0 ? value : 0;
+                        maxRows.value = limit || '';
+                        if (limit === databaseInjection(table).maxRows) return;
+                        remember(); setInjection({ maxRows: limit }); dirty(kind);
+                    });
+                    const priority = field(editor, '注入优先级', injection.priority, {
+                        options: [['high', '高'], ['normal', '普通'], ['low', '低']], hint: '多张表共用 Token 上限时，按优先级分配。',
+                    });
+                    priority.addEventListener('change', () => { remember(); setInjection({ priority: priority.value }); dirty(kind); });
                     const sources = el('section');
                     const sourcesHeading = el('h2', '', '关键词来源列');
                     sourcesHeading.id = 'database-keyword-columns';
@@ -415,6 +428,7 @@ export function renderDatabasePanel(body, context) {
         const card=(title,description)=>{const section=el('section','dm-status-card dm-summary-card');section.append(el('h2','',title),el('p','note',description));grid.append(section);return section;};
         const bindPreset=(parent,label,key)=>{const control=field(parent,label,settings[key],{options:settings.presets.map(preset=>[preset.id,preset.name])});control.addEventListener('change',()=>{settings[key]=control.value;dirty('settings');});};
         const setting=(parent,key,label,type='number',min=0)=>{const control=field(parent,label,settings[key]??'',{type});if(type==='number'){control.min=min;control.step=1;}control.addEventListener('input',()=>{settings[key]=type==='number'?Number(control.value):control.value;dirty('settings');});return control;};
+        setting(status, 'keywordInjectionTokens', '资料库关键词注入 Token 上限（0 为不限）');
         const run=async callback=>{if(dataDirty)throw Error('请先保存数据');if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
         const message=card('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');
         bindPreset(message,'消息总结预设','messageSummaryPreset');check(message,'自动总结消息','auto');
