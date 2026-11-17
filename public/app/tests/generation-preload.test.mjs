@@ -125,6 +125,31 @@ test('Chinese keyword matches are selected by relevance and emitted in original 
     assert.match(resources.databaseMacros.tabledata, /blocked-hit/);
 });
 
+test('an enabled source column links exact keywords in other tables for one hop', () => {
+    const template = {
+        mate: { type: 'chatSheets' },
+        sheet_0: { name: '地点', injection: { mode: 'keyword', columns: [1], linkEnabled: true, linkColumn: 2 }, content: [
+            [null, '地点', '相关角色'], [null, '旧港仓库', '周凛、李微'], [null, '周凛', 'same-table'],
+        ] },
+        sheet_1: { name: '人物', injection: { mode: 'keyword', columns: [1], linkEnabled: true, linkColumn: 2 }, content: [
+            [null, '姓名', '相关物品'], [null, '周凛', '银钥匙'], [null, '周凛然', 'near-name'], [null, '李微', 'blocked-person'],
+        ] },
+        sheet_2: { name: '物品', injection: { mode: 'keyword', columns: [1] }, content: [
+            [null, '物品', '信息'], [null, '银钥匙', 'second-hop'],
+        ] },
+    };
+    const header = { chat_metadata: { independentDatabase: { blockedKeywords: { sheet_1: ['李微'] } } } };
+    const send = mes => generationDatabaseResources([{ mes, is_user: true }], header, { template, inject: true });
+    const { databaseText, databaseMacros, databaseKeywordRows } = send('去旧港');
+    assert.match(databaseMacros.sheet_1, /周凛/);
+    assert.doesNotMatch(databaseText, /same-table|near-name|blocked-person|second-hop/);
+    assert.equal(databaseMacros.sheet_2, '');
+    assert.equal(databaseKeywordRows.find(row => row.key === 'sheet_1').matched, 1);
+    assert.equal(send('去旧港找周凛').databaseMacros.sheet_1.match(/姓名: 周凛\n/g)?.length, 1);
+    template.sheet_0.injection.linkEnabled = false;
+    assert.equal(send('去旧港').databaseMacros.sheet_1, '');
+});
+
 test('keyword budget ranks within each table, reserves high priority current hits and reports the final macro rows', async () => {
     const template = {
         mate: { type: 'chatSheets' },

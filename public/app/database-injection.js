@@ -7,6 +7,8 @@ export function databaseInjection(table) {
         depth: Number.isInteger(depth) && depth >= 0 && depth <= 1000 ? depth : 2,
         maxRows: Number.isSafeInteger(config?.maxRows) && config.maxRows > 0 ? config.maxRows : 0,
         priority: ['high', 'normal', 'low'].includes(config?.priority) ? config.priority : 'normal',
+        linkEnabled: config?.linkEnabled === true,
+        linkColumn: Number.isInteger(config?.linkColumn) && config.linkColumn > 0 && config.linkColumn < width ? config.linkColumn : 0,
         columns: [...new Set(Array.isArray(config?.columns) ? config.columns.filter(column => Number.isInteger(column) && column > 0 && column < width) : [])],
     };
 }
@@ -56,14 +58,16 @@ export function prepareDatabaseInjection(database, template, header) {
         const sameTable = templateHeaders && (candidate.name === table.name ||
             (headers.length === templateHeaders.length && headers.every((header, index) => header === templateHeaders[index])));
         const source = sameTable && candidate.injection ? candidate : table;
-        const { mode, depth, columns, maxRows, priority } = databaseInjection(source);
+        const { mode, depth, columns, maxRows, priority, linkEnabled, linkColumn } = databaseInjection(source);
         if (mode !== 'keyword') continue;
         const sourceHeaders = source.content[0];
-        const snapshotColumns = columns.map(column => {
+        const resolveColumn = column => {
             if (headers[column] === sourceHeaders[column]) return column;
             const matches = headers.flatMap((header, index) => index > 0 && header === sourceHeaders[column] ? [index] : []);
             return matches.length === 1 ? matches[0] : -1;
-        }).filter(column => column > 0);
+        };
+        const snapshotColumns = columns.map(resolveColumn).filter(column => column > 0);
+        const linkedColumn = linkEnabled && linkColumn ? resolveColumn(linkColumn) : 0;
         const blocked = new Set(databaseBlockedKeywords(header, key).map(word => word.toLowerCase()));
         const keywordRuns = new Map();
         const rows = table.content.slice(1).map(row => {
@@ -74,14 +78,14 @@ export function prepareDatabaseInjection(database, template, header) {
             }
             return { row, keywords };
         });
-        rules.push({ key, table, depth, rows, keywordRuns, maxRows, priority });
+        rules.push({ key, table, depth, rows, keywordRuns, maxRows, priority, linkedColumn });
     }
 
     if (!rules.length) return null;
     return chat => {
         const scanText = new Map();
         const lastIsUser = !!chat.at(-1)?.is_user;
-        return rules.map(({ key, table, depth, rows, keywordRuns, maxRows, priority }) => {
+        const direct = rules.map(({ depth, rows, keywordRuns }) => {
             if (!scanText.has(depth)) {
                 const text = depth ? chat.slice(-depth).map(message => String(message.mes ?? '').toLowerCase()) : [];
                 scanText.set(depth, text);
@@ -103,7 +107,7 @@ export function prepareDatabaseInjection(database, template, header) {
                 scores.set(word, hit);
                 return hit;
             };
-            const matched = rows.flatMap(({ row, keywords }, index) => {
+            return rows.flatMap(({ row, keywords }, index) => {
                 let current = false, currentExact = 0, exact = 0, hits = 0, length = 0;
                 for (const word of keywords) {
                     const hit = score(word);
@@ -117,7 +121,32 @@ export function prepareDatabaseInjection(database, template, header) {
                 return hits ? [{ row, index, current, currentExact, exact, hits, length }] : [];
             }).sort((a, b) => Number(b.current) - Number(a.current) || b.currentExact - a.currentExact ||
                 b.exact - a.exact || b.hits - a.hits || b.length - a.length || b.index - a.index);
-            return { key, table, priority, matched: matched.length, rows: maxRows ? matched.slice(0, maxRows) : matched };
+        });
+        // Only rows matched against chat can supply links. Linked results never feed back into this pass.
+        const links = new Map();
+        rules.forEach(({ key, maxRows, linkedColumn }, index) => {
+            if (linkedColumn < 1) return;
+            for (const { row, current } of direct[index].slice(0, maxRows || undefined)) {
+                for (const term of splitDatabaseKeywords(row[linkedColumn])) {
+                    const word = term.toLowerCase();
+                    if (!links.has(word)) links.set(word, new Map());
+                    const sources = links.get(word);
+                    sources.set(key, sources.get(key) || current);
+                }
+            }
+        });
+        return rules.map(({ key, table, rows, maxRows, priority }, index) => {
+            const matches = direct[index];
+            if (!links.size) return { key, table, priority, matched: matches.length, rows: matches.slice(0, maxRows || undefined) };
+            const seen = new Set(matches.map(row => row.index));
+            const linked = rows.flatMap(({ row, keywords }, rowIndex) => {
+                if (seen.has(rowIndex)) return [];
+                const sources = keywords.flatMap(word => [...(links.get(word) || [])].filter(([source]) => source !== key));
+                return sources.length ? [{ row, index: rowIndex, current: sources.some(([, current]) => current) }] : [];
+            }).sort((a, b) => b.index - a.index);
+            const ordered = [...matches.filter(row => row.current), ...linked.filter(row => row.current),
+                ...matches.filter(row => !row.current), ...linked.filter(row => !row.current)];
+            return { key, table, priority, matched: ordered.length, rows: ordered.slice(0, maxRows || undefined) };
         });
     };
 }

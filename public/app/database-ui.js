@@ -250,9 +250,22 @@ export function renderDatabasePanel(body, context) {
                         });
                     }
                     editor.append(sources);
+                    const linkLabel = el('label', 'check-field'), link = el('input');
+                    link.type = 'checkbox'; link.checked = injection.linkEnabled;
+                    linkLabel.append(link, el('span', '', '启用联动触发')); editor.append(linkLabel);
+                    link.addEventListener('change', () => change(() => setInjection({ linkEnabled: link.checked })));
+                    const linkSource = injection.linkEnabled ? field(editor, '联动来源列', injection.linkColumn, {
+                        options: [[0, '请选择字段'], ...table.content[0].slice(1).map((header, index) => [index + 1, header || `字段 ${index + 1}`])],
+                        hint: '聊天命中该行后，用此列的完整词查找其他关键词表，只联动一跳。',
+                    }) : null;
+                    linkSource?.addEventListener('change', () => { remember(); setInjection({ linkColumn: Number(linkSource.value) }); dirty(kind); });
                     editor.addEventListener('input', event => {
                         const selection = selections.find(item => item.column === Number(event.target.dataset.templateColumn));
-                        if (selection) selection.caption.textContent = event.target.value || `字段 ${selection.column}`;
+                        if (selection) {
+                            const label = event.target.value || `字段 ${selection.column}`;
+                            selection.caption.textContent = label;
+                            if (linkSource) linkSource.options[selection.column].textContent = label;
+                        }
                     });
                 }
                 const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
@@ -268,7 +281,11 @@ export function renderDatabasePanel(body, context) {
                     input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); });
                     const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
                         if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => {
-                            if (table.injection) setInjection({ columns: databaseInjection(table).columns.filter(index => index !== column).map(index => index > column ? index - 1 : index) });
+                            if (table.injection) {
+                                const current = databaseInjection(table);
+                                const shift = index => index === column ? 0 : index > column ? index - 1 : index;
+                                setInjection({ columns: current.columns.map(shift).filter(Boolean), linkColumn: shift(current.linkColumn) });
+                            }
                             for (const dataRow of table.content) dataRow.splice(column, 1);
                         });
                     }, 'danger');
