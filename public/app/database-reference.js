@@ -195,7 +195,7 @@ function dataUpdatePayload(text, allowMissingClose = false) {
     return allowMissingClose ? rest : null;
 }
 
-function parseDataUpdate(aiResponse, diagnostics) {
+function parseDataUpdate(aiResponse, diagnostics, partialTables) {
     if (typeof aiResponse !== 'string') {
         if (diagnostics) diagnostics.result = '模型响应内容不是文本';
         return false;
@@ -260,6 +260,13 @@ function parseDataUpdate(aiResponse, diagnostics) {
     // 格式 B：完整数据替换 — 直接合并/覆盖 sheet_*
     const sheetKeys = Object.keys(data).filter(k => k.startsWith('sheet_'));
     if (sheetKeys.length > 0) {
+        const partial = sheetKeys.find(key => partialTables?.has(key));
+        if (partial) {
+            const reason = `「${currentJsonTableData[partial]?.name || partial}」只提供了最近记录，请用 operations 增量更新，或用 $FULL_TABLES 读取完整表格后再整表替换。`;
+            if (diagnostics) diagnostics.result = reason;
+            showToast(reason, 'error', { reason });
+            return false;
+        }
         sheetKeys.forEach(key => {
             currentJsonTableData[key] = JSON.parse(JSON.stringify(data[key]));
         });
@@ -459,7 +466,7 @@ function formatTableToReadable(tableName, headerRow, rows, startIndex = 0) {
     return sectionLines.join('\n').trim();
 }
 
-function buildTableDataTextForDollar0(jsonTableData, settings) {
+function buildTableDataTextForDollar0(jsonTableData, settings, rowLimits) {
     if (!jsonTableData) {
         // 即使没有表格数据，也返回说明性文本，避免 $0 完全为空
         return { text: '(当前还没有表格数据)', hasData: false };
@@ -491,7 +498,12 @@ function buildTableDataTextForDollar0(jsonTableData, settings) {
         let rowsToProcess = allRows;
         let startIndex = 0;
 
-        if (table.name.trim() === '总结表' && allRows.length > summaryLimit) {
+        const rowLimit = rowLimits?.get(sheetKey);
+        if (rowLimit && allRows.length > rowLimit) {
+            startIndex = allRows.length - rowLimit;
+            rowsToProcess = allRows.slice(startIndex);
+            tableDataText += `  - 仅显示最近 ${rowLimit} 条（共 ${allRows.length} 条）。使用原始行号提交 operations；避免重复新增，也不要整表替换。\n`;
+        } else if (table.name.trim() === '总结表' && allRows.length > summaryLimit) {
             startIndex = allRows.length - summaryLimit;
             rowsToProcess = allRows.slice(-summaryLimit);
             tableDataText += `  - Note: Showing last ${rowsToProcess.length} of ${allRows.length} entries.\n`;
@@ -591,8 +603,8 @@ function _dpPaginationRange(current, total) {
     pages.push(total);
     return pages;
 }
-export function referenceUpdate(text, database, diagnostics) { currentJsonTableData=structuredClone(database);feedback=[];const changed=parseDataUpdate(text, diagnostics);return {data:currentJsonTableData,changed,feedback:structuredClone(feedback)}; }
-export function referenceTableText(database, settings={}) { return buildTableDataTextForDollar0(database,settings); }
+export function referenceUpdate(text, database, diagnostics, partialTables) { currentJsonTableData=structuredClone(database);feedback=[];const changed=parseDataUpdate(text, diagnostics, partialTables);return {data:currentJsonTableData,changed,feedback:structuredClone(feedback)}; }
+export function referenceTableText(database, settings={}, rowLimits) { return buildTableDataTextForDollar0(database,settings,rowLimits); }
 export function referenceSheetText(name,headers,rows,start=0) {return formatTableToReadable(name,headers,rows,start);}
 export function referencePreviewRows(table,state) {_dpState=state;return _dpGetDisplayRows(table);}
 export const referencePagination = _dpPaginationRange;

@@ -144,8 +144,8 @@ export function databaseText(database, includeEmpty = false) {
         return `[${key}] ${table.name || key}\n${lines.join('\n')}`;
     }).join('\n\n');
 }
-export function parseUpdate(text, current, counts, diagnostics) {
-    const result = referenceUpdate(text, current, diagnostics);
+export function parseUpdate(text, current, counts, diagnostics, partialTables) {
+    const result = referenceUpdate(text, current, diagnostics, partialTables);
     if (diagnostics) {
         diagnostics.issues = {};
         for (const item of result.feedback) {
@@ -195,7 +195,11 @@ export function applyOperations(current, operations) {
     }
     return validateDatabase(result);
 }
-export function fillMessages(settings, database, chat, from, to, worldText = '', kind = 'message') {
+export function recentFillRows(table) {
+    return Number.isSafeInteger(table?.fillRecentRows) && table.fillRecentRows > 0 ? table.fillRecentRows : 0;
+}
+
+export function fillMessages(settings, database, chat, from, to, worldText = '', kind = 'message', partialTables) {
     const presetId = kind === 'database' ? settings.databaseSummaryPreset : settings.messageSummaryPreset;
     const preset = settings.presets.find(item => item.id === (presetId || settings.activePreset));
     const messagesText = '当前最新对话内容:\n' + (chat.slice(from,to+1).map(message=>{
@@ -204,8 +208,28 @@ export function fillMessages(settings, database, chat, from, to, worldText = '',
         if(message.is_user && settings.userMessageTags)for(const tag of settings.userMessageTags.split('|').map(tag=>tag.trim()).filter(Boolean))content=`<${tag}>${content}</${tag}>`;
         return `${message.is_user?(settings.userName||'用户'):(message.name||'角色')}: ${content}`;
     }).join('\n') || '(无最新对话内容)');
-    const replacements = { '$0': referenceDatabaseText(database,settings) || '(当前还没有表格数据)', '$1': messagesText, '$4': worldText };
-    return preset.messages.map(message => ({ role: message.role, content: message.content.replace(/\$[014]/g, token => replacements[token]) }));
+    const rowLimits = new Map();
+    const usesFull = preset.messages.some(message => /\$FULL_TABLES\b/.test(message.content));
+    if (kind === 'message' && preset.messages.some(message => message.content.includes('$0'))) {
+        for (const [key, table] of sheets(database)) {
+            const source = preset.template?.[key];
+            const headers = source?.content?.[0];
+            const sameTable = headers && (source.name === table.name ||
+                (headers.length === table.content[0].length && headers.every((header, index) => header === table.content[0][index])));
+            const limit = sameTable && recentFillRows(source);
+            if (limit && table.content.length - 1 > limit) {
+                rowLimits.set(key, limit);
+                if (!usesFull) partialTables?.add(key);
+            }
+        }
+    }
+    const replacements = { '$1': messagesText, '$4': worldText };
+    return preset.messages.map(message => ({ role: message.role, content: message.content.replace(/\$FULL_TABLES\b|\$[014]/g, token => {
+        if (token === '$0' || token === '$FULL_TABLES') {
+            return replacements[token] ??= referenceDatabaseText(database, settings, token === '$0' ? rowLimits : undefined) || '(当前还没有表格数据)';
+        }
+        return replacements[token];
+    }) }));
 }
 
 export function databaseSummaryTriggered(settings, database, tokens = 0) {
@@ -229,4 +253,4 @@ export function sheetText(database, key, summaryLimit = 10) {
  const rows=table.content.slice(1);const start=0;
  return referenceSheetText(table.name,table.content[0].slice(1),rows.slice(start),start);
 }
-export function referenceDatabaseText(database, settings = {}) {return referenceTableText(database,{...settings,summaryTableMaxEntries:Infinity}).text;}
+export function referenceDatabaseText(database, settings = {}, rowLimits) {return referenceTableText(database,{...settings,summaryTableMaxEntries:Infinity},rowLimits).text;}

@@ -2668,7 +2668,8 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
             if (chat[end].is_user) { end = chat.findIndex((message, index) => index >= start && index <= to && !message.is_user); if (end < start) throw new Error('整理范围内没有角色回复。'); }
             const variables = { char: state.character?.name || '', user: persona().name, description: state.character?.data?.description || '', persona: persona().description, tabledata: referenceDatabaseText(result, settings) };
             for (const [key] of Object.entries(result).filter(([key]) => key.startsWith('sheet_'))) variables[key] = sheetText(result, key);
-            const messages = fillMessages({...settings,userName:persona().name}, result, summarizing ? [] : chat, start, end, reference, kind).map(message => ({ ...message, content: expand(message.content, variables) }));
+            const partialTables = new Set();
+            const messages = fillMessages({...settings,userName:persona().name}, result, summarizing ? [] : chat, start, end, reference, kind, partialTables).map(message => ({ ...message, content: expand(message.content, variables) }));
 
             progress.update(summarizing?'正在总结最新数据库…':automatic?'正在总结消息，请稍候…':`正在总结消息，楼层 ${rangeStart}–${rangeEnd}…`);
             log.stage = '请求模型';
@@ -2716,7 +2717,7 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
             if (typeof text === 'string') log.responseChars = text.length;
             log.parser = {};
             progress.update('正在解析并应用数据库更新…');
-            result = parseUpdate(text, result, updateCounts, log.parser);
+            result = parseUpdate(text, result, updateCounts, log.parser, partialTables);
             Object.assign(log, updateCounts);
             start = end + 1; batches++;
         }

@@ -1,5 +1,5 @@
 import { uuid } from './uuid.js';
-import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
+import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings, recentFillRows } from './database.js';
 import { databaseInjection, splitDatabaseKeywords } from './database-injection.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
@@ -189,6 +189,22 @@ export function renderDatabasePanel(body, context) {
                     list.querySelector('[aria-pressed=true] > span').textContent = `${name.value || key}（${table.content[0].length - 1}）`;
                     dirty(kind);
                 });
+                const recent = recentFillRows(table);
+                const fillRange = field(editor, '$0 填表范围', recent ? 'recent' : 'all', {
+                    options: [['all', '全表'], ['recent', '最近 N 条记录']], hint: '用于这份预设执行消息总结时。',
+                });
+                fillRange.addEventListener('change', () => change(() => { table.fillRecentRows = fillRange.value === 'recent' ? 10 : 0; }));
+                if (recent) {
+                    const rows = field(editor, '$0 保留最近记录数', recent, { type: 'number' });
+                    rows.min = 1; rows.step = 1;
+                    rows.addEventListener('change', () => {
+                        const value = rows.valueAsNumber;
+                        const limit = Number.isSafeInteger(value) && value > 0 ? value : recentFillRows(table);
+                        rows.value = limit;
+                        if (limit === recentFillRows(table)) return;
+                        remember(); table.fillRecentRows = limit; dirty(kind);
+                    });
+                }
                 const injection = databaseInjection(table);
                 const setInjection = patch => { table.injection = { ...table.injection, ...databaseInjection(table), ...patch }; };
                 const mode = field(editor, '触发方式', injection.mode, { options: [['constant', '常驻'], ['keyword', '关键词']] });
@@ -354,7 +370,7 @@ export function renderDatabasePanel(body, context) {
         });
         const name = field(content, '预设名称', preset.name); name.addEventListener('input', () => { preset.name = name.value; dirty('settings'); });
         const heading = el('div', 'section-heading'), title = el('div');title.append(el('h2', '', '提示词条目'), el('span', 'item-count', `${preset.messages.length} 个条目`));heading.append(title);toolbarButton(heading, '添加条目', 'plus', () => { const message={role:'user',content:''};preset.messages.push(message);openedPrompts.add(message);dirty('settings');render();content.querySelector('.prompt-item:last-child')?.scrollIntoView({block:'nearest'}); });content.append(heading);
-        note('$0 为当前表格，$1 为选定楼层对话，$4 为可选世界书参考内容。');
+        note('$0 按模板范围提供表格，$FULL_TABLES 读取完整资料库，$1 为选定楼层对话，$4 为可选世界书参考内容。');
         const rows = el('div', 'prompt-list');content.append(rows);
         preset.messages.forEach((message, index) => {
             const section = el('details', 'prompt-item');section.open=openedPrompts.has(message);section.addEventListener('toggle',()=>{if(!section.isConnected)return;if(section.open)openedPrompts.add(message);else openedPrompts.delete(message);});

@@ -158,3 +158,28 @@ test('edited template survives serialized settings and active preset restoration
     assert.equal(restored.template.sheet_0.name, '修改后的模板');
     assert.deepEqual(restored.presets.find(item => item.id === restored.activePreset).template, restored.template);
 });
+
+test('$0 uses the executing preset’s recent rows with original indices and protects unseen rows', () => {
+    const data = defaultDatabase();
+    data.sheet_2.content.push([null, 't0', 'old-event', 'old'], [null, 't1', 'new-event', 'new']);
+    const template = structuredClone(data);
+    template.sheet_2.fillRecentRows = 1;
+    const preset = { id: 'message', messages: [{ role: 'user', content: '$0\n$1' }], template };
+    const settings = databaseSettings({ presets: [preset, { id: 'editing', template: data }], activePreset: 'editing', messageSummaryPreset: 'message' });
+    const partial = new Set();
+    const [prompt] = fillMessages(settings, data, [], 0, 0, '', 'message', partial);
+    assert.doesNotMatch(prompt.content, /old-event/);
+    assert.match(prompt.content, /\[1\] t1\|new-event/);
+    assert.deepEqual([...partial], ['sheet_2']);
+    const update = parseUpdate('{"operations":[{"action":"update","sheet":2,"row":1,"data":{"1":"updated-event"}}]}', data, {}, {}, partial);
+    assert.equal(update.sheet_2.content[1][2], 'old-event');
+    assert.equal(update.sheet_2.content[2][2], 'updated-event');
+    const replace = `<dataUpdate>${JSON.stringify({ sheet_2: { ...data.sheet_2, content: [data.sheet_2.content[0], data.sheet_2.content[2]] } })}</dataUpdate>`;
+    assert.throws(() => parseUpdate(replace, data, {}, {}, partial), /\$FULL_TABLES/);
+    settings.presets[0].messages[0].content = '$FULL_TABLES';
+    const full = new Set();
+    assert.match(fillMessages(settings, data, [], 0, 0, '', 'message', full)[0].content, /old-event/);
+    assert.equal(full.size, 0);
+    assert.equal(parseUpdate(replace, data, {}, {}, full).sheet_2.content.length, 2);
+    assert.match(fillMessages(settings, data, [], 0, 0, '', 'database')[0].content, /old-event/);
+});
