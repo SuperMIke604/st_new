@@ -1,0 +1,366 @@
+/* Two palettes share the rounded card layout. */
+:root[data-palette="lavender-paper"] {
+    --paper: #f3eee4;
+    --surface: #fffdf9;
+    --soft: #eee9f5;
+    --ink: #292341;
+    --muted: #625a70;
+    --line: #ded5df;
+    --green: #523c79;
+    --card-gradient-top: var(--soft);
+    --card-selected: #e9dff1;
+    --card-hover: #42305f;
+    --card-field: #faf8f6;
+    --card-field-border: #95889c;
+    --card-message: var(--surface);
+    --card-user-border: #d6c9e0;
+    --card-quiet-border: #c9becf;
+    --card-dialogue: var(--green);
+    --card-on-accent: #fff;
+}
+
+:root[data-palette="ivory-cards"] {
+    --paper: #f3eee4;
+    --surface: #f8f4ec;
+    --soft: #eae3d6;
+    --ink: #292827;
+    --muted: #6c5c4b;
+    --line: #ded6c9;
+    --green: #805b40;
+    --card-gradient-top: #efe7da;
+    --card-selected: #e7dac6;
+    --card-hover: #6c4932;
+    --card-field: #faf7f0;
+    --card-field-border: #95826f;
+    --card-message: #f3eee5;
+    --card-user-border: #d8cab8;
+    --card-quiet-border: #d1c3b1;
+    --card-dialogue: #75452e;
+    --card-on-accent: #fffaf1;
+}
+
+:root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) {
+    --card-radius: 22px;
+    --card-bar-height: 66px;
+    --control-radius: 12px;
+    background: var(--paper) linear-gradient(180deg, var(--card-gradient-top), var(--paper) 58%)
+        top / 100% 100dvh no-repeat;
+    accent-color: var(--green);
+
+    /* Shared control and component colors. */
+    --ui-tone-23392324: color-mix(in srgb, var(--ink) 14.12%, transparent);
+    --ui-tone-243b2210: color-mix(in srgb, var(--ink) 6.27%, transparent);
+    --ui-tone-263e2626: color-mix(in srgb, var(--ink) 14.90%, transparent);
+    --ui-tone-263e2629: color-mix(in srgb, var(--ink) 16.08%, transparent);
+    --ui-tone-283e2520: color-mix(in srgb, var(--ink) 12.55%, transparent);
+    --ui-tone-29402018: color-mix(in srgb, var(--ink) 9.41%, transparent);
+    --ui-tone-2a482009: color-mix(in srgb, var(--ink) 3.53%, transparent);
+    --ui-tone-2b3b33: var(--ink);
+    --ui-tone-30442e03: color-mix(in srgb, var(--ink) 1.18%, transparent);
+    --ui-tone-30442e25: color-mix(in srgb, var(--ink) 14.51%, transparent);
+    --ui-tone-35573e: var(--card-hover);
+    --ui-tone-365b41: var(--card-hover);
+    --ui-tone-3d6243: var(--green);
+    --ui-tone-3f6545: var(--green);
+    --ui-tone-45623d: var(--green);
+    --ui-tone-47613f: var(--green);
+    --ui-tone-49623d: var(--green);
+    --ui-tone-496c53: var(--green);
+    --ui-tone-527046: var(--green);
+    --ui-tone-52744c: var(--green);
+    --ui-tone-527b51: var(--muted);
+    --ui-tone-536e47: var(--green);
+    --ui-tone-55704a: var(--green);
+    --ui-tone-577e38: var(--green);
+    --ui-tone-63715e: var(--green);
+    --ui-tone-63785b: var(--muted);
+    --ui-tone-6f8063: var(--muted);
+    --ui-tone-748272: var(--muted);
+    --ui-tone-74856a: var(--muted);
+    --ui-tone-75866d: var(--muted);
+    --ui-tone-7a8c72: var(--muted);
+    --ui-tone-7c8d73: var(--muted);
+    --ui-tone-7e8c76: var(--muted);
+    --ui-tone-829078: var(--muted);
+    --ui-tone-839477: var(--muted);
+    --ui-tone-84907d: var(--muted);
+    --ui-tone-849475: var(--muted);
+    --ui-tone-859578: var(--muted);
+    --ui-tone-87967c: var(--muted);
+    --ui-tone-889a78: var(--muted);
+    --ui-tone-899187: var(--muted);
+    --ui-tone-8a987e: var(--muted);
+    --ui-tone-8b9584: var(--muted);
+    --ui-tone-8b9b7b: var(--muted);
+    --ui-tone-8b9e7a: var(--muted);
+    --ui-tone-8ba181: var(--green);
+    --ui-tone-8c9984: var(--muted);
+    --ui-tone-8ca57c: var(--green);
+    --ui-tone-8d9c82: var(--muted);
+    --ui-tone-8da17d: var(--muted);
+    --ui-tone-8ea67f: var(--green);
+    --ui-tone-90a780: var(--muted);
+    --ui-tone-90a7801c: color-mix(in srgb, var(--ink) 10.98%, transparent);
+    --ui-tone-91a082: var(--muted);
+    --ui-tone-91a083: var(--muted);
+    --ui-tone-91a282: var(--muted);
+    --ui-tone-93a084: var(--muted);
+    --ui-tone-93a284: var(--muted);
+    --ui-tone-93a381: var(--muted);
+    --ui-tone-94a087: var(--muted);
+    --ui-tone-98a48e: var(--muted);
+    --ui-tone-98a78b: var(--muted);
+    --ui-tone-99a58d: var(--muted);
+    --ui-tone-9ba68e: var(--muted);
+    --ui-tone-9ba690: var(--muted);
+    --ui-tone-9ca78f: var(--muted);
+    --ui-tone-a0a995: var(--muted);
+    --ui-tone-a0ad93: var(--muted);
+    --ui-tone-a1aa9a: var(--muted);
+    --ui-tone-a2ac9a: var(--muted);
+    --ui-tone-a8b29c: var(--card-quiet-border);
+    --ui-tone-a8b99d: var(--card-quiet-border);
+    --ui-tone-bdcbb6: var(--card-quiet-border);
+    --ui-tone-c9d6bf: var(--line);
+    --ui-tone-cbd9c1: var(--line);
+    --ui-tone-cdd7c5: var(--line);
+    --ui-tone-cedcc3: var(--line);
+    --ui-tone-cfdcc4: var(--line);
+    --ui-tone-d3dccb: var(--line);
+    --ui-tone-d3ddca: var(--line);
+    --ui-tone-d4ddca: var(--line);
+    --ui-tone-d5e2ca: var(--line);
+    --ui-tone-d6e0cd: var(--line);
+    --ui-tone-d8e5cb: var(--line);
+    --ui-tone-dce3d6: var(--line);
+    --ui-tone-dce5d3: var(--card-field-border);
+    --ui-tone-dce6d3: var(--card-selected);
+    --ui-tone-dde5d6: var(--card-selected);
+    --ui-tone-dfe7d6: var(--card-selected);
+    --ui-tone-dfe9d6: var(--card-selected);
+    --ui-tone-e0e7d7: var(--card-selected);
+    --ui-tone-e0e8d8: var(--card-selected);
+    --ui-tone-e1e8d9: var(--card-selected);
+    --ui-tone-e1e8da: var(--card-selected);
+    --ui-tone-e1e9d9: var(--card-selected);
+    --ui-tone-e1ecd7: var(--card-selected);
+    --ui-tone-e2e8db: var(--card-selected);
+    --ui-tone-e3e8dc: var(--card-selected);
+    --ui-tone-e4e9df: var(--card-selected);
+    --ui-tone-e4ebdeee: color-mix(in srgb, var(--soft) 93.33%, transparent);
+    --ui-tone-e4ecdc: var(--card-selected);
+    --ui-tone-e5eddc: var(--card-selected);
+    --ui-tone-e5eddd: var(--soft);
+    --ui-tone-e6eddf: var(--soft);
+    --ui-tone-e7efdf: var(--soft);
+    --ui-tone-e8eee1: var(--soft);
+    --ui-tone-e9eee3: var(--soft);
+    --ui-tone-e9eee4: var(--soft);
+    --ui-tone-edf1e6: var(--soft);
+    --ui-tone-edf1e8: var(--soft);
+    --ui-tone-edf2e8: var(--soft);
+    --ui-tone-edf3e6: var(--soft);
+    --ui-tone-eef2e8: var(--soft);
+    --ui-tone-eef2e9: var(--soft);
+    --ui-tone-f0f4eb: var(--card-field);
+    --ui-tone-f0f5eb: var(--card-field);
+    --ui-tone-f1f4ed: var(--card-field);
+    --ui-tone-f2f4ee: var(--card-field);
+    --ui-tone-f2f5ee: var(--card-field);
+    --ui-tone-f4f8ef: var(--card-field);
+    --ui-tone-f7f8f4: var(--card-field);
+    --ui-tone-f8faf5: var(--surface);
+    --ui-tone-fafbf8: var(--surface);
+    --ui-tone-fafbf8f5: color-mix(in srgb, var(--soft) 96.08%, transparent);
+    --ui-tone-fcfdfb: var(--surface);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) ::selection {
+    background: var(--card-selected);
+    color: var(--ink);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .appbar {
+    height: var(--card-bar-height);
+    background: transparent;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #top-actions {
+    max-width: 930px;
+    min-width: 0;
+    margin-inline: auto;
+    gap: 2px;
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 17px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #top-actions .top-shortcut {
+    border-radius: var(--control-radius);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #top-actions .top-shortcut:is(:hover, [aria-pressed="true"]) {
+    background: var(--soft);
+    color: var(--green);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #top-actions .top-shortcut[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #conversation {
+    top: calc(var(--viewport-top) + var(--card-bar-height));
+    height: calc(var(--viewport-height) - var(--card-bar-height));
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #message-list {
+    --message-gap: 14px;
+    padding-block-start: 6px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message {
+    background-color: var(--card-message);
+    border: 1px solid var(--line);
+    border-radius: var(--card-radius);
+    box-shadow: none;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message.from-user {
+    background-color: var(--soft);
+    border-color: var(--card-user-border);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message-name {
+    padding: 2px 8px;
+    border-radius: 8px;
+    color: var(--green);
+    background: var(--soft);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message.from-user .message-name {
+    background: var(--card-selected);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.message-content, .reading-sample) blockquote {
+    background: var(--card-field);
+    border: 1px solid var(--line);
+    border-inline-start: 3px solid var(--card-field-border);
+    border-radius: 8px 12px 12px 8px;
+    padding: 8px 12px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#composer, .composer-tools, #quick-replies) {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--card-radius);
+    box-shadow: none;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #composer {
+    padding: 7px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #composer #tools-toggle {
+    border-radius: var(--control-radius);
+    background: var(--soft);
+    color: var(--green);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, dialog.request-log-panel) {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    box-shadow: 0 20px 56px color-mix(in srgb, var(--ink) 14.90%, transparent);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .request-log-panel) .panel-header {
+    background: linear-gradient(135deg, var(--soft), var(--surface));
+    border-bottom: 1px solid var(--line);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .request-log-panel) .panel-header .icon-button {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--control-radius);
+    color: var(--green);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.home-character-grid .home-character, .db-sheet, .reading-sample, .select-menu) {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.resource-row, .character-file, .prompt-item, .regex-rule, .folder-row) {
+    border-radius: 14px;
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.editor-footer, .reading-tools-panel .panel-footer) {
+    background: var(--surface);
+    border-color: var(--line);
+}
+
+@media (max-width: 700px) {
+    :root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) {
+        --card-bar-height: 60px;
+        --card-radius: 18px;
+    }
+
+    :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #message-list {
+        --message-gap: 10px;
+        padding-block-start: 4px;
+    }
+
+    :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #panel[open] {
+        top: calc(var(--viewport-top) + var(--card-bar-height)) !important;
+        height: calc(var(--viewport-height) - var(--card-bar-height)) !important;
+        max-height: calc(var(--viewport-height) - var(--card-bar-height)) !important;
+        border-radius: 22px 22px 0 0;
+        border-bottom-width: 0;
+    }
+
+    :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #panel::backdrop {
+        top: calc(var(--viewport-top) + var(--card-bar-height));
+    }
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.message-content, .reading-sample) .dialogue-quote {
+    color: var(--reading-dialogueColor, var(--card-dialogue));
+}
+
+:root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(
+    .field input:not([type=checkbox], [type=radio], [type=range], [type=color], [aria-invalid=true]),
+    .field textarea,
+    .field select,
+    .select-control,
+    .home-character-search,
+    .library-search
+) {
+    background-color: var(--card-field);
+    border-color: var(--card-field-border);
+}
+
+:root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(
+    .field input:not([type=checkbox], [type=radio], [type=range], [type=color], [aria-invalid=true]),
+    .field textarea,
+    .field select,
+    .select-control,
+    .home-character-search,
+    .library-search
+):focus-visible {
+    border-color: var(--green);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) #composer:focus-within {
+    border-color: var(--green);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.button.primary, .send-button):enabled {
+    background: var(--green);
+    color: var(--card-on-accent);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.button.primary, .send-button):enabled:hover {
+    background: var(--card-hover);
+}

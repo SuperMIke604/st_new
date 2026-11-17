@@ -584,7 +584,9 @@ function welcome() {
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
 function applyPalette(palette, persist = false) {
     document.documentElement.dataset.palette = palette;
-    const themeColor = palette === 'claude-day' ? '#f8f8f6'
+    const themeColor = palette === 'lavender-paper' ? '#eee9f5'
+        : palette === 'ivory-cards' ? '#efe7da'
+        : palette === 'claude-day' ? '#f8f8f6'
         : ['paper', 'mist', 'ivory'].includes(palette) ? '#f3eee4' : '#f7f8f4';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
     if (persist) {
@@ -3166,6 +3168,7 @@ function toolsPanel() {
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
     const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [
         ['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色'], ['ivory', '象牙纸白'], ['claude-day', 'Claude 白天'],
+        ['lavender-paper', '雾紫纸色'], ['ivory-cards', '象牙卡片'],
     ] });
     palette.addEventListener('change', () => applyPalette(palette.value));
     const rememberReading = value => {

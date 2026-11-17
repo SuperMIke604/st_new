@@ -481,8 +481,8 @@ dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 [data-palette=ivory] .appbar{border-bottom:1px solid #d8cab8}
 [data-palette=ivory] .message:not(.from-user){background:#F3EEE5}
 svg[data-ivory-variant]>.ivory-icon{display:none}
-[data-palette=ivory] svg[data-ivory-variant]>.ivory-icon{display:inline}
-[data-palette=ivory] svg[data-ivory-variant]>.default-icon{display:none}
+:is([data-palette=ivory],[data-palette=ivory-cards]) svg[data-ivory-variant]>.ivory-icon{display:inline}
+:is([data-palette=ivory],[data-palette=ivory-cards]) svg[data-ivory-variant]>.default-icon{display:none}
 
 /* Match the supplied redWarningBG treatment; retain the shared control sizing. */
 [data-palette=ivory] :is(.button,.icon-button).danger{

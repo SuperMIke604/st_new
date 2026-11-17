@@ -1,6 +1,9 @@
 // Apply the last saved palette before CSS and the first page paint.
 (() => {
-    const colors = { paper: '#f3eee4', sage: '#f7f8f4', mist: '#f3eee4', ivory: '#f3eee4', 'claude-day': '#f8f8f6' };
+    const colors = {
+        paper: '#f3eee4', sage: '#f7f8f4', mist: '#f3eee4', ivory: '#f3eee4',
+        'claude-day': '#f8f8f6', 'lavender-paper': '#eee9f5', 'ivory-cards': '#efe7da',
+    };
     let palette = 'paper';
     try {
         const saved = localStorage.getItem('independent-palette');
