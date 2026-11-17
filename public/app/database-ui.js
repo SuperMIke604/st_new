@@ -1,5 +1,6 @@
 import { uuid } from './uuid.js';
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
+import { databaseInjection, splitDatabaseKeywords } from './database-injection.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
 import { databaseLogText, databaseLogExport, clearDatabaseLog } from './database-log.js';
@@ -15,7 +16,8 @@ export function renderDatabasePanel(body, context) {
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
     const overviewDraft = { pending: new Set() };
-    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0;
+    const blockedKeywordDrafts = new Map();
+    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0 || blockedKeywordDrafts.size > 0;
     const settingsValue = includeStatus => databaseSettings({ ...settings, ...(includeStatus ? {} : savedStatus) });
     const undo = { data: [], template: [] }, pages = new Map();
     let saveTimer, editVersion=0, saveQueue=Promise.resolve(), disposed=false;
@@ -40,7 +42,7 @@ export function renderDatabasePanel(body, context) {
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
+        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['data', '聊天数据'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); control.disabled = !!overviewDraft.saving; tabs.append(control);
         }
         content.replaceChildren();
@@ -187,6 +189,43 @@ export function renderDatabasePanel(body, context) {
                     list.querySelector('[aria-pressed=true] > span').textContent = `${name.value || key}（${table.content[0].length - 1}）`;
                     dirty(kind);
                 });
+                const injection = databaseInjection(table);
+                const setInjection = patch => { table.injection = { ...table.injection, ...databaseInjection(table), ...patch }; };
+                const mode = field(editor, '触发方式', injection.mode, { options: [['constant', '常驻'], ['keyword', '关键词']] });
+                mode.addEventListener('change', () => change(() => setInjection({ mode: mode.value })));
+                if (injection.mode === 'keyword') {
+                    const depth = field(editor, '扫描深度（消息数）', injection.depth, {
+                        type: 'number', hint: '从最新一条消息往前计数，包含本轮输入。0 表示不扫描。',
+                    });
+                    depth.min = 0; depth.max = 1000; depth.step = 1;
+                    depth.addEventListener('change', () => {
+                        const value = Number.isNaN(depth.valueAsNumber) ? 2 : Math.max(0, Math.min(1000, Math.round(depth.valueAsNumber)));
+                        depth.value = value;
+                        if (value === databaseInjection(table).depth) return;
+                        remember(); setInjection({ depth: value }); dirty(kind);
+                    });
+                    const sources = el('section');
+                    const sourcesHeading = el('h2', '', '关键词来源列');
+                    sourcesHeading.id = 'database-keyword-columns';
+                    sources.setAttribute('aria-labelledby', sourcesHeading.id);
+                    sources.append(sourcesHeading, el('p', 'note', '支持多选。顿号、逗号、分号或换行隔开的词，任一命中即带入整行。未选择来源列时不触发。'));
+                    const selections = [];
+                    for (let column = 1; column < table.content[0].length; column++) {
+                        const label = el('label', 'check-field'), check = el('input'), caption = el('span');
+                        check.type = 'checkbox'; check.checked = injection.columns.includes(column);
+                        caption.textContent = table.content[0][column] || `字段 ${column}`;
+                        label.append(check, caption); sources.append(label);
+                        selections.push({ column, check, caption });
+                        check.addEventListener('change', () => {
+                            remember(); setInjection({ columns: selections.filter(item => item.check.checked).map(item => item.column) }); dirty(kind);
+                        });
+                    }
+                    editor.append(sources);
+                    editor.addEventListener('input', event => {
+                        const selection = selections.find(item => item.column === Number(event.target.dataset.templateColumn));
+                        if (selection) selection.caption.textContent = event.target.value || `字段 ${selection.column}`;
+                    });
+                }
                 const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
                 toolbarButton(fieldsHeading, '新增字段', 'plus', () => change(() => {
                     table.content[0].push('新字段'); for (const row of table.content.slice(1)) row.push('');
@@ -195,10 +234,14 @@ export function renderDatabasePanel(body, context) {
                 for (let column = 1; column < table.content[0].length; column++) {
                     const row = el('div', 'db-template-field');
                     const input = field(row, `字段 ${column}`, table.content[0][column] ?? '');
+                    input.dataset.templateColumn = column;
                     input.addEventListener('focus', remember, { once: true });
                     input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); });
                     const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
-                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => { for (const dataRow of table.content) dataRow.splice(column, 1); });
+                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => {
+                            if (table.injection) setInjection({ columns: databaseInjection(table).columns.filter(index => index !== column).map(index => index > column ? index - 1 : index) });
+                            for (const dataRow of table.content) dataRow.splice(column, 1);
+                        });
                     }, 'danger');
                     remove.disabled = table.content[0].length <= 2; fields.append(row);
                 }
@@ -220,11 +263,40 @@ export function renderDatabasePanel(body, context) {
             const heading = el('div', 'db-sheet-heading');
             const tableName = el('input'); tableName.value = table.name || key; tableName.setAttribute('aria-label', `表名 ${key}`); tableName.addEventListener('focus', remember, { once: true }); tableName.addEventListener('input', () => { table.name = tableName.value; dirty(kind); });
             heading.append(tableName, el('small', '', key));
+            const keywords = el('div');
+            const savedWords = () => context.blockedKeywords(key).join('\n');
+            const blocked = field(keywords, '屏蔽关键词', blockedKeywordDrafts.get(key) ?? savedWords(), {
+                multiline: true, rows: 3, hint: '仅用于当前聊天的这张表。支持顿号、逗号、分号或换行；清空后保存即可解除屏蔽。',
+            });
+            blocked.placeholder = '例如：周老师、赵月';
+            const saveBlocked = toolbarButton(keywords, '保存屏蔽关键词', 'edit', async () => {
+                const submitted = blocked.value;
+                saveBlocked.disabled = blocked.disabled = true;
+                try {
+                    await context.saveBlockedKeywords(key, splitDatabaseKeywords(submitted));
+                    if (blockedKeywordDrafts.get(key) === submitted) {
+                        blockedKeywordDrafts.delete(key);
+                        blocked.value = savedWords();
+                    }
+                    context.dirty(hasDraft());
+                    notify('屏蔽关键词已保存');
+                } finally {
+                    blocked.disabled = false;
+                    saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+                }
+            });
+            saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+            blocked.addEventListener('input', () => {
+                if (blocked.value === savedWords()) blockedKeywordDrafts.delete(key);
+                else blockedKeywordDrafts.set(key, blocked.value);
+                saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+                context.dirty(hasDraft());
+            });
             toolbarButton(heading, '新增行', 'plus', () => change(() => table.content.push([null, ...table.content[0].slice(1).map(() => '')])));
             toolbarButton(heading, '新增列', 'plus', () => {
                 change(() => { table.content[0].push('新列'); for (const row of table.content.slice(1)) row.push(''); });
             });
-            toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { delete book[key]; }); }, 'danger'); section.append(heading);
+            toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { blockedKeywordDrafts.delete(key); delete book[key]; }); }, 'danger'); section.append(heading, keywords);
             const scroll = el('div', 'db-table-scroll'), grid = el('table'); const head = el('thead'), header = el('tr'); header.append(el('th', '', '行'));
             for (let column = 1; column < table.content[0].length; column++) {
                 const cell = el('th'), input = el('input'); input.value = table.content[0][column] || ''; input.setAttribute('aria-label', `列名 ${table.name} ${column}`);

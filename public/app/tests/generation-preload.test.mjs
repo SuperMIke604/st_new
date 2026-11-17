@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GenerationPreload, generationDatabaseResources } from '../generation-preload.js';
-import { defaultDatabase } from '../database.js';
+import { GenerationPreload, generationDatabaseResources, prepareDatabaseResources } from '../generation-preload.js';
+import { databaseSettings, defaultDatabase, fillMessages } from '../database.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 
@@ -34,6 +34,69 @@ test('preloaded database strings match fresh preparation and respond to changed 
     // All persisted edits invalidate, including edits to an existing object.
     snapshot.sheet_0.content[1][2] = 'outside'; cache.invalidate();
     assert.match(cache.get(chat, header, { inject: true }).databaseText, /outside/);
+});
+
+test('keyword rows deduplicate multi-value matches and scan the actual send history after warmup', () => {
+    const snapshot = defaultDatabase();
+    snapshot.sheet_1.content.push([null, '（陈澄、周凛, 陈澄；林淑芬\n周老师）', '赵月', 'matched-detail'], [null, '赵阳', '', 'unmatched-detail']);
+    snapshot.sheet_0.content.push([null, '地点', 'constant-detail（提到周老师）']);
+    const template = structuredClone(snapshot);
+    template.sheet_1.injection = { mode: 'keyword', depth: 1, columns: [1, 2] };
+    const config = { inject: true, template }, header = {};
+    const chat = [{ mes: '赵阳', TavernDB_ACU_Data: snapshot }];
+    const cache = new GenerationPreload(prepareDatabaseResources);
+    cache.get(chat, header, config, { warm: true });
+    const send = mes => cache.get([...chat, { mes, is_user: true }], header, config);
+    for (const name of ['陈澄', '周凛', '林淑芬', '周老师', '赵月', '陈澄和赵月']) {
+        const { databaseText, databaseMacros } = send(name);
+        assert.equal(databaseText.match(/matched-detail/g)?.length, 1);
+        assert.doesNotMatch(databaseText, /unmatched-detail/);
+        assert.match(databaseMacros.sheet_1, /matched-detail/);
+        assert.doesNotMatch(databaseMacros.sheet_1, /unmatched-detail/);
+        assert.match(databaseMacros.tabledata, /constant-detail/);
+    }
+    const noMatch = send('没有提到名字');
+    assert.match(noMatch.databaseText, /constant-detail/);
+    assert.doesNotMatch(noMatch.databaseText, /matched-detail/);
+    assert.equal(noMatch.databaseMacros.sheet_1, '');
+    assert.match(noMatch.databaseMacros.tabledata, /unmatched-detail/);
+    assert.match(fillMessages(databaseSettings(config), snapshot, [], 0, 0).map(message => message.content).join('\n'), /unmatched-detail/);
+    template.sheet_1.injection.depth = 2;
+    assert.match(send('没有提到名字').databaseText, /unmatched-detail/);
+    template.sheet_1.injection.depth = 0;
+    assert.doesNotMatch(send('周老师').databaseText, /matched-detail/);
+    assert.equal(send('周老师').databaseMacros.sheet_1, '');
+    template.sheet_1.injection.depth = 1;
+    const manual = generationDatabaseResources([...chat, { mes: '周老师', is_user: true }], header, { ...config, inject: false });
+    assert.equal(manual.databaseText, '');
+    assert.match(manual.databaseMacros.sheet_1, /matched-detail/);
+    assert.doesNotMatch(manual.databaseMacros.sheet_1, /unmatched-detail/);
+    assert.equal(snapshot.sheet_1.content.length, 3);
+});
+
+test('blocked keywords only suppress their own trigger in the selected chat and table', () => {
+    const template = defaultDatabase();
+    for (const key of ['sheet_0', 'sheet_1']) {
+        const table = template[key];
+        table.injection = { mode: 'keyword', columns: [1] };
+        table.content.push(table.content[0].map((_, column) => column === 1 ? '周老师、Zhao' : column === 2 ? `record-${key}` : null));
+    }
+    const metadata = { blockedKeywords: { sheet_0: ['周老师', 'ZHAO'] } };
+    const header = { chat_metadata: { independentDatabase: metadata } };
+    const config = { template, inject: true };
+    const chat = [{ mes: '周老师', is_user: true }];
+    const cache = new GenerationPreload(prepareDatabaseResources);
+    cache.get(chat, header, config, { warm: true });
+    const blocked = cache.get(chat, header, config);
+    assert.doesNotMatch(blocked.databaseText, /record-sheet_0/);
+    assert.match(blocked.databaseText, /record-sheet_1/);
+    assert.equal(blocked.databaseMacros.sheet_0, '');
+    assert.match(blocked.databaseMacros.tabledata, /record-sheet_0/);
+    assert.match(cache.get(chat, {}, config).databaseText, /record-sheet_0/);
+    metadata.blockedKeywords = { sheet_0: ['周老师'] };
+    assert.match(cache.get([{ mes: '周老师和Zhao', is_user: true }], header, config).databaseText, /record-sheet_0/);
+    delete metadata.blockedKeywords;
+    assert.match(cache.get(chat, header, config).databaseText, /record-sheet_0/);
 });
 
 test('table macros use archived fallback and refresh when the archive is removed', () => {

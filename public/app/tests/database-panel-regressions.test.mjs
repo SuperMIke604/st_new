@@ -28,6 +28,6 @@ test('applying a template opens chat data with a save path and preserves the pri
         assert.deepEqual(context.data, accepted ? template : old);
         if (accepted) assert.deepEqual(context.undo.data[0], old);
     }
-    assert.match(ui, /dataDirty \|\| tab === 'data' \? \[\['data', '聊天数据'\]\]/);
+    assert.match(ui, /\['settings', '状态与操作'\], \['data', '聊天数据'\]/);
     assert.match(ui, /'保存数据', 'edit', template \? saveSettings : saveData/);
 });

@@ -23,7 +23,7 @@ import { requestLog, showRequestLog } from './request-log.js';
 import { BUILD } from './version.js';
 import { PresetSelection } from './preset-selection.js';
 import { PresetTokenPreview } from './preset-tokens.js';
-import { GenerationPreload, generationDatabaseResources } from './generation-preload.js';
+import { GenerationPreload, prepareDatabaseResources } from './generation-preload.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
 import { DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse } from './database-log.js';
@@ -43,6 +43,7 @@ import { worldSettingsFields, validateWorldSettings } from './world-settings.js'
 import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
+import { databaseBlockedKeywords } from './database-injection.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
 import { installSelects } from './select.js';
@@ -2526,6 +2527,32 @@ async function databasePanel(preview = false) {
         settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
         history: () => header.chat_metadata?.independentDatabase?.history || [],
         getSeed: () => header.chat_metadata?.independentDatabase?.seed,
+        blockedKeywords: key => databaseBlockedKeywords(header, key),
+        saveBlockedKeywords: async (key, words) => {
+            sameChat(); assertSaved();
+            if (state.databaseController) throw new Error('请等待数据库更新完成后再保存屏蔽关键词。');
+            const metadata = header.chat_metadata.independentDatabase;
+            const previous = metadata.blockedKeywords;
+            const next = { ...previous };
+            if (words.length) next[key] = words;
+            else delete next[key];
+            if (Object.keys(next).length) metadata.blockedKeywords = next;
+            else delete metadata.blockedKeywords;
+            state.historySaving = true;
+            try {
+                await saveChat({ incremental: true });
+            } catch (error) {
+                if (previous === undefined) delete metadata.blockedKeywords;
+                else metadata.blockedKeywords = previous;
+                generationPreload.invalidate();
+                state.dirty = false;
+                status(state.chatConflict || '屏蔽关键词未保存', true);
+                throw error;
+            } finally {
+                state.historySaving = false;
+                synchronize();
+            }
+        },
         deleteHistory: async (ids, expected) => {
             sameChat(); assertDatabaseWritable();
             if (state.databaseController || state.busy) throw new Error('请等待生成或数据库更新完成后再删除历史总结。');
@@ -2754,7 +2781,7 @@ async function autoUpdateDatabase() {
 }
 const tokenCounts = new Map();
 let tokenCacheBytes = 0;
-const generationPreload = new GenerationPreload(generationDatabaseResources);
+const generationPreload = new GenerationPreload(prepareDatabaseResources);
 function preloadNextGeneration() {
     const chat = state.chat, header = state.header, character = state.character;
     const currentChat = () => state.chat === chat && state.header === header && state.character === character && !state.busy && !state.loading && !state.dirty && !panelDirty;
@@ -2768,10 +2795,10 @@ function preloadNextGeneration() {
             await loadBooks();
             await nextPaint();
             if (!current()) { finish('cancelled', { reason: 'preload-cancelled', metrics: taskMetrics() }); return; }
-            generationPreload.get(chat, header, state.own.database);
+            generationPreload.get(chat, header, state.own.database, { warm: true });
             await nextPaint();
             if (!current()) { finish('cancelled', { reason: 'preload-cancelled', metrics: taskMetrics() }); return; }
-            if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database);
+            if (chat.length && !chat.at(-1).is_user) generationPreload.get(chat.slice(0, -1), header, state.own.database, { warm: true });
             const finishWarm = loadTimings.start('后台预热历史正则', 'generation');
             let warmed;
             try { warmed = await warmHistoryRegex(chat, activeRegexes({ settings: state.settings, preset: state.preset, character }), current); finishWarm(warmed?.status || 'success', { metrics: { ...warmed?.metrics, ...taskMetrics() }, ...(warmed?.status === 'cancelled' ? { reason: 'preload-cancelled' } : {}) }); }
