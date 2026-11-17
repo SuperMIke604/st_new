@@ -20,7 +20,7 @@ UI 复用 [现有规范](docs/ui-design-guidelines.md)；剧情资料库见 [模
 
 APK 在手机上打开同一设备中由 Termux 提供的 `http://127.0.0.1:8000/app/`。首次使用时先按安装说明把前端部署到 SillyTavern，再在 Termux 启动后端。已有部署时直接启动后端即可。使用其他端口时，可在连接失败页选择“修改端口”。使用账号的后端需要在 APK 内单独登录一次。
 
-启用 SillyTavern 的 HTTP Basic Auth 时，APK 会先弹出账号密码输入框。如果同时启用了酒馆用户账户，之后也可能出现酒馆自己的登录页面。
+启用 SillyTavern 的 HTTP Basic Auth 时，APK 会显示原生登录页面，可输入账号密码，登录失败后可直接重试。如果同时启用了酒馆用户账户，之后也可能出现酒馆自己的登录页面。
 
 Windows 构建需要 JDK 17、Android SDK Platform 34 和 Build-Tools 34.0.0。设置 `JAVA_HOME` 和 `ANDROID_HOME` 后，从项目根目录运行：
 
@@ -28,7 +28,9 @@ Windows 构建需要 JDK 17、Android SDK Platform 34 和 Build-Tools 34.0.0。�
 powershell -ExecutionPolicy Bypass -File .\android\build-apk.ps1
 ```
 
-安装包为 `android/build/st-new.apk`，适用于 Android 7.0 及以上。保留同目录的 `debug.keystore` 可为后续 APK 使用同一个签名。网页更新仍由 Termux 中的前端和更新插件处理。导出文件请用手机浏览器打开同一个地址。
+安装包为 `android/build/st-new.apk`，适用于 Android 7.0 及以上。保留同目录的 `debug.keystore` 可为后续 APK 使用同一个签名。网页更新仍由 Termux 中的前端和更新插件处理。
+
+在 APK 内点击聊天、角色卡、预设、世界书、脚本、资料库或日志的导出按钮，会弹出 Android 系统保存界面，可选择目录并修改文件名。
 
 ### 从 GitHub 更新 APK
 

@@ -16,6 +16,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.HttpAuthHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -27,6 +29,7 @@ import android.webkit.WebMessagePort;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.ValueCallback;
+import android.webkit.URLUtil;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -35,6 +38,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -49,7 +53,12 @@ public final class MainActivity extends Activity {
     private LinearLayout errorPanel;
     private TextView errorMessage;
     private ValueCallback<Uri[]> fileSelection;
-    private AlertDialog authDialog;
+    private FileExports fileExports;
+    private LoginPanel loginPanel;
+    private EditText loginUsername;
+    private EditText loginPassword;
+    private HttpAuthHandler authRequest;
+    private boolean signingIn;
     private WebMessagePort shellPort;
     private String shellScript;
     private boolean checkingUpdate;
@@ -58,6 +67,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        fileExports = new FileExports(this, state);
         port = getPreferences(MODE_PRIVATE).getInt("port", DEFAULT_PORT);
         Window window = getWindow();
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
@@ -83,11 +93,7 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(new TavernClient());
         webView.setWebChromeClient(new TavernChromeClient());
         webView.setDownloadListener((url, userAgent, disposition, mimeType, size) ->
-                new AlertDialog.Builder(this)
-                        .setMessage("请在手机浏览器中打开酒馆，再执行导出。")
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("打开浏览器", (dialog, which) -> openBrowser(Uri.parse(appUrl())))
-                        .show());
+                downloadFile(url, disposition, mimeType));
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         errorPanel = new LinearLayout(this);
@@ -105,9 +111,10 @@ public final class MainActivity extends Activity {
         addButton("检查 APK 更新", this::checkApkUpdate);
         errorPanel.setVisibility(View.GONE);
         root.addView(errorPanel, new FrameLayout.LayoutParams(-1, -1));
+        createLoginPanel(root);
         setContentView(root);
 
-        if (state == null || webView.restoreState(state) == null) {
+        if (state == null || state.getBoolean("loginPending") || webView.restoreState(state) == null) {
             loadTavern();
         } else if (state.containsKey("connectionError")) {
             showError(state.getString("connectionError"));
@@ -136,6 +143,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadTavern() {
+        closeLogin();
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         webView.stopLoading();
@@ -144,6 +152,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showError(String message) {
+        closeLogin();
         applySystemBarColor(PAPER);
         errorMessage.setText(message);
         webView.setVisibility(View.INVISIBLE);
@@ -190,6 +199,8 @@ public final class MainActivity extends Activity {
                     applySystemBarColor(Color.parseColor(data));
                 } else if ("check-apk-update".equals(data)) {
                     checkApkUpdate();
+                } else if (data.startsWith("export-")) {
+                    fileExports.onMessage(port, data);
                 }
             }
         });
@@ -204,10 +215,22 @@ public final class MainActivity extends Activity {
     }
 
     private void disconnectShell() {
+        fileExports.cancelTransfer();
         if (shellPort != null) {
             shellPort.close();
             shellPort = null;
         }
+    }
+
+    private void downloadFile(String url, String disposition, String mimeType) {
+        String resource = url.startsWith("blob:") ? url.substring("blob:".length()) : url;
+        if (shellPort == null || (!url.startsWith("data:") && !isTavern(Uri.parse(resource)))) {
+            Toast.makeText(this, "无法在 APK 中保存此下载链接。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String filename = URLUtil.guessFileName(url, disposition, mimeType);
+        shellPort.postMessage(new WebMessage("download:{\"url\":" + JSONObject.quote(url)
+                + ",\"name\":" + JSONObject.quote(filename) + "}"));
     }
 
     private void checkApkUpdate() {
@@ -291,47 +314,100 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void promptForHttpAuth(HttpAuthHandler handler) {
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
-        fields.setPadding(padding, 0, padding, 0);
-
-        EditText username = new EditText(this);
-        username.setHint("用户名");
-        username.setSingleLine(true);
-        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        fields.addView(username);
-
-        EditText password = new EditText(this);
-        password.setHint("密码");
-        password.setSingleLine(true);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        fields.addView(password);
-
-        authDialog = new AlertDialog.Builder(this)
-                .setTitle("SillyTavern 需要登录")
-                .setMessage("请输入 " + HOST + ":" + port + " 的 HTTP Basic Auth 用户名和密码。")
-                .setView(fields)
-                .setPositiveButton("登录", (dialog, which) -> {
-                    authDialog = null;
-                    handler.proceed(username.getText().toString(), password.getText().toString());
-                })
-                .setNegativeButton("取消", (dialog, which) -> handler.cancel())
-                .setOnCancelListener(dialog -> handler.cancel())
-                .create();
-        authDialog.setOnDismissListener(dialog -> {
-            if (authDialog == dialog) {
-                authDialog = null;
-            }
+    private void createLoginPanel(FrameLayout root) {
+        loginPanel = new LoginPanel(this);
+        loginPanel.setVisibility(View.GONE);
+        loginUsername = loginPanel.username;
+        loginPassword = loginPanel.password;
+        loginUsername.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        loginUsername.setOnEditorActionListener((view, action, event) -> {
+            if (action != EditorInfo.IME_ACTION_NEXT) return false;
+            loginPassword.requestFocus();
+            return true;
         });
-        authDialog.show();
+        loginPassword.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        loginPassword.setOnEditorActionListener((view, action, event) -> {
+            if (action != EditorInfo.IME_ACTION_DONE) return false;
+            submitLogin();
+            return true;
+        });
+
+        loginPanel.submit.setOnClickListener(view -> submitLogin());
+        loginPanel.back.setOnClickListener(view -> cancelLogin());
+        root.addView(loginPanel, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void showLogin(HttpAuthHandler handler) {
+        boolean rejected = signingIn && !handler.useHttpAuthUsernamePassword();
+        authRequest = handler;
+        signingIn = false;
+        applySystemBarColor(PAPER);
+        getWindow().setStatusBarColor(LoginPanel.TOP_COLOR);
+        errorPanel.setVisibility(View.GONE);
+        webView.setVisibility(View.INVISIBLE);
+        loginPanel.setVisibility(View.VISIBLE);
+        loginPanel.showForm(HOST + ":" + port, rejected);
+        if (rejected) loginPassword.requestFocus();
+        else loginPanel.requestFocus();
+    }
+
+    private void submitLogin() {
+        if (authRequest == null) return;
+        String username = loginUsername.getText().toString();
+        String password = loginPassword.getText().toString();
+        if (username.isEmpty() || username.contains(":")) {
+            loginUsername.setError(username.isEmpty() ? "请输入用户名" : "用户名不能包含冒号");
+            loginUsername.requestFocus();
+            return;
+        }
+        if (password.isEmpty()) {
+            loginPassword.setError("请输入密码");
+            loginPassword.requestFocus();
+            return;
+        }
+        HttpAuthHandler handler = authRequest;
+        authRequest = null;
+        signingIn = true;
+        loginPanel.showSubmitting();
+        loginPassword.setText("");
+        hideLoginKeyboard();
+        handler.proceed(username, password);
+    }
+
+    private void hideLoginKeyboard() {
+        getSystemService(InputMethodManager.class).hideSoftInputFromWindow(loginPanel.getWindowToken(), 0);
+    }
+
+    private void closeLogin() {
+        HttpAuthHandler handler = authRequest;
+        authRequest = null;
+        signingIn = false;
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            hideLoginKeyboard();
+            loginPanel.setVisibility(View.GONE);
+            getWindow().setStatusBarColor(PAPER);
+            loginUsername.setText("");
+            loginUsername.setError(null);
+            loginPassword.setText("");
+            loginPassword.setError(null);
+        }
+        if (handler != null) handler.cancel();
+    }
+
+    private void cancelLogin() {
+        showError("登录已取消。");
+        webView.stopLoading();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        webView.saveState(state);
+        fileExports.saveState(state);
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            state.putBoolean("loginPending", true);
+        } else {
+            webView.saveState(state);
+        }
         if (errorPanel.getVisibility() == View.VISIBLE) {
             state.putString("connectionError", errorMessage.getText().toString());
         }
@@ -339,6 +415,10 @@ public final class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (loginPanel.getVisibility() == View.VISIBLE) {
+            cancelLogin();
+            return;
+        }
         WebBackForwardList history = webView.copyBackForwardList();
         if (errorPanel.getVisibility() == View.GONE && history.getCurrentIndex() > 0
                 && isTavern(Uri.parse(history.getItemAtIndex(history.getCurrentIndex() - 1).getUrl()))) {
@@ -351,7 +431,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_FILE && fileSelection != null) {
+        if (requestCode == FileExports.SAVE_FILE) {
+            fileExports.onActivityResult(resultCode, data);
+        } else if (requestCode == PICK_FILE && fileSelection != null) {
             Uri[] selection = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             if (selection != null) {
                 for (Uri file : selection) {
@@ -369,9 +451,8 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         disconnectShell();
-        if (authDialog != null) {
-            authDialog.cancel();
-        }
+        fileExports.destroy();
+        closeLogin();
         if (fileSelection != null) {
             fileSelection.onReceiveValue(null);
             fileSelection = null;
@@ -389,20 +470,23 @@ public final class MainActivity extends Activity {
 
         @Override
         public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
-            if (authDialog != null || !(HOST.equals(host) || (HOST + ":" + port).equals(host))) {
+            if (authRequest != null || errorPanel.getVisibility() == View.VISIBLE
+                    || !(HOST.equals(host) || (HOST + ":" + port).equals(host))) {
                 handler.cancel();
                 return;
             }
-            promptForHttpAuth(handler);
+            showLogin(handler);
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             Uri page = Uri.parse(url);
-            if (url.equals(view.getUrl()) && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
+            if (authRequest == null && url.equals(view.getUrl())
+                    && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
                 if ("/".equals(page.getPath())) {
                     view.evaluateJavascript("location.replace('/app/')", null);
                 } else {
+                    closeLogin();
                     view.setVisibility(View.VISIBLE);
                     connectShell(view, url);
                 }
@@ -435,7 +519,11 @@ public final class MainActivity extends Activity {
             }
             int status = response.getStatusCode();
             if (status == 401) {
-                showError("SillyTavern 要求认证（HTTP 401）。\n请点重试，并在登录框中输入酒馆的用户名和密码。");
+                if (authRequest == null && errorPanel.getVisibility() == View.GONE) {
+                    showError("SillyTavern 登录失败（HTTP 401）。\n请点重试。");
+                }
+            } else if (status == 429 && loginPanel.getVisibility() == View.VISIBLE) {
+                showError("登录尝试过多，请稍后重试。");
             } else if ("/app/".equals(request.getUrl().getPath()) && status == 404) {
                 showError("SillyTavern 已连接，但找不到 /app/。\n请在 Termux 安装 st_new 前端，再点重试。");
             } else {
