@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { RequestLog } from '../request-log.js';
-import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
+import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, findDatabaseSnapshot, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
 
 import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
 import { DatabaseWriteError, startDatabaseLog, finishDatabaseLog, clearDatabaseLog, databaseLogText, databaseLogExport, retainMalformedDatabaseResponse } from '../database-log.js';
@@ -19,7 +19,7 @@ function fixture() {
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
     const context = vm.createContext({ state, requestLog: new RequestLog(), cancelMessageEdit() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
-        sourceHash, storeDatabase, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
+        sourceHash, storeDatabase, findDatabaseSnapshot, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
         databaseConnection: () => ({}), generationBody: (_config, _preset, messages) => ({ messages }), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,

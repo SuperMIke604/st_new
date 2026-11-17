@@ -40,7 +40,7 @@ import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
 import { readingFields, readingSettings, applyReading } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
-import { databaseSettings, databaseForChat, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
+import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
@@ -2417,13 +2417,17 @@ function databaseWriteGuard(index, { allowReload = false } = {}) {
     const originalSource = source(chat);
     const integrity = header.chat_metadata?.integrity;
     const createdAt = header.create_date;
-    const snapshot = () => JSON.stringify([
-        state.header.chat_metadata?.independentDatabase?.seed,
-        state.chat.slice(0, index + 1).map(message => [
-            message.TavernDB_ACU_Data,
-            allowReload ? message.extra?.independentDatabase : message.extra?.independentDatabase?.snapshotDeleted,
-        ]),
-    ]);
+    const snapshot = () => {
+        const { seed, history } = state.header.chat_metadata?.independentDatabase || {};
+        const archives = Array.isArray(history) ? history.filter(item => item?.index >= 0 && item.index <= index) : [];
+        return JSON.stringify([
+            seed, archives,
+            state.chat.slice(0, index + 1).map(message => [
+                message.TavernDB_ACU_Data,
+                allowReload ? message.extra?.independentDatabase : message.extra?.independentDatabase?.snapshotDeleted,
+            ]),
+        ]);
+    };
     let original = snapshot();
     return {
         check() {
@@ -2556,9 +2560,10 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
     generationBody(config, preset, []);
     log.stage = '准备填表数据';
     const chat = copy(state.chat);
-    let result=summarizing?copy(current.data):settings.template;if(!summarizing)for(let index=aiIndices[0];index>=0;index--)if(!chat[index].is_user&&chat[index].TavernDB_ACU_Data){result=copy(chat[index].TavernDB_ACU_Data);break;}
+    const baseline = summarizing ? current : findDatabaseSnapshot(chat, state.header, { through: aiIndices[0], structuredOnly: true });
+    let result = copy(baseline?.data ?? settings.template);
     const sourceDatabase = summarizing ? JSON.stringify(current.data) : null;
-    const previousMeta = chat[to]?.extra?.independentDatabase;
+    const previousMeta = current.meta;
     let reference = '', lastResponse, finishRequest, requestText;
     const controller = new AbortController(); state.databaseController = controller;
     const progress=databaseProgress('正在准备填表数据，请稍候…',controller);
@@ -2673,10 +2678,10 @@ async function autoUpdateDatabase() {
  try {
   if(state.databaseController || state.busy || state.dirty || state.loading || !state.character || !state.chat.length || state.chat.at(-1)?.is_user)return;
   const settings=currentDatabase().settings;
-  if(settings.auto){const range=messageSummaryRange(state.chat,settings);if(range&&await updateDatabase(range.from,range.to,true)===false)return;}
+  if(settings.auto){const range=messageSummaryRange(state.chat,settings,state.header);if(range&&await updateDatabase(range.from,range.to,true)===false)return;}
   if(!settings.databaseSummaryAuto || state.databaseController || state.busy || state.dirty)return;
   const current=currentDatabase();
-  if(current.index<0 || state.chat[current.index].extra?.independentDatabase?.kind==='database')return;
+  if(current.index<0 || current.meta?.kind==='database')return;
   checkIndex=current.index; checkStage='检查自动总结快照';
   const write=databaseWriteGuard(current.index, { allowReload: true });write.check();
   checkStage='统计自动总结 Token';
@@ -3084,11 +3089,11 @@ function chatHistoryPanel() {
     });
 }
 function databasePreviewPanel() {
- assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}`,'database-panel');if(!body)return;
+ assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}${current.archived?' · 覆盖前版本':''}`,'database-panel');if(!body)return;
  const revision=panelRevision,write=databaseWriteGuard(current.index);
- let previousData=null;for(let index=current.index-1;index>=0;index--){if(state.chat[index].TavernDB_ACU_Data){previousData=state.chat[index].TavernDB_ACU_Data;break;}}
+ const previousData = findDatabaseSnapshot(state.chat, state.header, { through: current.index - 1, structuredOnly: true })?.data ?? null;
  renderDatabasePreview(body,{el,field,action,dirty:value=>{if(revision===panelRevision)panelDirty=value;},data:current.data,index:current.index,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
- saveData:async value=>{write.check();storeDatabase(state.chat,state.header,value,current.index);write.saved();await saveChat();},
+ saveData:async value=>{write.check();storeDatabase(state.chat,state.header,value,current.index,current.archived?current.meta:undefined);write.saved();await saveChat();},
  send:text=>{if(closePanel()){$('message-input').value=text;resizeInput();$('message-input').focus();}}
  });
 }

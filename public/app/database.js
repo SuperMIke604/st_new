@@ -76,11 +76,39 @@ export function sourceHash(chat, end = chat.length - 1) {
     }
     return (hash >>> 0).toString(16);
 }
+export function findDatabaseSnapshot(chat, header, { through = chat.length - 1, structuredOnly = false } = {}) {
+    const history = header?.chat_metadata?.independentDatabase?.history;
+    const archives = new Map();
+    if (Array.isArray(history)) {
+        // History is appended in save order. Try the newest record at each floor first.
+        for (let offset = history.length - 1; offset >= 0; offset--) {
+            const item = history[offset], index = item?.index;
+            if (!Number.isInteger(index) || index < 0 || index > through || !chat[index] || chat[index].is_user) continue;
+            if (!archives.has(index)) archives.set(index, []);
+            archives.get(index).push(item);
+        }
+    }
+    for (let index = Math.min(through, chat.length - 1); index >= 0; index--) {
+        const message = chat[index];
+        if (message.is_user) continue;
+        const meta = message.extra?.independentDatabase;
+        const data = structuredOnly ? message.TavernDB_ACU_Data : extractDataFromMessage(message, { requireMate: true });
+        if (data) return { data, index, meta };
+        for (const item of archives.get(index) || []) {
+            try {
+                return { data: validateDatabase(item.data), index, meta: item.snapshotMeta, archived: true };
+            } catch (error) {
+                if (!(error instanceof DatabaseFormatError)) throw error;
+            }
+        }
+    }
+    return null;
+}
 export function databaseForChat(chat, header, template = defaultDatabase()) {
-    for (let index = chat.length - 1; index >= 0; index--) {
-        const message = chat[index], meta = message.extra?.independentDatabase;
-        const extracted = extractDataFromMessage(message,{requireMate:true});
-        if (!message.is_user && extracted) return { data: validateDatabase(extracted), index, legacy: !meta, updatedAt: meta?.updatedAt };
+    const snapshot = findDatabaseSnapshot(chat, header);
+    if (snapshot) {
+        const { data, index, meta, archived } = snapshot;
+        return { data: archived ? data : validateDatabase(data), index, meta, archived, legacy: !meta, updatedAt: meta?.updatedAt };
     }
     const seed = header?.chat_metadata?.independentDatabase?.seed;
     return { data: validateDatabase(seed || template), index: -1, legacy: false };
@@ -185,16 +213,10 @@ export function databaseSummaryTriggered(settings, database, tokens = 0) {
     return (tokenLimit > 0 && tokens >= tokenLimit) || (rowLimit > 0 && sheets(database).some(([key, table]) => key === settings.databaseSummaryTable && table.content.length - 1 >= rowLimit));
 }
 
-export function messageSummaryRange(chat, settings) {
-    let recorded = -1;
-    for (let index = chat.length - 1; index >= 0; index--) {
-        if (!chat[index].is_user && chat[index].TavernDB_ACU_Data) {
-            const meta = chat[index].extra?.independentDatabase;
-            // Compaction of a snapshot is not progress through the following messages.
-            recorded = meta?.kind === 'database' ? (meta.messageSummaryTo ?? index) : (meta?.to ?? index);
-            break;
-        }
-    }
+export function messageSummaryRange(chat, settings, header) {
+    const { index = -1, meta } = findDatabaseSnapshot(chat, header, { structuredOnly: true }) || {};
+    // Compaction of a snapshot is not progress through the following messages.
+    const recorded = meta?.kind === 'database' ? (meta.messageSummaryTo ?? index) : (meta?.to ?? index);
     const from = recorded + 1, end = chat.length - 1 - settings.autoUpdateFrequency;
     let to = from + settings.updateBatchSize - 1;
     if (to > end) return null;

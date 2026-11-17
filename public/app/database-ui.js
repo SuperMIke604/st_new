@@ -331,13 +331,13 @@ export function renderDatabasePanel(body, context) {
         const revision=++statusRevision;
         const current=context.latest?.();if(current)data=validateDatabase(current.data);
         const tables=sheets(data),latest=current?.index??context.chat.findLastIndex(message=>!message.is_user&&message.TavernDB_ACU_Data);
-        const meta=context.chat[latest]?.extra?.independentDatabase;
+        const meta=current ? current.meta : context.chat[latest]?.extra?.independentDatabase;
         const recorded=meta?.kind==='database'?(meta.messageSummaryTo??latest):(meta?.to??latest);
         const check=(parent,label,key)=>{const wrap=el('label','check-field'),control=el('input');control.type='checkbox';control.checked=!!settings[key];control.addEventListener('change',()=>{settings[key]=control.checked;dirty('settings');});wrap.append(control,el('span','',label));parent.append(wrap);};
         const status=el('section','dm-status-card dm-summary-status'),heading=el('div','dm-summary-heading');
         heading.append(el('h2','','数据库状态'));check(heading,'注入提示词','inject');status.append(heading);
         const metrics=el('div','dm-summary-metrics');
-        for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
+        for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}${current?.archived?' · 覆盖前版本':''}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
         status.append(metrics);content.append(status);
         const grid=el('div','dm-summary-grid');content.append(grid);
         const card=(title,description)=>{const section=el('section','dm-status-card dm-summary-card');section.append(el('h2','',title),el('p','note',description));grid.append(section);return section;};

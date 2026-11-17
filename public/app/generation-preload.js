@@ -45,13 +45,15 @@ export class GenerationPreload {
     }
     get(chat, header, config) {
         const configKey = JSON.stringify(config || {});
-        const seed = header?.chat_metadata?.independentDatabase?.seed;
+        const { seed, history } = header?.chat_metadata?.independentDatabase || {};
+        const archives = Array.isArray(history) ? history.map(item => [item, chat[item?.index]]) : [];
         // Ignore a newly typed user turn: database snapshots belong to replies.
         const sources = chat.filter(message => !message.is_user).map(message => [message, message.mes, message.TavernDB_ACU_Data, message.extra?.independentDatabase]);
-        const hit = this.entries.find(entry => entry.header === header && entry.seed === seed && entry.configKey === configKey && entry.sources.length === sources.length && sources.every((source, i) => source.every((value, j) => value === entry.sources[i][j])));
+        const matches = (current, cached) => current.length === cached.length && current.every((source, i) => source.every((value, j) => value === cached[i][j]));
+        const hit = this.entries.find(entry => entry.header === header && entry.seed === seed && entry.configKey === configKey && matches(sources, entry.sources) && matches(archives, entry.archives));
         if (hit) return hit.value;
         const value = this.build(chat, header, config);
-        this.entries.unshift({ header, seed, configKey, sources, value });
+        this.entries.unshift({ header, seed, configKey, sources, archives, value });
         this.entries.length = Math.min(this.entries.length, 2);
         return value;
     }

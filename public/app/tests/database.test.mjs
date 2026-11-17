@@ -4,6 +4,32 @@ import { defaultDatabase, validateDatabase, databaseSettings, migrateLegacySetti
 import { buildPrompt, fitPrompt } from '../engine.js';
 import { databaseSummaryTriggered, messageSummaryRange } from '../database.js';
 
+test('the latest valid archive at a newer floor is used until that floor has a current snapshot', () => {
+    const chat = Array.from({ length: 1035 }, (_, index) => ({ is_user: index % 2 !== 0, mes: 'message' }));
+    const header = {};
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'older active' }, 40);
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'first archive' }, 1030, { kind: 'message', to: 1030 });
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'latest archive' }, 1030, { kind: 'database', messageSummaryTo: 1028 });
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'active' }, 1030);
+    assert.equal(databaseForChat(chat, header).data.marker, 'active');
+    delete chat[1030].TavernDB_ACU_Data;
+    chat[1030].extra.independentDatabase.snapshotDeleted = true;
+    header.chat_metadata.independentDatabase.history.push(
+        { index: 1030, data: { mate: { type: 'other' } } },
+        { index: 1033, data: defaultDatabase() },
+        { index: 1036, data: defaultDatabase() },
+    );
+    const before = structuredClone({ chat, header });
+    const fallback = databaseForChat(chat, header);
+    assert.equal(fallback.archived, true);
+    assert.equal(fallback.index, 1030);
+    assert.equal(fallback.data.marker, 'latest archive');
+    assert.deepEqual(messageSummaryRange(chat, { autoUpdateFrequency: 0, updateBatchSize: 2 }, header), { from: 1029, to: 1030 });
+    assert.deepEqual({ chat, header }, before);
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'later active' }, 1032);
+    assert.equal(databaseForChat(chat, header).data.marker, 'later active');
+});
+
 const messages = () => [{ name: '角色', is_user: false, mes: '开场白', extra: {} }, { name: '用户', is_user: true, mes: '时间是早上。' }, { name: '角色', is_user: false, mes: '我们到了书店。', extra: {} }];
 const filled = () => applyOperations(defaultDatabase(), [{ action: 'insert', sheet: 'sheet_0', data: { 0: '地点', 1: '书店' } }]);
 

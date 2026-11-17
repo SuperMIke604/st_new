@@ -36,6 +36,24 @@ test('preloaded database strings match fresh preparation and respond to changed 
     assert.match(cache.get(chat, header, { inject: true }).databaseText, /outside/);
 });
 
+test('table macros use archived fallback and refresh when the archive is removed', () => {
+    const snapshot = place => {
+        const data = defaultDatabase();
+        data.sheet_0.content.push([null, 'location', place]);
+        return data;
+    };
+    const chat = [{ TavernDB_ACU_Data: snapshot('old-floor') }, { mes: 'later reply' }];
+    const history = [{ index: 1, data: snapshot('archive-floor') }];
+    const header = { chat_metadata: { independentDatabase: { history } } };
+    const cache = new GenerationPreload(generationDatabaseResources);
+    const { databaseMacros } = cache.get(chat, header, {});
+    assert.match(databaseMacros.tabledata, /archive-floor/);
+    assert.match(databaseMacros.sheet_0, /archive-floor/);
+    assert.match(cache.get(chat.slice(0, 1), header, {}).databaseMacros.tabledata, /old-floor/);
+    history.pop();
+    assert.match(cache.get(chat, header, {}).databaseMacros.tabledata, /old-floor/);
+});
+
 test('scheduled preload yields to user actions and cancelled work never runs', async () => {
     const cache = new GenerationPreload(() => ({})); let calls = 0;
     cache.schedule(async () => { calls++; });

@@ -28,7 +28,7 @@
 | 无消息快照时的种子 | `header.chat_metadata.independentDatabase.seed` |
 | 覆盖前历史 | `header.chat_metadata.independentDatabase.history` |
 
-`databaseForChat` 从后向前查非用户消息，优先结构化数据，再用参考函数抽取旧标签/围栏等显式载体；没有时取 seed，再取模板。旧快照无前端元信息时标为 legacy，不自动批量迁移。
+`databaseForChat` 从后向前查非用户消息，同楼层依次读取结构化数据、旧标签或围栏等显式载体、最近归档的有效覆盖前版本。较高楼层的归档优先于较低楼层的快照。没有楼层快照或可用归档时取 seed，再取模板。归档回退只读，保留原楼层与总结元信息，已删除的楼层当前快照与仍保留的历史版本各自独立。消息总结进度、填表的起始快照和提示词宏也能使用归档回退。旧快照无前端元信息时标为 legacy，不自动批量迁移。
 
 `storeDatabase` 校验后附着到指定 AI 回复，或在 index=-1 时写 seed；覆盖不同旧值时存历史，并标记后续快照 stale。历史最多 8 项，且按 `JSON.stringify(history).length` 约 200 万字符收缩，不是字节精确的备份配额。
 
