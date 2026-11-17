@@ -237,7 +237,7 @@ export function renderDatabasePanel(body, context) {
                     const sourcesHeading = el('h2', '', '关键词来源列');
                     sourcesHeading.id = 'database-keyword-columns';
                     sources.setAttribute('aria-labelledby', sourcesHeading.id);
-                    sources.append(sourcesHeading, el('p', 'note', '支持多选。顿号、逗号、分号或换行隔开的词，任一命中即带入整行。未选择来源列时不触发。'));
+                    sources.append(sourcesHeading, el('p', 'note', '支持多选，用顿号、逗号、分号或换行拆词。完整匹配或匹配到两个连续汉字即可命中；未选择来源列时不触发。'));
                     const selections = [];
                     for (let column = 1; column < table.content[0].length; column++) {
                         const label = el('label', 'check-field'), check = el('input'), caption = el('span');

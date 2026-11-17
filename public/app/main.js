@@ -2976,7 +2976,7 @@ async function generate(mode = false, recovery = null) {
         const keywordPrompt = requestLog.enabled && prepared?.databaseKeywordRows?.length ? JSON.stringify(body.messages) : null;
         const fetchReply = async (request, signal) => {
             const keywordRows = keywordPrompt && JSON.stringify(request.messages) === keywordPrompt ? prepared.databaseKeywordRows : undefined;
-            finishRequest = requestLog.start('chat', request, signal, api, keywordRows);
+            finishRequest = requestLog.start('chat', request, signal, api, keywordRows, keywordRows && prepared.databaseKeywordMacros);
             const base = api.chatBase;
             if (usesBackgroundGeneration() && base?.avatar === state.character.avatar && base.file === state.file) {
                 const job = {

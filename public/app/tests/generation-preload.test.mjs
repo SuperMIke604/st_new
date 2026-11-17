@@ -100,6 +100,31 @@ test('blocked keywords only suppress their own trigger in the selected chat and 
     assert.match(cache.get(chat, header, config).databaseText, /record-sheet_0/);
 });
 
+test('Chinese keyword matches are selected by relevance and emitted in original table order', () => {
+    const template = defaultDatabase();
+    template.sheet_1.injection = { mode: 'keyword', columns: [1], maxRows: 4 };
+    template.sheet_1.content.push(
+        [null, '旧港仓', '', 'exact-current'],
+        [null, '旧港仓库', '', 'three-character-hit'],
+        [null, '旧港码头、银钥链', '', 'two-keyword-hit'],
+        [null, '旧港码头', '', 'two-character-hit'],
+        [null, '赵月', '', 'history-only'],
+        [null, '旧仓院', '', 'nonconsecutive'],
+        [null, '旧港仓禁', '', 'blocked-hit'],
+    );
+    const header = { chat_metadata: { independentDatabase: { blockedKeywords: { sheet_1: ['旧港仓禁'] } } } };
+    const chat = [{ mes: '赵月在门口' }, { is_user: true, mes: '去旧港仓找银钥匙' }];
+    const resources = generationDatabaseResources(chat, header, { template, inject: true });
+    const ordered = ['exact-current', 'three-character-hit', 'two-keyword-hit', 'two-character-hit'];
+    for (const text of [resources.databaseText, resources.databaseMacros.sheet_1]) {
+        assert.deepEqual([...text.matchAll(/exact-current|two-keyword-hit|three-character-hit|two-character-hit/g)].map(match => match[0]), ordered);
+        assert.doesNotMatch(text, /history-only|nonconsecutive|blocked-hit/);
+    }
+    const stats = resources.databaseKeywordRows.find(row => row.key === 'sheet_1');
+    assert.equal(stats.matched, 5);
+    assert.match(resources.databaseMacros.tabledata, /blocked-hit/);
+});
+
 test('keyword budget ranks within each table, reserves high priority current hits and reports the final macro rows', async () => {
     const template = {
         mate: { type: 'chatSheets' },
@@ -117,8 +142,8 @@ test('keyword budget ranks within each table, reserves high priority current hit
     const chat = [{ mes: '赵月、王平、李强' }, { is_user: true, mes: '陈澄问周凛，陈澄再次开口。' }];
     const config = { template, inject: true, keywordInjectionTokens: 2 };
     const resources = generationDatabaseResources(chat, {}, config);
-    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-new') < resources.databaseMacros.sheet_0.indexOf('row-multi-old'));
-    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-old') < resources.databaseMacros.sheet_0.indexOf('row-single'));
+    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-old') < resources.databaseMacros.sheet_0.indexOf('row-multi-new'));
+    assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-new') < resources.databaseMacros.sheet_0.indexOf('row-single'));
     assert.doesNotMatch(resources.databaseMacros.sheet_0, /row-history/);
     assert.match(resources.databaseMacros.tabledata, /row-history/);
     // Charge one unit per record, including repeated macros, using the same final-prompt path as the tokenizer.
@@ -128,6 +153,7 @@ test('keyword budget ranks within each table, reserves high priority current hit
     assert.deepEqual(automatic.databaseKeywordRows.map(row => [row.matched, row.limited, row.sent]), [[4, 3, 0], [1, 1, 1], [1, 1, 1]]);
     const explicit = await fitPrompt({ ...input, preset: { prompts: [{ identifier: 'main', role: 'system', content: '{{sheet_0}}\n{{sheet_0}}' }] } }, count);
     assert.deepEqual(explicit.databaseKeywordRows.map(row => [row.key, row.sent]), [['sheet_0', 1]]);
+    assert.deepEqual(explicit.databaseKeywordMacros.map(({ key, occurrences }) => [key, occurrences]), [['sheet_0', 2]]);
     assert.equal(await count(explicit.messages), 2);
     assert.match(explicit.messages.map(message => message.content).join('\n'), /row-multi-new/);
 });

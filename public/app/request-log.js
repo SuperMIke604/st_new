@@ -5,6 +5,24 @@ export const REQUEST_LOG_LIMIT = 10;
 const sources = { chat: '原生对话', script: '脚本', database: '资料库' };
 const statuses = { pending: '请求中', success: '已完成', error: '失败', cancelled: '已停止' };
 
+async function countKeywordMacroTokens(api, model, macros) {
+    const path = `/api/tokenizers/openai/count?model=${encodeURIComponent(model || 'gpt-4')}`;
+    const count = async content => {
+        const result = await api.post(path, [{ role: 'system', content }]);
+        if (!Number.isFinite(result?.token_count)) throw new Error('Tokenizer unavailable');
+        return result.token_count;
+    };
+    const active = macros.filter(({ text }) => text);
+    const totals = new Map(macros.map(({ key, text }) => [key, text ? null : 0]));
+    if (!active.length) return totals;
+    const baseline = count('').catch(() => null);
+    await Promise.all(active.map(async ({ key, occurrences, text }) => {
+        const [empty, full] = await Promise.all([baseline, count(text).catch(() => null)]);
+        if (empty !== null && full !== null) totals.set(key, Math.max(0, full - empty) * occurrences);
+    }));
+    return totals;
+}
+
 export class RequestLog extends EventTarget {
     #entries = [];
     #sequence = 0;
@@ -31,7 +49,7 @@ export class RequestLog extends EventTarget {
         this.dispatchEvent(new Event('change'));
     }
 
-    start(source, body, signal, api, keywordRows) {
+    start(source, body, signal, api, keywordRows, keywordMacros) {
         if (!this.enabled || signal?.aborted || !Array.isArray(body.messages)) return;
         let messages;
         try { messages = structuredClone(body.messages); } catch { return; }
@@ -39,6 +57,15 @@ export class RequestLog extends EventTarget {
         const processing = body.custom_prompt_post_processing ? 'pending' : 'none';
         const entry = { id, source, model: body.model, stream: body.stream === true, time: new Date(), messages, status: 'pending', processing };
         if (keywordRows?.length) entry.keywordRows = structuredClone(keywordRows);
+        if (entry.keywordRows && keywordMacros?.length) {
+            const keys = new Set(keywordMacros.map(({ key }) => key));
+            for (const row of entry.keywordRows) if (keys.has(row.key)) row.macroTokens = 'pending';
+            void countKeywordMacroTokens(api, body.model, keywordMacros).then(totals => {
+                if (!this.#entries.includes(entry)) return;
+                for (const row of entry.keywordRows) if (totals.has(row.key)) row.macroTokens = totals.get(row.key);
+                this.dispatchEvent(new Event('change'));
+            });
+        }
         this.#entries.unshift(entry);
         if (this.#entries.length > REQUEST_LOG_LIMIT) this.#entries.pop();
         this.dispatchEvent(new Event('change'));
@@ -144,7 +171,7 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
         parent.append(textBody);
     };
     const createCard = entry => {
-        let content, messages, renderedProcessing, replySection, reasoningSection;
+        let content, messages, renderedProcessing, replySection, reasoningSection, keywordDetail;
         const update = () => {
             const count = entry.processing === 'pending' ? '核对提示词中'
                 : entry.processing === 'unavailable' ? `${entry.messages.length} 条提交给后端的消息`
@@ -154,14 +181,16 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
             if (content && renderedProcessing !== entry.processing) {
                 renderedProcessing = entry.processing;
                 content.replaceChildren();
+                keywordDetail = null;
                 if (entry.processing === 'pending') {
                     content.append(el('p', 'note', '正在读取 SillyTavern 后处理后的提示词…'));
                     return;
                 }
                 if (entry.processing === 'unavailable') content.append(el('p', 'note', '无法读取后处理结果。以下是提交给 SillyTavern 的原始消息。'));
                 if (entry.keywordRows?.length) {
-                    const rows = entry.keywordRows.map(({ name, matched, limited, sent }) => `${name} · 命中 ${matched} 条 · 行数上限后 ${limited} 条 · 随请求提交 ${sent} 条`);
-                    content.append(disclosure('资料库关键词注入', parent => renderText(parent, rows.join('\n'))).details);
+                    content.append(disclosure('资料库关键词注入', parent => {
+                        keywordDetail = el('div'); parent.append(keywordDetail); update();
+                    }).details);
                 }
                 content.append(action('复制全部提示词', () => copyText(JSON.stringify(entry.messages, null, 2)), 'copy'));
                 messages = el('div', 'request-log-messages');
@@ -172,6 +201,10 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
                 }
                 content.append(messages);
             }
+            if (keywordDetail) keywordDetail.replaceChildren(...entry.keywordRows.map(({ name, matched, limited, sent, macroTokens }) => {
+                const tokens = macroTokens === undefined ? '' : ` · 匹配内容 ${macroTokens === 'pending' ? 'Token 统计中' : macroTokens === null ? 'Token 暂不可用' : `${macroTokens} Token`}`;
+                return el('p', 'note', `${name} · 命中 ${matched} 条 · 行数上限后 ${limited} 条 · 随请求提交 ${sent} 条${tokens}`);
+            }));
             if (messages && entry.reasoning && !reasoningSection) {
                 reasoningSection = disclosure('模型思考', parent => renderText(parent, entry.reasoning)).details;
                 messages.append(reasoningSection);

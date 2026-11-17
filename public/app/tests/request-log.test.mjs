@@ -17,6 +17,24 @@ test('groups adjacent messages by role and speaker while preserving request orde
     assert.deepEqual(groups.flatMap(group => group.messages), messages);
 });
 
+test('counts the final keyword macro expansion and its repetitions in request details', async () => {
+    const log = new RequestLog();
+    const calls = [];
+    const api = { async post(path, messages) {
+        assert.match(path, /count\?model=test-model$/);
+        const [{ role, content }] = messages;
+        assert.equal(role, 'system'); calls.push(content);
+        return { token_count: content ? 9 : 4 };
+    } };
+    const rows = [{ key: 'sheet_0', matched: 10, limited: 5, sent: 2 }, { key: 'sheet_1', matched: 0, limited: 0, sent: 0 }];
+    const macros = [{ key: 'sheet_0', occurrences: 2, text: 'final selected text' }, { key: 'sheet_1', occurrences: 1, text: '' }];
+    log.start('chat', { model: 'test-model', messages: [] }, undefined, api, rows, macros);
+    assert.deepEqual(log.entries[0].keywordRows.map(row => row.macroTokens), ['pending', 'pending']);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, ['', 'final selected text']);
+    assert.deepEqual(log.entries[0].keywordRows.map(row => row.macroTokens), [10, 0]);
+});
+
 test('captures ordered prompt snapshots and partial responses without retaining connection credentials', () => {
     const log = new RequestLog();
     const controller = new AbortController();

@@ -16,7 +16,10 @@ export function prepareDatabaseResources(chat, header, config) {
             const selected = { ...database }, selectedMacros = { ...databaseMacros };
             const databaseKeywordRows = matches.map(({ key, table, matched, rows }) => {
                 const accepted = counts ? (counts.get(key) ?? 0) : rows.length;
-                if (accepted) selected[key] = { ...table, content: [table.content[0], ...rows.slice(0, accepted).map(({ row }) => row)] };
+                if (accepted) {
+                    const ordered = rows.slice(0, accepted).sort((a, b) => a.index - b.index);
+                    selected[key] = { ...table, content: [table.content[0], ...ordered.map(({ row }) => row)] };
+                }
                 else delete selected[key];
                 selectedMacros[key] = sheetText(selected, key, settings.summaryTableMaxEntries || 10);
                 return { key, name: table.name || key, matched, limited: rows.length, sent: accepted };
