@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "revision": "5196eec66ac56d91471f4add8d7b027ba6d429b455a7c4b3b524ac2a7aed2bfa",
-  "publishedAt": "2026-11-18T04:35:11.412623+00:00",
+  "revision": "fe73b271820595a04b2baae05aac01f7ca6e9ae0050c141d3fa4c43b3f75ea7f",
+  "publishedAt": "2026-11-18T04:57:31.750485+00:00",
   "files": {
-    "public/app/api.js": "60a005f625a5592fd18c31bf3e949957f103ed8462c08cb6f46f12f3deb2c91e",
+    "public/app/api.js": "9c393e608cb60e96f67606cf8f5f5774752ead65e027c2bdad2bb5ac0e722590",
     "public/app/background-generation.js": "e5ab164c28eb169efd70942b087d685206159b152ce3978d07db59e65913d45d",
     "public/app/category-select.js": "66825f8ec6611bbdef8b61803e489debec8a250e8a035003090391c726966ce9",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -25,12 +25,12 @@
     "public/app/database-ui.js": "e1720f5b7e92818c65ae3a5006f192ea77a85e89af68ce5a0b1bc4742d9fffff",
     "public/app/database.js": "56328ff628ff7b39feb01d681096e4fe30eacd922a4fdbc360e97e3b002366d5",
     "public/app/diagnostic-export.js": "3c0699c9f2e87a347440b7fc89502baff2239cd27503fa05925a6e55a653a5d6",
-    "public/app/engine.js": "8233278854bad168acde80cf4889c4586140798d28aee3648527fc35bd09dd1c",
+    "public/app/engine.js": "342973defc4c5b939af3aaa284e44255f8a1d14c159b40d697c152448c243d7e",
     "public/app/generation-interceptor.js": "30c05797f7e17aefe089ce9c9cbfbe019b3ab382f9c8e6b93782c03e328626d0",
     "public/app/generation-parameters.js": "89d74934b1b9f32da32ccad4d1fd36589972fdc2c16a88e99dfe1653ad48b3df",
     "public/app/generation-preload.js": "5f4a9c453682b7b504a7157d78dda890cb5d4326c01553a2a0041b4f0e004e85",
     "public/app/helper-state.js": "f6ab484ae47decb4a25c723361e55b8288e9c4ab1379cb04a4ee4316b9343c61",
-    "public/app/history-regex-cache.js": "a8eb4feb9b63b318972f10618f23e62c9c29cbf3da1caec6b4fea8010de088ff",
+    "public/app/history-regex-cache.js": "a04a7021ef0f2229e1b45b89da3148a8e6a1319b25ff0372c357e626657fd7ec",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
     "public/app/html-card-context.js": "e5cff3121116cff7856d86bc7036c0b041de5294f54b3db55fe353dd6a438bf0",
     "public/app/html-card-loader.js": "7ed9a89135acd88a8a704af094a9b58b5d32238cc160b70e500514ea81f63898",
@@ -39,7 +39,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
-    "public/app/main.js": "8d79f87b351a89ca4b9d1958eef703f2fdb7c1957b1a3dac3c992ab9090d9eb5",
+    "public/app/main.js": "d9b4cd5651ac940c0b821a35d9605eb000a3d824829f9825c5201b7a36ec170b",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -93,7 +93,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "45e7697c7c0774817ea65246b0c89bee7c0cc1915f3d188d73a00c07c356c271"
+    "public/app/version.js": "cfc1cacb3ac38a79838c3835817cea571aaac7272f69981deff382a279feffcb"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

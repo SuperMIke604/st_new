@@ -1,5 +1,8 @@
 import { applyRegex } from './regex.js';
 
+export const isDynamicPromptRegex = rule => [rule.findRegex, rule.replaceString, ...(rule.trimStrings || [])]
+    .some(value => String(value || '').includes('{{'));
+
 // Cache only pure prompt regex transforms. Macro expansion and variable state
 // still run in order for every request, with the latest input and world data.
 export class HistoryRegexCache {
@@ -38,7 +41,7 @@ export class HistoryRegexCache {
             if (this.signature !== signature) return warming ? null : execute(text, rules, placement, depth, variables);
             const eligible = candidates.filter(rule => rule.placement.map(Number).includes(placement) && !(rule.minDepth !== null && rule.minDepth !== '' && Number(rule.minDepth) >= -1 && depth < Number(rule.minDepth)) && !(rule.maxDepth !== null && rule.maxDepth !== '' && Number(rule.maxDepth) >= 0 && depth > Number(rule.maxDepth)));
             if (!eligible.length) { this.noRules++; return text; }
-            if (eligible.some(rule => [rule.findRegex, rule.replaceString, ...(rule.trimStrings || [])].some(value => String(value || '').includes('{{')))) { this.dynamicSkips++; return warming ? null : execute(text, eligible, placement, depth, variables); }
+            if (eligible.some(isDynamicPromptRegex)) { this.dynamicSkips++; return warming ? null : execute(text, eligible, placement, depth, variables); }
             const group = eligible.map(rule => candidates.indexOf(rule)).join(',');
             if (message) {
                 adaptive = true;

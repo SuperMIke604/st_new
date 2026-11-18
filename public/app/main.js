@@ -1,7 +1,7 @@
 import { categorySelect } from './category-select.js';
 import { RecentCharacters } from './home-data.js';
 import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGeneration, usesBackgroundGeneration } from './background-generation.js';
-import { chatRevision } from './chat-delta.js';
+import { chatLines, chatRevision } from './chat-delta.js';
 import { renderChatHistoryManager, persistChatHistory } from './chat-history.js';
 import { createToast } from './toast.js';
 import { installMessageEdit, installMessageEditGuard } from './message-edit.js';
@@ -898,14 +898,19 @@ function saveChat({ incremental = false, signal } = {}) {
     incremental ||= !!state.chatDeltaRetry;
     generationPreload.invalidate();
     if (!state.character) return Promise.resolve();
-    const record = loadTimings.measureSync('复制聊天保存快照', 'generation', () => ({ avatar: state.character.avatar, file: state.file, header: copy(state.header), messages: copy(state.chat) }));
+    const { avatar } = state.character;
+    const { file } = state;
+    const useDeltaSnapshot = incremental && api.canSaveChatDelta(avatar, file);
+    const record = useDeltaSnapshot
+        ? { snapshotLines: loadTimings.measureSync('序列化聊天增量快照', 'generation', () => chatLines([state.header, ...state.chat])) }
+        : loadTimings.measureSync('复制聊天保存快照', 'generation', () => ({ header: copy(state.header), messages: copy(state.chat) }));
     state.dirty = true; status('保存中…'); synchronize();
     const finishQueue = loadTimings.start('等待聊天保存队列', 'generation');
     const task = state.saves.catch(() => {}).then(async () => {
         finishQueue();
-        await api.saveChat(record.avatar, record.file, record.header, record.messages, { incremental, signal });
+        await api.saveChat(avatar, file, record.header, record.messages, { incremental, signal, snapshotLines: record.snapshotLines });
         state.chatDeltaRetry = false;
-        if (state.character?.avatar === record.avatar && state.file === record.file) state.chatUnpersisted = false;
+        if (state.character?.avatar === avatar && state.file === file) state.chatUnpersisted = false;
         state.dirty = false; status('已保存'); synchronize();
     }).catch(error => {
         if (incremental && error.status === 409) state.chatConflict = error.message;
@@ -2982,9 +2987,10 @@ async function preparePrompt(chat = state.chat) {
     const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, extensionPrompts: [...scriptRuntime.extensionPrompts.values()], mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details) };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
-        const key = model + '\n' + JSON.stringify(messages);
+        const serializedBody = JSON.stringify(messages);
+        const key = model + '\n' + serializedBody;
         if (tokenCounts.has(key)) return tokenCounts.get(key);
-        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, messages, { signal: state.controller?.signal });
+        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, messages, { signal: state.controller?.signal, serializedBody });
         if (!Number.isFinite(result?.token_count)) throw new Error('无法统计上下文 tokens，已停止发送。');
         if (key.length < 2000000) {
             while (tokenCounts.size && (tokenCounts.size >= 24 || tokenCacheBytes + key.length > 4000000)) { const oldest = tokenCounts.keys().next().value; tokenCacheBytes -= oldest.length; tokenCounts.delete(oldest); }

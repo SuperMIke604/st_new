@@ -61,3 +61,20 @@ test('unsupported plugins fall back once; revision conflicts never trigger an ov
         }
     }
 });
+
+test('serialized save snapshots preserve the queued values through native fallback', async () => {
+    const api = new TavernAPI(), paths = [];
+    api.rememberChatBase('card.png', 'chat', [header, history]);
+    const reply = { mes: '原文', swipes: ['原文'], extra: { unknown: 'keep' } };
+    const snapshotLines = chatLines([header, history, reply]);
+    reply.mes = 'later edit';
+    api.post = async (path, _payload, { serializedBody }) => {
+        paths.push(path);
+        if (path.endsWith('/chat-delta')) throw new ApiError('old plugin', 404);
+        assert.deepEqual(JSON.parse(serializedBody), { avatar_url: 'card.png', file_name: 'chat', chat: snapshotLines.map(JSON.parse) });
+        return { ok: true };
+    };
+    await api.saveChat('card.png', 'chat', undefined, undefined, { incremental: true, snapshotLines });
+    assert.deepEqual(paths, ['/api/plugins/st-new-updater/chat-delta', '/api/chats/save']);
+    assert.deepEqual(api.chatBase.lines, snapshotLines);
+});

@@ -1,6 +1,6 @@
 import { nativeGenerationParameters } from './generation-parameters.js';
 import { applyRegex, activeRegexes } from './regex.js';
-import { historyRegexCache } from './history-regex-cache.js';
+import { historyRegexCache, isDynamicPromptRegex } from './history-regex-cache.js';
 import { MESSAGE_VARIABLES, messageVariableContext, resolveMessageVariableMacro } from './variable-macros.js';
 export class CompatibilityError extends Error {
     constructor(message) { super(message); this.name = 'CompatibilityError'; }
@@ -115,7 +115,7 @@ export function parseExamples(text, variables, namesBehavior = 0) {
     return messages;
 }
 
-export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, databaseKeywordRows, databaseAutomatic, mvuSeed = null, extensionPrompts = [], measureBuild = (_label, task) => task() }) {
+export function buildPrompt({ character, persona = {}, preset = {}, chat = [], settings = {}, books = [], start = 0, worldEntries = null, databaseText = '', databaseMacros = {}, databaseKeywordRows, databaseAutomatic, mvuSeed = null, extensionPrompts = [], trimBoundaries, measureBuild = (_label, task) => task() }) {
     const card = character.data || character;
     const variables = {
         [MESSAGE_VARIABLES]: messageVariableContext(chat, mvuSeed),
@@ -142,6 +142,12 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
     if (worldEntries) { const locals = new Map(); for (const entry of worldEntries) for (const [name, value] of Object.entries(entry.variableState || {})) locals.set(name, value); localVariables.set(variables, locals); }
     const before = worlds.filter(e => e.position === 0).map(e => e.content).join('\n');
     const after = worlds.filter(e => e.position === 1).map(e => e.content).join('\n');
+    // Even an empty item can move a depth injection or evaluate a stateful macro.
+    const canCollapseEmpty = trimBoundaries
+        && !worlds.some(entry => entry.position === 4)
+        && !extensionPrompts.some(entry => entry.position === 1)
+        && !preset.prompts?.some(prompt => Number(prompt.injection_position) === 1)
+        && !regexes.some(rule => rule?.promptOnly && !rule.disabled && rule.findRegex && isDynamicPromptRegex(rule));
     const history = measureBuild('历史消息正则与宏展开', () => {
         const result = chat.slice(start).map((m, index) => ({ m, depth: chat.length - start - index - 1 })).filter(({m}) => !m.is_system).map(({m, depth}) => {
         if (m.extra?.media?.length || m.extra?.attachments?.length || m.extra?.file) throw new CompatibilityError('当前聊天包含媒体或附件，首版尚未支持把这些内容发给模型。');
@@ -157,7 +163,12 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
         try { content = expand(transformed, variables); }
         finally { historyMetrics.macroMs += performance.now() - started; }
         if (!narrator && (mode === 2 || (mode === 0 && m.force_avatar && name !== variables.user))) content = `${name}: ${content}`;
-        if (content.trim()) historyMetrics.effectiveMessages++;
+        const hasContent = !!content.trim();
+        if (hasContent) historyMetrics.effectiveMessages++;
+        if (trimBoundaries && (!canCollapseEmpty || hasContent
+            || String(m.mes ?? '').includes('{{') || String(transformed ?? '').includes('{{'))) {
+            trimBoundaries[chat.length - depth] = true;
+        }
         return { role: narrator ? 'system' : m.is_user ? 'user' : 'assistant', content,
             ...(!narrator && mode === 1 ? { name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 64) || '_' } : {}) };
         });
@@ -261,7 +272,9 @@ export async function fitPrompt(input, count) {
     const output = Number(input.preset.openai_max_tokens || 512);
     if (!Number.isFinite(context) || !Number.isFinite(output) || context <= output + 64 || output < 1) throw new Error('上下文长度需要大于回复长度，并预留至少 64 tokens。');
     const budget = context - output - 32;
-    let candidate = assemble(input);
+    const boundaries = new Uint8Array(input.chat?.length ?? 0);
+    if (input.start) boundaries.fill(1);
+    let candidate = assemble({ ...input, trimBoundaries: boundaries });
     const wi = input.settings.world_info_settings || {};
     let worldBudget = Math.floor(context * Math.max(0, Number(wi.world_info_budget ?? 25)) / 100);
     if (Number(wi.world_info_budget_cap) > 0) worldBudget = Math.min(worldBudget, Number(wi.world_info_budget_cap));
@@ -282,13 +295,25 @@ export async function fitPrompt(input, count) {
     candidate = await fitDatabaseKeywords(stable, candidate, assemble, count, budget);
     let tokens = await count(candidate.messages);
     if (tokens <= budget) return { ...candidate, tokens, budget };
-    let low = 1; let high = Math.max(0, input.chat.length - 1); let best = null;
+    // Keep the same binary search decisions, but share probes across start
+    // positions that remove identical prompt content and have no macro effects.
+    const probes = new Map();
+    const starts = new Uint32Array(boundaries.length);
+    for (let index = 1; index < starts.length; index++) starts[index] = boundaries[index] ? index : starts[index - 1];
+    let low = 1; let high = boundaries.length - 1; let best = null;
     while (low <= high) {
         const middle = Math.floor((low + high) / 2);
-        const slice = { ...stable, start: middle };
-        candidate = await fitDatabaseKeywords(slice, assemble(slice), assemble, count, budget);
-        tokens = await count(candidate.messages);
-        if (tokens <= budget) { best = { ...candidate, tokens, budget }; high = middle - 1; }
+        const start = starts[middle];
+        if (probes.has(start)) {
+            tokens = probes.get(start);
+        } else {
+            const slice = { ...stable, start };
+            candidate = await fitDatabaseKeywords(slice, assemble(slice), assemble, count, budget);
+            tokens = await count(candidate.messages);
+            probes.set(start, tokens);
+            if (tokens <= budget) best = { ...candidate, tokens, budget };
+        }
+        if (tokens <= budget) { best.trimmed = middle; high = middle - 1; }
         else low = middle + 1;
     }
     if (!best) throw new Error('角色、预设、世界书及最新消息已超过上下文上限，请减少内容或提高上下文长度。');

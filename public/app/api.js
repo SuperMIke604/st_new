@@ -147,11 +147,11 @@ export class TavernAPI {
     canSaveChatDelta(avatar, file) {
         return !this.chatDeltaMissing && this.chatBase?.avatar === avatar && this.chatBase.file === file;
     }
-    async trySaveChatDelta(avatar, file, records, signal, { timing, onWrite } = {}) {
+    async trySaveChatDelta(avatar, file, records, signal, { timing, onWrite, snapshotLines } = {}) {
         if (!this.canSaveChatDelta(avatar, file)) return false;
         const base = this.chatBase;
         const prepared = await (timing || loadTimings).measure('准备聊天增量传输', 'generation', async () => {
-            const lines = chatLines(records);
+            const lines = snapshotLines ?? chatLines(records);
             const delta = await chatDelta(base.lines, lines, base.revision);
             if (!delta) return null;
             const payload = { avatar_url: avatar, file_name: file, ...delta };
@@ -175,12 +175,17 @@ export class TavernAPI {
         this.chatBase = { avatar, file, lines, revision: delta.result };
         return true;
     }
-    async saveChat(avatar, file, header, messages, { incremental = false, signal, timing, onWrite } = {}) {
-        const payload = { avatar_url: avatar, file_name: file, chat: [header, ...messages] };
-        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat, signal, { timing, onWrite })) return;
+    async saveChat(avatar, file, header, messages, { incremental = false, signal, timing, onWrite, snapshotLines } = {}) {
+        const records = snapshotLines ? null : [header, ...messages];
+        if (incremental && await this.trySaveChatDelta(avatar, file, records, signal, { timing, onWrite, snapshotLines })) return;
         const diagnostics = timing || loadTimings;
         signal?.throwIfAborted();
-        const json = diagnostics.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
+        const payload = { avatar_url: avatar, file_name: file };
+        const json = diagnostics.measureSync('聊天保存 JSON 序列化', 'generation', () => {
+            if (snapshotLines) return JSON.stringify(payload).slice(0, -1) + ',"chat":[' + snapshotLines.join(',') + ']}';
+            payload.chat = records;
+            return JSON.stringify(payload);
+        });
         const finishCompression = diagnostics.start('准备聊天保存传输', 'generation');
         let prepared;
         try { prepared = await prepareChatSaveBody(json, { compress: this.chatCompression !== false }); finishCompression('success', { metrics: prepared.metrics }); }
@@ -191,7 +196,8 @@ export class TavernAPI {
                 onWrite?.();
                 const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, signal, timing, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
                 if (!result?.ok) throw new Error('聊天保存失败。');
-                this.rememberChatBase(avatar, file, payload.chat);
+                if (snapshotLines) this.chatBase = { avatar, file, lines: snapshotLines };
+                else this.rememberChatBase(avatar, file, records);
                 return;
             }
             catch (error) {

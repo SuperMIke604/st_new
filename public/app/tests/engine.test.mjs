@@ -141,6 +141,45 @@ test('token fitting drops oldest history but keeps latest; original chat unchang
     assert.ok(output.trimmed > 970); assert.ok(output.tokens <= output.budget);
     assert.equal(output.messages.at(-1).content, '消息999'); assert.equal(args.chat.length, 1000);
 });
+test('long runs of filtered history share exact trim probes without dropping additional floors', async () => {
+    const args = input();
+    args.preset = { openai_max_context: 400, openai_max_tokens: 100 };
+    args.settings = { extension_settings: { regex: [{ placement: [2], promptOnly: true, findRegex: '^discard$', replaceString: '' }] } };
+    args.chat = [{ mes: 'old '.repeat(100) }, ...Array.from({ length: 1107 }, () => ({ mes: 'discard' })),
+        ...Array.from({ length: 21 }, (_, index) => ({ is_user: index % 2 === 0, mes: `recent ${index}` }))];
+    let calls = 0;
+    const result = await fitPrompt(args, async messages => {
+        calls++;
+        return messages.reduce((sum, message) => sum + message.content.length, 0);
+    });
+    assert.equal(result.trimmed, 1);
+    assert.deepEqual(result.messages, buildPrompt({ ...args, start: 1 }).messages);
+    assert.equal(calls, 2);
+});
+
+test('empty history with a macro side effect or depth anchor remains a distinct trim candidate', async () => {
+    const args = input();
+    args.preset = { openai_max_context: 240, openai_max_tokens: 100 };
+    args.chat = [
+        { mes: 'old '.repeat(100) },
+        { mes: '{{setvar::value::' + 'long '.repeat(100) + '}}' },
+        { mes: '{{getvar::value}} latest', is_user: true },
+    ];
+    const count = async messages => messages.reduce((sum, message) => sum + message.content.length, 0);
+    const variableResult = await fitPrompt(args, count);
+    assert.equal(variableResult.trimmed, 2);
+    assert.deepEqual(variableResult.messages, buildPrompt({ ...args, start: 2 }).messages);
+
+    args.chat = [{ mes: 'early' }, { mes: ' ' }, { mes: 'late', is_user: true }];
+    args.extensionPrompts = [{ position: 1, depth: 2, role: 'system', content: 'injection' }];
+    const anchored = await fitPrompt(args, async messages => {
+        const contents = messages.map(({ content }) => content);
+        return contents.includes('early') || contents.indexOf('late') < contents.indexOf('injection') ? 300 : 40;
+    });
+    assert.equal(anchored.trimmed, 1);
+    assert.deepEqual(anchored.messages, buildPrompt({ ...args, start: 1 }).messages);
+});
+
 test('too-large fixed prompt is blocked and media is not silently discarded', async () => {
     const args = input(); args.preset.openai_max_context = 800; args.preset.openai_max_tokens = 100;
     await assert.rejects(() => fitPrompt(args, () => Promise.resolve(2000)), /超过上下文/);
