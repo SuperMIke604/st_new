@@ -107,7 +107,7 @@ select, .select-control, .select-search, .global-world-search {
 .library-pager, .prompt-position, .prompt-kind, .prompt-token-count,
 .regex-list .prompt-summary small, .db-pager small, .db-save-status,
 .reference-preview-cell > small, .reference-card-head > small, .reference-diff-badge,
-.loading-copy small, .composer-foot, .message-number, .message-name, #save-status,
+.loading-copy small, .composer-foot, .message-number, .message-name, .message-visibility, #save-status,
 #current-name, .appbar #current-name, .code-toolbar, .native-link,
 .script-runtime-status, .db-row-number,
 .character-file.current-character .card-info h3::after,

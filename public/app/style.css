@@ -292,6 +292,15 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .message-header>.message-jumps-top{width:auto;flex:0 0 auto;margin-left:auto}.home-recent{display:grid;gap:8px;margin-top:24px}.home-recent .resource-row{margin:0}
 
 .message-header{position:relative}.message-header>.message-jumps-top{position:absolute;left:50%;transform:translateX(-50%);margin:0;width:auto}
+.message > .message-visibility {
+    display: block;
+    width: fit-content;
+    margin-block-end: 8px;
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+}
 
 .database-preview-scroll{overflow:auto}.database-preview-section table{border-collapse:collapse;width:100%}.database-preview-section td{border:1px solid var(--line);padding:9px;text-align:left;white-space:pre-wrap;min-width:90px}.database-preview-section th{border:1px solid var(--line);padding:9px;text-align:left;white-space:pre-wrap;min-width:90px}
 

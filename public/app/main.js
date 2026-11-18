@@ -414,6 +414,12 @@ function renderMessage(message, index, existing) {
         node.prepend(header);
         const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
     }
+    const visibility = node.querySelector(':scope > .message-visibility');
+    if (message.is_system && !visibility) {
+        node.querySelector('.message-header').after(el('small', 'message-visibility', '对 AI 隐藏'));
+    } else if (!message.is_system) {
+        visibility?.remove();
+    }
     let switches = node.querySelector('.message-swipe-buttons');
     if (!message.is_user && index === state.chat.length - 1) {
         if (!switches) { switches = el('div','message-swipe-buttons');
@@ -1113,14 +1119,17 @@ async function renderPresetPanel(body, revision) {
                 const scope = tokenPreview;
                 if (scope.signal.aborted || revision !== panelRevision || (pageReady && !tokenCount.isConnected)) return;
                 const version = ++tokenVersion;
-                tokenCount.textContent = '…'; tokenCount.title = '后台统计 tokens…';
+                tokenCount.textContent = '统计中'; tokenCount.title = '后台统计 tokens…';
                 try {
                     const count = await scope.count(prompt);
                     if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
                     tokenCount.textContent = Number.isFinite(count) && count > 0 ? String(count) : '-';
                     tokenCount.title = '按当前聊天和资料库注入预算展开后的条目计数，包含条目正文与消息封装';
-                } catch {
-                    if (!scope.signal.aborted && version === tokenVersion && tokenCount.isConnected) tokenCount.textContent = '-';
+                } catch (error) {
+                    if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
+                    const timedOut = error?.name === 'TimeoutError';
+                    tokenCount.textContent = timedOut ? '超时' : '失败';
+                    tokenCount.title = timedOut ? 'token 统计请求超时' : '无法统计 tokens';
                 }
             };
             titleWrap.append(kind);
@@ -2760,7 +2769,10 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
         storeDatabase(state.chat, state.header, result, to, metadata);
         if (!summarizing && settings.hideAfterMessageSummary) {
             for (let index = Math.max(rangeStart, from); index <= to; index++) {
-                state.chat[index].is_system = true;
+                const message = state.chat[index];
+                if (message.is_system) continue;
+                message.is_system = true;
+                list.update(index);
             }
         }
         log.stage = '保存聊天';

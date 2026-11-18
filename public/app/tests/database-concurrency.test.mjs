@@ -15,7 +15,7 @@ function fixture() {
     const template = defaultDatabase();
     const state = { character: { avatar: 'A.png', name: 'A' }, file: 'chat', header: { chat_metadata: { integrity: 'keep' } },
         chat: [{ is_user: true, mes: 'question' }, { is_user: false, mes: 'answer', extra: { keep: true } }], own: {}, settings: {}, busy: false, controller: null };
-    const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [];
+    const settings = databaseSettings({ template, worldbookConfig: {} }), writes = [], notices = [], panels = [], requests = [], refreshedFloors = [];
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
     const context = vm.createContext({ state, requestLog: new RequestLog(), assertMessageEditClosed() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
@@ -29,14 +29,14 @@ function fixture() {
         parseUpdate: (_text, data, counts) => { counts.operations++; return { ...structuredClone(data), updated: true }; },
         databaseUpdateNotice: counts => `updated ${counts.operations}`,
         saveChat: async () => writes.push(structuredClone(state.chat)), rememberChat: async () => {},
-        notify: (...args) => notices.push(args), list: { setMessages() {} },
+        notify: (...args) => notices.push(args), list: { setMessages() {}, update: index => refreshedFloors.push(index) },
         assertViewable() {}, assertIdle() {}, status() {}, synchronize() {}, showPanel: () => { panels.push('open'); return { append() {} }; },
         renderDatabasePanel: (_body, value) => { panelContext = value; },
         el: () => ({}), field() {}, apiKeyField() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {},
     });
     vm.runInContext(functions, context);
     vm.runInContext('databaseProgress = () => ({ update() {}, close() {} })', context);
-    return { state, settings, requests, context, writes, notices, panels, run: code => vm.runInContext(code, context),
+    return { state, settings, requests, context, writes, notices, panels, refreshedFloors, run: code => vm.runInContext(code, context),
         panel: () => panelContext, signal: () => requestSignal,
         finish: (content = 'update') => resolveResponse(() => Response.json({ choices: [{ message: { content } }] })),
         respond: value => resolveResponse(() => value),
@@ -178,6 +178,7 @@ test('manual message summary hides selected and processed floors in the snapshot
     f.finish(); await task;
     assert.equal(f.writes.length, 1);
     assert.deepEqual(f.writes[0].map(message => !!message.is_system), [false, true, true, true, false]);
+    assert.deepEqual(f.refreshedFloors, [1, 2, 3]);
     assert.deepEqual(f.writes[0].map(message => message.mes), f.state.chat.map(message => message.mes));
     assert.equal(f.writes[0][3].TavernDB_ACU_Data.updated, true);
 });

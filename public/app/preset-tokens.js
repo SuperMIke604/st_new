@@ -65,7 +65,15 @@ export class PresetTokenPreview {
         return this.databaseText.get(key);
     }
     books() {
-        return this.booksPromise ||= this.loadBooks(this.signal);
+        if (!this.booksPromise) {
+            const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
+            this.booksPromise = this.loadBooks(signal).catch(error => {
+                this.booksPromise = null;
+                signal.throwIfAborted();
+                throw error;
+            });
+        }
+        return this.booksPromise;
     }
     async sheetMacros() {
         check(this.signal);
@@ -82,7 +90,10 @@ export class PresetTokenPreview {
             for (const { key } of resources.databaseKeywordRows) macros[key] = '';
             for (const { key, text } of result.databaseKeywordMacros || []) macros[key] = text;
             return macros;
-        })();
+        })().catch(error => {
+            if (this.sheetScope?.promise === promise) this.sheetScope = null;
+            throw error;
+        });
         this.sheetScope = { signature, promise };
         return promise;
     }
@@ -110,13 +121,16 @@ export class PresetTokenPreview {
     }
     history() {
         return this.historyPromise ||= (async () => {
-            const variables = this.variables(this.chat.some(message => hasSheetMacro(message.mes)) ? await this.sheetMacros() : undefined), messages = [];
+            const containsSheet = this.chat.some(message => !message.is_system && hasSheetMacro(message.mes));
+            const variables = this.variables(containsSheet ? await this.sheetMacros() : undefined), messages = [];
             let sliceStarted = performance.now();
             for (let index = 0; index < this.chat.length; index++) {
                 check(this.signal);
                 const message = this.chat[index];
-                const content = expand(applyRegex(message.mes || '', this.rules, message.is_user ? 1 : 2, { phase: 'prompt', depth: this.chat.length - index - 1, variables }), variables);
-                if (content.trim()) messages.push({ role: message.is_user ? 'user' : 'assistant', content });
+                if (!message.is_system) {
+                    const content = expand(applyRegex(message.mes || '', this.rules, message.is_user ? 1 : 2, { phase: 'prompt', depth: this.chat.length - index - 1, variables }), variables);
+                    if (content.trim()) messages.push({ role: message.is_user ? 'user' : 'assistant', content });
+                }
                 if ((index + 1) % 10 === 0 || performance.now() - sliceStarted >= 8) {
                     await yieldTask(this.signal); sliceStarted = performance.now();
                 }
@@ -152,10 +166,14 @@ export class PresetTokenPreview {
         const key = `${this.model}\n${JSON.stringify(messages)}`, cached = this.cache.get(key);
         if (cached !== undefined) return cached;
         if (!this.pending.has(key)) {
-            const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal: this.signal }).then(result => {
-                check(this.signal);
+            const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
+            const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal }).then(result => {
+                signal.throwIfAborted();
                 if (!Number.isFinite(result?.token_count) || result.token_count < 0) throw new Error('无法统计预设条目 tokens');
                 this.cache.set(key, result.token_count); return result.token_count;
+            }).catch(error => {
+                signal.throwIfAborted();
+                throw error;
             }).finally(() => this.pending.delete(key));
             this.pending.set(key, request);
         }
@@ -166,7 +184,7 @@ export class PresetTokenPreview {
         const snapshot = { ...prompt };
         const promise = new Promise((resolve, reject) => this.jobs.push({ resolve, reject, run: async () => {
             check(this.signal);
-            const messages = await this.messages(snapshot); check(this.signal); if (!messages) return null;
+            const messages = await this.messages(snapshot); check(this.signal); if (!messages?.length) return null;
             return this.countMessages(messages);
         } }));
         this.pump(); return promise;

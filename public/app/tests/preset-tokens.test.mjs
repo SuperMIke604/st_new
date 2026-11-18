@@ -73,6 +73,48 @@ test('301-message history preserves regex/macros and yields to the browser betwe
     assert.equal(chat[300].mes, '楼层 300 secret {{user}}');
     f.preview.dispose();
 });
+test('history preview skips hidden floors before scanning macros and keeps original regex depth', async () => {
+    const chat = [
+        { is_system: true, mes: '{{sheet_0}}' },
+        { is_user: true, mes: 'secret' },
+        { is_system: true, mes: '{{sheet_0}}' },
+    ];
+    const rule = { promptOnly: true, findRegex: 'secret', replaceString: 'visible', placement: [1], minDepth: 1 };
+    const options = { settings: { extension_settings: { regex: [rule] } }, readDatabase: () => assert.fail('hidden macros must not load the database') };
+    const history = { marker: true, identifier: 'chatHistory' };
+    const f = fixture({ ...options, chat });
+    f.preview.start();
+    assert.equal(await f.preview.count(history), 'visible'.length);
+    assert.deepEqual(f.calls[0].messages, [{ role: 'user', content: 'visible' }]);
+    f.preview.dispose();
+
+    const hidden = fixture({ ...options, chat: chat.filter(message => message.is_system) });
+    hidden.preview.start();
+    assert.equal(await hidden.preview.count(history), null);
+    assert.equal(hidden.calls.length, 0);
+    hidden.preview.dispose();
+});
+test('a stalled tokenizer request times out and a later count can retry', async t => {
+    const timeout = new AbortController();
+    t.mock.method(AbortSignal, 'timeout', () => timeout.signal);
+    let attempts = 0;
+    let started;
+    const firstRequest = new Promise(resolve => { started = resolve; });
+    const f = fixture({ api: { async post(_path, _messages, { signal }) {
+        if (++attempts > 1) return { token_count: 12 };
+        started();
+        await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }));
+    } } });
+    f.preview.start();
+    const prompt = { content: '条目' };
+    const failed = assert.rejects(f.preview.count(prompt), { name: 'TimeoutError' });
+    await firstRequest;
+    timeout.abort(new DOMException('timed out', 'TimeoutError'));
+    await failed;
+    t.mock.restoreAll();
+    assert.equal(await f.preview.count(prompt), 12);
+    f.preview.dispose();
+});
 test('sheet macro previews share the generation budget across enabled preset entries', async () => {
     const database = { mate: { type: 'chatSheets' },
         sheet_0: { name: '角色', injection: { mode: 'keyword', columns: [1], priority: 'high' }, content: [[null, '姓名', '状态'], [null, '周凛', 'person-row']] },
