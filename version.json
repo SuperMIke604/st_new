@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "fd57fa640281540d12ccb30635c6b77b06f9e3275a9c98ab8e35b64e6d5b8aa7",
-  "publishedAt": "2026-11-18T10:23:41.615498+00:00",
+  "revision": "2ee719dc8e6321663de89f09465047a0973fb07f160fcc8415599a82e80d4274",
+  "publishedAt": "2026-11-18T10:27:41.653361+00:00",
   "files": {
     "public/app/api.js": "9c393e608cb60e96f67606cf8f5f5774752ead65e027c2bdad2bb5ac0e722590",
     "public/app/background-generation.js": "e5ab164c28eb169efd70942b087d685206159b152ce3978d07db59e65913d45d",
@@ -43,7 +43,7 @@
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "fa0b527d76946242f4258e7a3dc7c7162e35673bae4eedbbf9a7f727fd533319",
+    "public/app/paper-cards.css": "8f18bbfabb1696b6deac1b1aedc41a15936a6c544ee16fae85c8e4dfa73f501c",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -93,7 +93,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "e3ae7790e4b8c3361bcaed47413074231693bffc4becc8d09429069d22b15ff0"
+    "public/app/version.js": "64cb7f24ae106f6d8302ea8069a6210fc7de9b47a5406e0dd77e0d22a8a0af56"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

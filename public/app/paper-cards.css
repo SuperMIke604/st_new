@@ -25,7 +25,7 @@
     --soft: #eae3d6;
     --ink: #292827;
     --muted: #6c5c4b;
-    --line: var(--card-field-border);
+    --line: #ae9b84;
     --green: #805b40;
     --card-gradient-top: #efe7da;
     --card-selected: #eee3d3;
@@ -34,7 +34,7 @@
     --card-field-border: #95826f;
     --card-message: #fbf7ef;
     --card-user-message: #eee3d3;
-    --card-user-border: var(--card-field-border);
+    --card-user-border: #a89176;
     --card-quiet-border: #d1c3b1;
     --card-dialogue: #75452e;
     --card-on-accent: #fffaf1;
@@ -476,13 +476,14 @@
     & .preset-prompt-heading .button:is(:hover, :active, :focus-visible)::before { background: var(--soft); }
     & .prompt-list { gap: 7px; }
     & .prompt-item {
+        --preset-entry-outline: color-mix(in srgb, var(--card-field-border) 70%, transparent);
         border-radius: 12px;
         background: var(--card-field);
-        box-shadow: inset 0 0 0 1px var(--card-field-border), 0 2px 3px -2px rgb(78 54 34 / 20%);
+        box-shadow: inset 0 0 0 1px var(--preset-entry-outline), 0 2px 3px -2px rgb(78 54 34 / 20%);
     }
     & .prompt-item[open] {
         background: var(--surface);
-        box-shadow: inset 0 0 0 1px var(--card-field-border), 0 2px 4px -2px rgb(78 54 34 / 20%);
+        box-shadow: inset 0 0 0 1px var(--preset-entry-outline), 0 2px 4px -2px rgb(78 54 34 / 20%);
     }
     & .prompt-item.prompt-disabled { background: var(--soft); }
     & .prompt-token-count { white-space: nowrap; }
