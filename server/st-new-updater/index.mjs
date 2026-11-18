@@ -52,18 +52,23 @@ function applyChatDelta(directory, body, confirmed) {
     }
     mark('deltaReadMs');
     let current, lines;
+    const separator = Buffer.from('\n');
     try {
         // Reuse validation only for byte-identical content written and verified
         // by this plugin. Native edits still take the canonical JSONL path.
         if (confirmed.target === target && digest(original) === confirmed.revision) {
-            lines = original.toString('utf8').split('\n');
             current = confirmed.revision;
             timings.deltaConfirmed = 1;
         } else {
             const records = original.toString('utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
             if (!record(records[0]) || Object.hasOwn(records[0], 'mes') || !records.every(record)) return { status: 409, error: conflict };
-            lines = records.map(item => JSON.stringify(item));
-            current = digest(lines.join('\n'));
+            lines = records.map(item => Buffer.from(JSON.stringify(item)));
+            const hash = createHash('sha256');
+            for (const [index, line] of lines.entries()) {
+                if (index) hash.update(separator);
+                hash.update(line);
+            }
+            current = hash.digest('hex');
             timings.deltaConfirmed = 0;
         }
     } catch (error) {
@@ -73,6 +78,17 @@ function applyChatDelta(directory, body, confirmed) {
     mark('deltaBaseMs');
     if (current === result) return success(result);
     if (current !== base) return { status: 409, error: conflict };
+    if (!lines) {
+        // Confirmed files are canonical UTF-8 JSONL. Slice the bytes without
+        // decoding history, and decode only records that receive a patch.
+        lines = [];
+        let start = 0, end;
+        while ((end = original.indexOf(10, start)) !== -1) {
+            lines.push(original.subarray(start, end));
+            start = end + 1;
+        }
+        lines.push(original.subarray(start));
+    }
     const seen = new Set();
     for (const patch of patches) {
         const { index, fields, remove } = patch ?? {};
@@ -80,15 +96,20 @@ function applyChatDelta(directory, body, confirmed) {
             || !record(fields) || !Array.isArray(remove) || !Object.keys(fields).every(safeField)
             || !remove.every(key => typeof key === 'string' && safeField(key))) return { status: 400, error: '无效的聊天字段。' };
         seen.add(index);
-        const previous = JSON.parse(lines[index]);
+        const previous = JSON.parse(lines[index].toString('utf8'));
         const integrity = index === 0 ? previous.chat_metadata?.integrity : undefined;
         for (const key of remove) delete previous[key];
         const next = { ...previous, ...fields };
         if (index === 0 && (Object.hasOwn(next, 'mes') || next.chat_metadata?.integrity !== integrity)) return { status: 409, error: conflict };
-        lines[index] = JSON.stringify(next);
+        lines[index] = Buffer.from(JSON.stringify(next));
     }
-    for (const message of append) lines.push(JSON.stringify(message));
-    const updated = Buffer.from(lines.join('\n'), 'utf8');
+    for (const message of append) lines.push(Buffer.from(JSON.stringify(message)));
+    const chunks = [];
+    for (const [index, line] of lines.entries()) {
+        if (index) chunks.push(separator);
+        chunks.push(line);
+    }
+    const updated = Buffer.concat(chunks);
     if (digest(updated) !== result) return { status: 409, error: conflict };
     mark('deltaPatchMs');
     // Keep validation and atomic replacement in one turn of the host event loop.

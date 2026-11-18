@@ -53,7 +53,13 @@ export class TavernAPI {
             const read = async () => structuredClone(await hit.promise);
             return timing ? timing.measure(`${label} · 复用读取缓存`, 'data', read, () => ({ metrics: { cacheHit: 1, sharedRequest } })) : read();
         }
-        if (!cacheable && !path.includes('/tokenizers/') && !path.includes('/generate')) this.readCache.clear();
+        if (!cacheable && !path.includes('/tokenizers/') && !path.includes('/generate')) {
+            if (path === '/api/plugins/st-new-updater/chat-delta') {
+                for (const cached of this.readCache.keys()) {
+                    if (!cached.startsWith('/api/worldinfo/') && !cached.startsWith('/api/plugins/st-new-updater/worlds')) this.readCache.delete(cached);
+                }
+            } else this.readCache.clear();
+        }
         const load = async () => {
             const response = await this.response(path, data, options);
             const text = timing ? await timing.measure(`${label} · 接收响应体`, 'data', () => response.text(), value => ({ metrics: { responseChars: value.length } })) : await response.text();
@@ -147,9 +153,15 @@ export class TavernAPI {
     canSaveChatDelta(avatar, file) {
         return !this.chatDeltaMissing && this.chatBase?.avatar === avatar && this.chatBase.file === file;
     }
-    async trySaveChatDelta(avatar, file, records, signal, { timing, onWrite, snapshotLines } = {}) {
+    async trySaveChatDelta(avatar, file, records, signal, { timing, onWrite, snapshotLines, skipUnchanged = false } = {}) {
         if (!this.canSaveChatDelta(avatar, file)) return false;
         const base = this.chatBase;
+        signal?.throwIfAborted();
+        if (skipUnchanged && base.revision && snapshotLines?.length === base.lines.length
+            && snapshotLines.every((line, index) => line === base.lines[index])) {
+            (timing || loadTimings).start('复用已确认的助手聊天版本', 'generation')();
+            return true;
+        }
         const prepared = await (timing || loadTimings).measure('准备聊天增量传输', 'generation', async () => {
             const lines = snapshotLines ?? chatLines(records);
             const delta = await chatDelta(base.lines, lines, base.revision);

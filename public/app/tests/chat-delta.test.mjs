@@ -78,3 +78,36 @@ test('serialized save snapshots preserve the queued values through native fallba
     assert.deepEqual(paths, ['/api/plugins/st-new-updater/chat-delta', '/api/chats/save']);
     assert.deepEqual(api.chatBase.lines, snapshotLines);
 });
+
+test('only a trusted unchanged helper snapshot skips the request', async () => {
+    const api = new TavernAPI(), posts = [];
+    api.rememberChatBase('card.png', 'chat', [header, history]);
+    api.post = async (_path, payload) => {
+        posts.push(payload);
+        return { ok: true, revision: payload.result };
+    };
+    const snapshotLines = chatLines([header, history]);
+    assert.equal(await api.trySaveChatDelta('card.png', 'chat', null, undefined, { snapshotLines, skipUnchanged: true }), true);
+    assert.equal(posts.length, 1, 'an unconfirmed base is checked first');
+    assert.equal(await api.trySaveChatDelta('card.png', 'chat', null, undefined, { snapshotLines, skipUnchanged: true }), true);
+    assert.equal(posts.length, 1);
+    const actualChange = chatLines([header, { ...history, mes: 'later' }]);
+    assert.equal(await api.trySaveChatDelta('card.png', 'chat', null, undefined, { snapshotLines: actualChange, skipUnchanged: true }), true);
+    assert.equal(posts.length, 2);
+    await assert.rejects(api.trySaveChatDelta('card.png', 'chat', null, AbortSignal.abort(), { snapshotLines: actualChange, skipUnchanged: true }), { name: 'AbortError' });
+});
+
+test('chat delta retains warmed world reads but world edits invalidate them', async () => {
+    const api = new TavernAPI(), requests = [];
+    api.response = async path => {
+        requests.push(path);
+        return new Response('{}');
+    };
+    const book = { name: 'world' };
+    await api.post('/api/worldinfo/get', book);
+    await api.post('/api/plugins/st-new-updater/chat-delta', {});
+    await api.post('/api/worldinfo/get', book);
+    await api.post('/api/worldinfo/edit', book);
+    await api.post('/api/worldinfo/get', book);
+    assert.deepEqual(requests, ['/api/worldinfo/get', '/api/plugins/st-new-updater/chat-delta', '/api/worldinfo/edit', '/api/worldinfo/get']);
+});

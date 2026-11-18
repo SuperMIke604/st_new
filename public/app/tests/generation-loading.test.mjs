@@ -90,6 +90,8 @@ test('send stays busy through prompt preparation and first response, then clears
     await running;
     assert.deepEqual(f.timings.snapshot().find(entry => entry.label === '模型请求至响应头').metrics,
         { requestedStream: 1, streamResponse: 0 });
+    const phaseMetrics = f.timings.snapshot().find(entry => entry.label === '发送消息').metrics;
+    assert.ok(phaseMetrics.preSendMs >= 0 && phaseMetrics.postReplyMs >= 0);
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.state.chat.at(-1).mes, '测试回复');
     assert.equal(f.requestLog.entries[0].status, 'success');

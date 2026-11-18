@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { LoadTimings } from '../load-timings.js';
+import { chatLines } from '../chat-delta.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const functions = source.slice(source.indexOf('async function openCharacter('), source.indexOf('async function chatsPanel('));
 function fixture(post, failSettings = false) {
     const state = { character: { avatar: 'A.png', name: 'A' }, file: 'A-chat', header: { chat_metadata: { integrity: 'A-integrity' } }, chat: [{ mes: 'A private chat' }], own: {}, settings: {}, saves: Promise.resolve() };
     const input = { value: 'unsent draft' }, writes = [], patches = [], rendered = [], loading = [], stages = [], preloads = [], cancellations = [];
-    const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, api: { post, saveChat: async (...args) => writes.push(args) },
+    const context = vm.createContext({ state, loadTimings: new LoadTimings(), copy: structuredClone, chatLines,
+        api: { post, canSaveChatDelta: () => true, saveChat: async (...args) => writes.push(args) },
         assertSaved() {}, synchronize() { loading.push(!!state.loading); }, status: text => stages.push(text), uuid: () => 'new-id', safeName: value => value,
         persona: () => ({ name: 'User' }), $: () => input, clearWelcome() {},
         list: { setMessages: chat => rendered.push(chat) }, recentCharacters: { invalidate() {} },
@@ -18,9 +20,27 @@ function fixture(post, failSettings = false) {
         saveOwn: async patch => { if (failSettings) throw Error('settings offline'); patches.push(structuredClone(patch)); Object.assign(state.own, patch); },
     });
     vm.runInContext(functions, context);
-    return { state, input, writes, patches, rendered, loading, stages, preloads, cancellations, run: code => vm.runInContext(code, context) };
+    return { state, input, writes, patches, rendered, loading, stages, preloads, cancellations, api: context.api, run: code => vm.runInContext(code, context) };
 }
 const card = { avatar: 'B.png', name: 'B', data: { first_mes: '**欢迎**' } };
+test('tail saves reuse a confirmed snapshot and capture the new record before the queue runs', async () => {
+    const f = fixture(async () => []);
+    const base = { revision: 'a'.repeat(64), lines: chatLines([f.state.header, ...f.state.chat]) };
+    f.api.chatBase = base;
+    f.state.chat.push({ mes: 'reply', swipes: ['reply', 'other'] });
+    const saving = f.run('saveChat({ incremental: true, tailBase: api.chatBase })');
+    f.state.chat.at(-1).swipes[0] = 'later edit';
+    await saving;
+    assert.deepEqual(Array.from(f.writes[0][4].snapshotLines, JSON.parse), [
+        f.state.header, f.state.chat[0], { mes: 'reply', swipes: ['reply', 'other'] },
+    ]);
+
+    f.state.chat[0].mes = 'other historical edit';
+    f.state.databaseController = new AbortController();
+    await f.run('saveChat({ incremental: true, tailBase: api.chatBase })');
+    assert.deepEqual(Array.from(f.writes[1][4].snapshotLines, JSON.parse), [f.state.header, ...f.state.chat]);
+});
+
 test('alternate greetings initialize native branches and preserve saved selections', async () => {
     const f = fixture(async () => []);
     f.state.character = { ...card, data: { first_mes: 'default', alternate_greetings: ['second', 'third'] } };

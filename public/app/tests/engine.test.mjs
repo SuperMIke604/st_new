@@ -167,7 +167,46 @@ test('keyword budget uses fewer exact probes for uniform rows and keeps the prio
         assert.equal(result.tokens, 150_000 + cost(sent));
         assert.ok(cost(sent) <= 430 && cost(sent + 1) > 430);
         if (!uneven) assert.equal(calls, 4);
+        const budgetHints = { keywordRows: sent };
+        calls = 0;
+        const repeated = await fitPrompt({ ...settings, budgetHints }, async messages => {
+            calls++;
+            const size = messages[0].content.startsWith('当前聊天数据库') ? messages[0].content.split('\n').at(-1).length : 0;
+            return 150_000 + cost(size);
+        });
+        assert.deepEqual(repeated, result);
+        assert.equal(calls, 3);
+        const changed = await fitPrompt({ ...settings, databaseKeywordBudget: 80, budgetHints }, async messages => {
+            const size = messages[0].content.startsWith('当前聊天数据库') ? messages[0].content.split('\n').at(-1).length : 0;
+            return 150_000 + cost(size);
+        });
+        assert.equal(changed.databaseKeywordRows[0].sent, uneven ? 80 : 8);
+        assert.equal(budgetHints.keywordRows, uneven ? 80 : 8);
     }
+});
+
+test('the previous world prefix is checked against current text and budget', async () => {
+    const args = input();
+    args.preset = { openai_max_context: 1500, openai_max_tokens: 100 };
+    args.settings = { world_info_settings: { world_info_budget_cap: 64 } };
+    args.books = [{ entries: Array.from({ length: 128 }, (_, index) => ({ constant: true, content: 'abc', order: 128 - index })) }];
+    const budgetHints = {};
+    let probes = 0;
+    const count = async (messages, kind) => {
+        if (kind !== 'world') return 100;
+        probes++;
+        return messages[0].content.length;
+    };
+    const original = await fitPrompt({ ...args, budgetHints }, count);
+    assert.equal(budgetHints.worldEntries, 16);
+    assert.ok(probes > 2);
+    probes = 0;
+    assert.deepEqual(await fitPrompt({ ...args, budgetHints }, count), original);
+    assert.equal(probes, 2);
+    args.books[0].entries[0].content = 'a'.repeat(23);
+    const changed = await fitPrompt({ ...args, budgetHints }, count);
+    assert.equal(changed.activated.length, 11);
+    assert.equal(budgetHints.worldEntries, 11);
 });
 
 test('long runs of filtered history share exact trim probes without dropping additional floors', async () => {

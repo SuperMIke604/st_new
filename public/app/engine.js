@@ -255,11 +255,31 @@ async function fitDatabaseKeywords(input, candidate, assemble, count, contextBud
         const baselineTokens = await count(baseline.messages);
         if (baselineTokens >= contextBudget) return { candidate: baseline, tokens: baselineTokens };
         const budget = Math.min(baselineTokens + limit, contextBudget);
-        const fullTokens = await count(candidate.messages);
-        if (fullTokens <= budget) return { candidate, tokens: fullTokens };
         let first = 0, last = selection.length;
         let accepted = { candidate: baseline, tokens: baselineTokens };
-        let rejectedTokens = fullTokens;
+        let rejectedTokens;
+        const hint = input.budgetHints?.keywordRows;
+        if (Number.isInteger(hint) && hint > 0 && hint < last) {
+            const next = build(hint);
+            const tokens = await count(next.messages);
+            if (tokens > budget) {
+                last = hint;
+                rejectedTokens = tokens;
+            } else {
+                first = hint;
+                accepted = { candidate: next, tokens };
+                const neighbor = hint + 1 === last ? candidate : build(hint + 1);
+                const neighborTokens = await count(neighbor.messages);
+                if (neighborTokens > budget) return accepted;
+                if (hint + 1 === last) return { candidate, tokens: neighborTokens };
+                first = hint + 1;
+                accepted = { candidate: neighbor, tokens: neighborTokens };
+            }
+        }
+        if (rejectedTokens === undefined) {
+            rejectedTokens = await count(candidate.messages);
+            if (rejectedTokens <= budget) return { candidate, tokens: rejectedTokens };
+        }
         // Use measured costs to pick the first probes. Every bound is still
         // checked by the native tokenizer, and uneven rows fall back to bisection.
         for (let attempt = 0; first + 1 < last; attempt++) {
@@ -294,11 +314,25 @@ export async function fitPrompt(input, count) {
     if (Number(wi.world_info_budget_cap) > 0) worldBudget = Math.min(worldBudget, Number(wi.world_info_budget_cap));
     const budgeted = candidate.activated.filter(entry => !entry.ignoreBudget);
     let first = 0; let last = budgeted.length;
+    const countWorldPrefix = size => count(
+        [{ role: 'system', content: budgeted.slice(0, size).map(entry => entry.content).join('\n') }], 'world',
+    );
+    const worldHint = input.budgetHints?.worldEntries;
+    if (Number.isInteger(worldHint) && worldHint > 0 && worldHint <= last) {
+        if (await countWorldPrefix(worldHint) > worldBudget) last = worldHint - 1;
+        else {
+            first = worldHint;
+            if (first < last) {
+                if (await countWorldPrefix(first + 1) > worldBudget) last = first;
+                else first++;
+            }
+        }
+    }
     // Tokenizer calls are local HTTP requests. Search the ordered prefix in
     // logarithmic calls instead of issuing a request for every world entry.
     while (first < last) {
         const middle = Math.ceil((first + last) / 2);
-        const cost = await count([{ role: 'system', content: budgeted.slice(0, middle).map(e => e.content).join('\n') }]);
+        const cost = await countWorldPrefix(middle);
         if (cost <= worldBudget) first = middle; else last = middle - 1;
     }
     const allowed = new Set(budgeted.slice(0, first));
@@ -306,9 +340,16 @@ export async function fitPrompt(input, count) {
     if (accepted.length !== candidate.activated.length) candidate = assemble({ ...input, worldEntries: accepted });
     // Resolve random world activations once, rather than rerolling on each trim.
     const stable = { ...input, worldEntries: candidate.activated };
+    const rememberBudget = result => {
+        if (input.budgetHints) {
+            input.budgetHints.worldEntries = first;
+            input.budgetHints.keywordRows = result.databaseKeywordRows?.reduce((total, table) => total + table.sent, 0);
+        }
+        return result;
+    };
     let tokens;
     ({ candidate, tokens } = await fitDatabaseKeywords(stable, candidate, assemble, count, budget));
-    if (tokens <= budget) return { ...candidate, tokens, budget };
+    if (tokens <= budget) return rememberBudget({ ...candidate, tokens, budget });
     // Keep the same binary search decisions, but share probes across start
     // positions that remove identical prompt content and have no macro effects.
     const probes = new Map();
@@ -330,7 +371,7 @@ export async function fitPrompt(input, count) {
         else low = middle + 1;
     }
     if (!best) throw new Error('角色、预设、世界书及最新消息已超过上下文上限，请减少内容或提高上下文长度。');
-    return best;
+    return rememberBudget(best);
 }
 
 export function generationBody(connection, preset, messages) {

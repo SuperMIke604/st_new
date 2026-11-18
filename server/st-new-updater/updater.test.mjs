@@ -14,11 +14,11 @@ test('chat delta preserves unknown history, verifies persistence, and rejects st
     await fs.mkdir(path.join(chats, '角色'));
     const target = path.join(chats, '角色', '聊天.jsonl');
     const header = { chat_metadata: { integrity: 'keep' }, unknown: { keep: 1 } };
-    const history = { mes: '旧历史', swipes: ['旧历史', '候选'], extra: { other: 'keep' } };
+    const history = { mes: '旧历史\n新行 🌅', swipes: ['旧历史', '候选'], extra: { other: 'keep' } };
     const user = { mes: '新增消息', is_user: true };
     const serialize = records => records.map(item => JSON.stringify(item)).join('\n');
     const revision = records => createHash('sha256').update(serialize(records)).digest('hex');
-    await fs.writeFile(target, serialize([header, history]));
+    await fs.writeFile(target, '\uFEFF' + serialize([header, history]).replaceAll('\n', '\r\n') + '\r\n');
     const routes = new Map();
     await init({ post: (route, handler) => routes.set(route, handler) });
     const call = overrides => {

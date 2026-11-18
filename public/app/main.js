@@ -897,7 +897,7 @@ async function rememberChat(patch = {}) {
     if (state.own.lastChats?.[state.character.avatar] !== state.file) patch = { ...patch, lastChats };
     if (Object.keys(patch).some(key => JSON.stringify(state.own[key]) !== JSON.stringify(patch[key]))) await saveOwn(patch);
 }
-function saveChat({ incremental = false, signal } = {}) {
+function saveChat({ incremental = false, signal, tailBase } = {}) {
     if (state.chatConflict) return Promise.reject(new Error(state.chatConflict));
     incremental ||= !!state.chatDeltaRetry;
     generationPreload.invalidate();
@@ -905,8 +905,18 @@ function saveChat({ incremental = false, signal } = {}) {
     const { avatar } = state.character;
     const { file } = state;
     const useDeltaSnapshot = incremental && api.canSaveChatDelta(avatar, file);
+    const snapshotTail = () => {
+        const tail = state.chat.length;
+        if (tail && !state.databaseController && !state.dirty && tailBase?.revision && tailBase === api.chatBase
+            && (tailBase.lines.length === tail || tailBase.lines.length === tail + 1)) {
+            const lines = tailBase.lines.slice();
+            lines[tail] = JSON.stringify(state.chat[tail - 1]);
+            return lines;
+        }
+        return chatLines([state.header, ...state.chat]);
+    };
     const record = useDeltaSnapshot
-        ? { snapshotLines: loadTimings.measureSync('序列化聊天增量快照', 'generation', () => chatLines([state.header, ...state.chat])) }
+        ? { snapshotLines: loadTimings.measureSync('序列化聊天增量快照', 'generation', snapshotTail) }
         : loadTimings.measureSync('复制聊天保存快照', 'generation', () => ({ header: copy(state.header), messages: copy(state.chat) }));
     state.dirty = true; status('保存中…'); synchronize();
     const finishQueue = loadTimings.start('等待聊天保存队列', 'generation');
@@ -1711,10 +1721,18 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
                 ? timing.measureSync('助手校验聊天变更', 'generation', () => patch(records))
                 : patch(records);
             const deferPaint = state.generation?.dispatchingMessageSent || replyEvent;
+            const checkpoint = replyEvent || (state.generation?.dispatchingMessageSent ? state.generation : null);
             if (deferPaint && api.canSaveChatDelta?.(avatar, file)) {
-                const next = applyPatch([state.header, ...state.chat]);
+                const records = [state.header, ...state.chat];
+                const next = applyPatch(records);
+                const base = checkpoint?.chatBase;
+                // The lifecycle began with a confirmed save. Helper patches
+                // return new records for changed targets and share the rest.
+                const snapshotLines = !state.databaseController && base?.revision && base === api.chatBase && base.lines.length === records.length
+                    ? next.map((item, index) => item === records[index] ? base.lines[index] : JSON.stringify(item))
+                    : undefined;
                 try {
-                    if (await api.trySaveChatDelta(avatar, file, next, signal, { timing, onWrite })) { check(); verified = next; }
+                    if (await api.trySaveChatDelta(avatar, file, next, signal, { timing, onWrite, snapshotLines, skipUnchanged: !!snapshotLines })) { check(); verified = next; }
                 } catch (error) {
                     if (error.chatDelta) state.chatConflict = error.status === 409 ? error.message : '无法确认脚本写入结果，请重新打开聊天后再发送。';
                     else if (replyEvent?.writePending) state.chatConflict ||= '无法确认脚本写入结果，请重新打开聊天后再发送。';
@@ -1753,6 +1771,7 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
                 for (const key of Object.keys(state.chat[i])) if (!Object.hasOwn(messages[i], key)) delete state.chat[i][key];
                 Object.assign(state.chat[i], messages[i]);
             }
+            if (checkpoint) checkpoint.chatBase = api.chatBase;
             if (!deferPaint) list.setMessages(state.chat, { latest: list.follow });
         } else if (['save-settings', 'save-globals', 'save-lore-settings', 'save-buttons'].includes(operation)) {
             const value = operation === 'save-buttons' ? validateVariables({ buttons: payload?.value }) : validateVariables(operation === 'save-lore-settings' ? payload?.settings : payload?.value);
@@ -3042,8 +3061,9 @@ async function autoUpdateDatabase() {
   notify(`回复已保存，自动填表失败：${error.message}`,true);
  }
 }
-const tokenCounts = new Map();
-let tokenCacheBytes = 0;
+const tokenCounts = { entries: new Map(), chars: 0, maxEntries: 24, maxChars: 4000000 };
+const worldTokenCounts = { entries: new Map(), chars: 0, maxEntries: 32, maxChars: 1000000 };
+let lastBudgetHints;
 const generationPreload = new GenerationPreload(prepareDatabaseResources);
 function preloadNextGeneration() {
     const chat = state.chat, header = state.header, character = state.character;
@@ -3072,10 +3092,14 @@ function preloadNextGeneration() {
         } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error'); }
     }, key);
 }
-async function preparePrompt(chat = state.chat) {
+async function preparePrompt(chat = state.chat, useBudgetHints = false) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = loadTimings.measureSync('准备资料库文本与表格宏', 'generation', () => generationPreload.get(chat, state.header, state.own.database));
+    const model = connection().model || 'gpt-4';
+    const budgetKey = JSON.stringify([scriptIdentity(), model, state.preset.openai_max_context, state.preset.openai_max_tokens, resources.databaseKeywordBudget]);
+    const budgetHints = useBudgetHints ? (lastBudgetHints?.key === budgetKey ? { ...lastBudgetHints } : { key: budgetKey }) : undefined;
+    const signal = state.controller?.signal;
     const input = {
         character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources,
         extensionPrompts: [...scriptRuntime.extensionPrompts.values()],
@@ -3083,20 +3107,30 @@ async function preparePrompt(chat = state.chat) {
         onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'),
         measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details),
         measureKeywordBudget: task => loadTimings.measure('拟合资料库关键词预算', 'generation', task),
+        budgetHints,
     };
-    return fitPrompt(input, async messages => {
-        const model = connection().model || 'gpt-4';
+    const result = await fitPrompt(input, async (messages, category) => {
+        signal?.throwIfAborted();
+        const cache = category === 'world' ? worldTokenCounts : tokenCounts;
+        const { entries } = cache;
         const serializedBody = JSON.stringify(messages);
         const key = model + '\n' + serializedBody;
-        if (tokenCounts.has(key)) return tokenCounts.get(key);
-        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, messages, { signal: state.controller?.signal, serializedBody });
+        if (entries.has(key)) return entries.get(key);
+        const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, messages, { signal, serializedBody });
         if (!Number.isFinite(result?.token_count)) throw new Error('无法统计上下文 tokens，已停止发送。');
-        if (key.length < 2000000) {
-            while (tokenCounts.size && (tokenCounts.size >= 24 || tokenCacheBytes + key.length > 4000000)) { const oldest = tokenCounts.keys().next().value; tokenCacheBytes -= oldest.length; tokenCounts.delete(oldest); }
-            tokenCounts.set(key, result.token_count); tokenCacheBytes += key.length;
+        if (key.length < cache.maxChars / 2 && !entries.has(key)) {
+            while (entries.size && (entries.size >= cache.maxEntries || cache.chars + key.length > cache.maxChars)) {
+                const oldest = entries.keys().next().value;
+                cache.chars -= oldest.length;
+                entries.delete(oldest);
+            }
+            entries.set(key, result.token_count);
+            cache.chars += key.length;
         }
         return result.token_count;
     });
+    if (budgetHints) lastBudgetHints = budgetHints;
+    return result;
 }
 
 function waitForPageVisibility() {
@@ -3171,13 +3205,16 @@ async function generate(mode = false, recovery = null) {
     if (!recovery) generationBody(connection(), state.preset, []);
     const user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
     const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
+    const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
     let reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
+    let requestStarted, replyReceived;
     let backgroundJob = recovery;
     let resumeLater = false;
+    let userSaveBase, rawReplyBase;
     const backgroundSaveSignal = () => backgroundJob ? AbortSignal.timeout(30000) : undefined;
     const acknowledgeReply = () => {
         if (!backgroundJob) return;
@@ -3188,6 +3225,7 @@ async function generate(mode = false, recovery = null) {
         state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput();
         await loadTimings.measure('发送前保存聊天', 'generation', () => saveChat({ incremental: true }));
         userSaved = true;
+        userSaveBase = api.chatBase;
     };
     try {
         let prepared, body;
@@ -3213,12 +3251,16 @@ async function generate(mode = false, recovery = null) {
             if (!regenerate && !retry && scriptRuntime.helperReady) {
                 await persistUser();
                 state.generation.dispatchingMessageSent = true;
+                state.generation.chatBase = userSaveBase;
                 try {
                     await loadTimings.measure('助手事件 message_sent', 'generation', () => scriptRuntime.dispatch('message_sent', [state.chat.length - 1], scriptSnapshot(state), scriptIdentity()));
-                } finally { state.generation.dispatchingMessageSent = false; }
+                } finally {
+                    userSaveBase = state.generation.chatBase;
+                    state.generation.dispatchingMessageSent = false;
+                }
                 if (state.chatConflict) throw new Error(state.chatConflict);
             }
-            prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat));
+            prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat, true));
             body = loadTimings.measureSync('组装模型请求', 'generation', () => generationBody(connection(), state.preset, prepared.messages));
             if (state.controller.signal.aborted) return;
             if (!regenerate && !retry && !pendingUser) await persistUser();
@@ -3258,6 +3300,7 @@ async function generate(mode = false, recovery = null) {
                 try { localStorage.setItem(backgroundJobKey(), JSON.stringify(job)); }
                 catch { /* The backend can rediscover the job on startup. */ }
             }
+            requestStarted ??= loadTimings.now();
             return chatGenerationResponse(api, request, signal, {
                 id: backgroundJob?.id,
                 recovery: backgroundJob,
@@ -3312,6 +3355,7 @@ async function generate(mode = false, recovery = null) {
             }
         }
         if (!reply.mes && !reply.extra.reasoning) throw new Error('模型没有返回文本。');
+        replyReceived = loadTimings.now();
         finishRequest?.(null, reply.mes, reply.extra.reasoning || responseReasoning);
         completed = true;
         status('回复完成');
@@ -3340,8 +3384,11 @@ async function generate(mode = false, recovery = null) {
         if (completed && reply && (backgroundJob || scriptRuntime.helperReady)) {
             try {
                 if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
-                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat({ incremental: true, signal: backgroundSaveSignal() }));
+                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat({
+                    incremental: true, signal: backgroundSaveSignal(), tailBase: userSaveBase,
+                }));
                 rawSaved = true;
+                rawReplyBase = api.chatBase;
                 acknowledgeReply();
             } catch (error) { notifyGeneration(error.message, true); }
         }
@@ -3350,7 +3397,7 @@ async function generate(mode = false, recovery = null) {
                 if (document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
                 const finish = loadTimings.start('助手事件 message_received', 'generation');
                 const timing = loadTimings.scope(finish.id), controller = new AbortController();
-                const event = { timing, signal: controller.signal, writePending: false };
+                const event = { timing, signal: controller.signal, writePending: false, chatBase: rawReplyBase };
                 state.replyScriptEvent = event;
                 try {
                     const snapshot = timing.measureSync('助手准备回复快照', 'generation', () => scriptSnapshot(state));
@@ -3364,6 +3411,7 @@ async function generate(mode = false, recovery = null) {
                     if (event.writePending) state.chatConflict ||= '无法确认脚本写入结果，请重新打开聊天后再发送。';
                     controller.abort();
                     timing.close('cancelled');
+                    rawReplyBase = event.chatBase;
                     state.replyScriptEvent = null;
                 }
             } catch (error) { notifyGeneration(`回复已保留，角色脚本处理失败：${error.message}`, true); }
@@ -3380,12 +3428,19 @@ async function generate(mode = false, recovery = null) {
             }
         }
         if (completed && reply) {
-            try { await loadTimings.measure('回复后更新角色变量', 'generation', () => prepareRoleMvu(true, { message: reply, text: rawReplyText })); } catch (error) { notify(`回复已保留，角色变量更新失败：${error.message}`, true); }
+            const beforeMvu = rawReplyBase;
+            rawReplyBase = undefined;
+            try {
+                const mvu = await loadTimings.measure('回复后更新角色变量', 'generation', () => prepareRoleMvu(true, { message: reply, text: rawReplyText }));
+                if (mvu?.changed === false && state.chat.at(-1) === reply) rawReplyBase = beforeMvu;
+            } catch (error) { notify(`回复已保留，角色变量更新失败：${error.message}`, true); }
         }
         if (reply || pendingUser) {
             if (!state.chatConflict) {
                 try {
-                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: true, signal: backgroundSaveSignal() }));
+                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({
+                        incremental: true, signal: backgroundSaveSignal(), tailBase: rawReplyBase,
+                    }));
                     if (!resumeLater) acknowledgeReply();
                     await rememberChat();
                 } catch (error) { notifyGeneration(error.message, true); }
@@ -3405,7 +3460,10 @@ async function generate(mode = false, recovery = null) {
         }
         if (state.chatConflict) status(state.chatConflict, true);
         else if (!state.dirty) status(state.error ? `请求未完成 · ${state.error}` : '已保存', Boolean(state.error));
-        finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
+        finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled', { metrics: {
+            preSendMs: requestStarted === undefined ? undefined : requestStarted - sendStarted,
+            postReplyMs: replyReceived === undefined ? undefined : loadTimings.now() - replyReceived,
+        } });
         state.error = '';
         if (completed && !state.dirty && !state.chatConflict) { await autoUpdateDatabase(); preloadNextGeneration(); }
     }
