@@ -7,12 +7,18 @@ import { RequestLog } from '../request-log.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
+const sendPreparation = source.slice(source.indexOf('function setSendPreparation('), source.indexOf('function synchronize('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, timeoutWhileWriting = false, intercept = body => body } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
+    const stopClasses = new Set(), stopAttributes = new Map();
+    const stop = {
+        classList: { toggle: (name, present) => present ? stopClasses.add(name) : stopClasses.delete(name) },
+        setAttribute: (name, value) => stopAttributes.set(name, value),
+    };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
@@ -35,7 +41,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
     } };
     const timings = new LoadTimings();
     const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, setTimeout, clearTimeout, streamFrame: 0,
-        $: () => input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
+        $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
         preparePrompt: chat => { promptHistory.push(Array.from(chat, message => message.mes)); return prepared.promise; },
@@ -66,8 +72,8 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         },
         rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
-    vm.runInContext(generate, context);
-    return { state, input, storage, backgroundCalls, releases, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    vm.runInContext(sendPreparation + generate, context);
+    return { state, input, storage, backgroundCalls, releases, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
@@ -77,11 +83,15 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.state.generation.regenerate, false);
     assert.match(f.statuses.at(-1), /发送消息.*准备上下文/);
     assert.equal(f.requests(), 0);
+    assert.equal(f.stopClasses.has('is-preparing'), true);
+    assert.equal(f.stopAttributes.get('aria-label'), '正在准备发送，停止生成');
     f.prepared.resolve({ messages: [] }); await tick();
     assert.match(f.statuses.at(-1), /等待回复/);
     assert.equal(f.renders.at(-1).at(-1).pending, true);
     assert.equal(f.renders.at(-1).at(-1).text, '');
     assert.equal(f.requests(), 1);
+    assert.equal(f.stopClasses.has('is-preparing'), false);
+    assert.equal(f.stopAttributes.get('aria-label'), '停止生成');
     assert.deepEqual(f.requestLog.entries[0].messages, finalMessages);
     assert.equal(f.requestLog.entries[0].status, 'pending');
     assert.deepEqual(f.promptHistory, [['原来的回复', '测试消息']]);
@@ -155,8 +165,10 @@ test('stream diagnostics distinguish response headers, first reasoning text and 
 
 test('prompt failure clears loading without sending a request or losing the input', async () => {
     const f = fixture(), running = f.run(false);
+    assert.equal(f.stopClasses.has('is-preparing'), true);
     f.prepared.reject(new Error('上下文准备失败')); await running;
     assert.equal(f.requests(), 0);
+    assert.equal(f.stopClasses.has('is-preparing'), false);
     assert.equal(f.input.value, '测试消息');
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.notices.at(-1), '上下文准备失败');

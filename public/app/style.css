@@ -393,6 +393,20 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .chat-loading-overlay>.loading-state{width:min(360px,100%);min-height:140px;border:1px solid var(--line);border-radius:16px;background:var(--surface);box-shadow:0 8px 32px #00000008}
 .loading-compact{justify-content:flex-start;min-height:58px;padding:14px 0;gap:10px}.loading-compact .loading-spinner{flex-basis:17px;width:17px;height:17px}.loading-compact .loading-label{color:var(--muted)}
 @media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
+
+#stop-button.is-preparing { position: relative; }
+#stop-button.is-preparing::after {
+    content: "";
+    position: absolute;
+    inset: 5px;
+    border: 2px solid var(--line);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+    #stop-button.is-preparing::after { animation: home-spin .8s linear infinite; }
+}
 .message>.message-back-latest{display:flex;align-items:center;justify-content:center;gap:6px;width:max-content;min-height:32px;margin:12px auto 0;padding:5px 12px}
 .message>.message-back-latest>span{display:inline!important}
 #message-list{scroll-behavior:auto}

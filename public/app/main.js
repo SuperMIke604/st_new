@@ -348,6 +348,12 @@ function selectPreset() {
     state.presetMissing = !selected;
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
+function setSendPreparation(preparing) {
+    const button = $('stop-button');
+    button.classList.toggle('is-preparing', preparing);
+    button.setAttribute('aria-label', preparing ? '正在准备发送，停止生成' : '停止生成');
+}
+
 function synchronize() {
     if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) { scriptRuntime.dispose(); scriptSchema.dispose(); }
     if (scriptSchema.identity && scriptSchema.identity !== scriptIdentity()) scriptSchema.dispose();
@@ -3228,6 +3234,7 @@ async function generate(mode = false, recovery = null) {
         userSaveBase = api.chatBase;
     };
     try {
+        setSendPreparation(!recovery);
         let prepared, body;
         if (recovery) {
             const base = api.chatBase;
@@ -3301,6 +3308,7 @@ async function generate(mode = false, recovery = null) {
                 catch { /* The backend can rediscover the job on startup. */ }
             }
             requestStarted ??= loadTimings.now();
+            setSendPreparation(false);
             return chatGenerationResponse(api, request, signal, {
                 id: backgroundJob?.id,
                 recovery: backgroundJob,
@@ -3377,6 +3385,7 @@ async function generate(mode = false, recovery = null) {
             notifyGeneration(state.error, true);
         }
     } finally {
+        setSendPreparation(false);
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
