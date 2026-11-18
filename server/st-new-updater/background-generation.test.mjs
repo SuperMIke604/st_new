@@ -6,6 +6,51 @@ import { chatGenerationResponse, findBackgroundGeneration, releaseBackgroundGene
 import { readEvents } from '../../public/app/api.js';
 import { registerBackgroundGeneration } from './index.mjs';
 
+test('completed jobs survive time in the background and only yield capacity to new jobs', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let dispatch;
+    registerBackgroundGeneration({ post: (_path, handler) => { dispatch = handler; } }, {
+        requestModel: async (_url, { body }) => {
+            if (JSON.parse(body).wait) return new Promise(() => {});
+            return new Response('fixture reply');
+        },
+    });
+    const id = number => number.toString(16).padStart(32, '0');
+    const call = (action, number, fields = {}) => {
+        let status = 200;
+        return dispatch({
+            body: { action, id: id(number), ...fields },
+            socket: { remoteAddress: '127.0.0.1', localAddress: '127.0.0.1', localPort: 8000 },
+            user: { directories: { root: `fixture-${number}` } },
+            headers: {},
+        }, {
+            set() {},
+            status(code) { status = code; return this; },
+            json(body) { return { status, body }; },
+        });
+    };
+    const start = (number, modelRequest, recovery) => {
+        assert.equal(call('start', number, { modelRequest, recovery }).status, 200);
+    };
+    const read = number => call('read', number, { offset: 0 });
+    start(0, { wait: true });
+    start(1, {}, { avatar: 'fixture.png', file: 'fixture', base: 'b'.repeat(64) });
+    start(2, {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(read(1).body.done, true);
+    t.mock.timers.tick(24 * 60 * 60_000);
+    assert.equal(read(1).body.text, 'fixture reply');
+
+    for (let number = 3; number < 64; number++) start(number, { wait: true });
+    start(64, { wait: true });
+    assert.equal(read(2).status, 410);
+    assert.equal(read(1).body.text, 'fixture reply');
+    start(65, { wait: true });
+    assert.equal(read(1).status, 410);
+    assert.equal(read(0).body.done, false);
+    assert.equal(call('start', 66, { modelRequest: { wait: true } }).status, 429);
+});
+
 test('APK generation reads completed results after suspension and relays model failures', { timeout: 15000 }, async t => {
     let dispatch, generationCount = 0;
     let closeUpstream;

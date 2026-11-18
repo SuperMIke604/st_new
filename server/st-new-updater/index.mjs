@@ -350,7 +350,6 @@ function requestLocalModel(url, { method, headers, body, signal }) {
 
 export function registerBackgroundGeneration(router, { requestModel = requestLocalModel } = {}) {
     const jobs = new Map();
-    const keepResultMs = 15 * 60_000;
     const maxReplyChars = 4 * 1024 * 1024;
 
     async function generate(job, url, headers, requestBody) {
@@ -394,9 +393,6 @@ export function registerBackgroundGeneration(router, { requestModel = requestLoc
                 job.type = 'application/json';
             }
             job.done = true;
-            setTimeout(() => {
-                if (jobs.get(job.id) === job) jobs.delete(job.id);
-            }, keepResultMs).unref();
         }
     }
 
@@ -420,8 +416,14 @@ export function registerBackgroundGeneration(router, { requestModel = requestLoc
         if (action === 'start') {
             if (job) return response.json({ id });
             if (!record(modelRequest)) return response.status(400).json({ error: '无效的模型请求。' });
-            if (jobs.size >= 64 || [...jobs.values()].filter(entry => entry.owner === owner && !entry.done).length >= 4) {
+            if ([...jobs.values()].filter(entry => entry.owner === owner && !entry.done).length >= 4) {
                 return response.status(429).json({ error: '后台生成任务过多，请等待进行中的请求结束。' });
+            }
+            if (jobs.size >= 64) {
+                const completed = [...jobs.values()].filter(entry => entry.done);
+                const reclaim = completed.find(entry => !entry.recovery) ?? completed[0];
+                if (!reclaim) return response.status(429).json({ error: '后台生成任务过多，请等待进行中的请求结束。' });
+                jobs.delete(reclaim.id);
             }
             const localHost = socket.localAddress === '::1' ? '[::1]' : '127.0.0.1';
             const url = `http://${localHost}:${socket.localPort}/api/backends/chat-completions/generate`;
@@ -443,7 +445,7 @@ export function registerBackgroundGeneration(router, { requestModel = requestLoc
             void generate(next, url, headers, modelRequest);
             return response.json({ id });
         }
-        if (!job) return response.status(410).json({ error: '后台生成结果已过期，或 Termux 中的酒馆已重启。' });
+        if (!job) return response.status(410).json({ error: '后台生成结果已被清理，或 Termux 中的酒馆已重启。' });
         if (action === 'cancel') {
             job.recovery = null;
             job.controller.abort();
