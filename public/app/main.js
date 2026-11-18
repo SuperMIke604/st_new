@@ -2984,7 +2984,14 @@ async function preparePrompt(chat = state.chat) {
     if (!state.character) throw new Error('请先选择角色。');
     const books = await loadBooks();
     const resources = loadTimings.measureSync('准备资料库文本与表格宏', 'generation', () => generationPreload.get(chat, state.header, state.own.database));
-    const input = { character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources, extensionPrompts: [...scriptRuntime.extensionPrompts.values()], mvuSeed: state.header?.chat_metadata?.independentMvuSeed, onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'), measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details) };
+    const input = {
+        character: state.character, persona: persona(), preset: state.preset, chat, settings: state.settings, books, ...resources,
+        extensionPrompts: [...scriptRuntime.extensionPrompts.values()],
+        mvuSeed: state.header?.chat_metadata?.independentMvuSeed,
+        onBuild: () => loadTimings.start('构建提示词与展开宏', 'generation'),
+        measureBuild: (label, task, details) => loadTimings.measureSync(label, 'generation', task, details),
+        measureKeywordBudget: task => loadTimings.measure('拟合资料库关键词预算', 'generation', task),
+    };
     return fitPrompt(input, async messages => {
         const model = connection().model || 'gpt-4';
         const serializedBody = JSON.stringify(messages);

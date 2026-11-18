@@ -141,6 +141,35 @@ test('token fitting drops oldest history but keeps latest; original chat unchang
     assert.ok(output.trimmed > 970); assert.ok(output.tokens <= output.budget);
     assert.equal(output.messages.at(-1).content, '消息999'); assert.equal(args.chat.length, 1000);
 });
+test('keyword budget uses fewer exact probes for uniform rows and keeps the priority cutoff for uneven rows', async () => {
+    const args = input();
+    args.preset = { openai_max_context: 200_000, openai_max_tokens: 1000 };
+    args.chat = [{ is_user: true, mes: 'h'.repeat(150_000) }];
+    const length = 512;
+    const render = size => ({
+        databaseText: size ? 'x'.repeat(size) : '',
+        databaseAutomatic: true,
+        databaseKeywordRows: [{ key: 'sheet_0', sent: size }],
+    });
+    const settings = { ...args, ...render(length), databaseKeywordBudget: 430,
+        selectDatabaseKeywords: () => ({ length, render }),
+    };
+    for (const uneven of [false, true]) {
+        let calls = 0;
+        const cost = size => uneven ? size + Math.max(0, size - 90) * 50 : size * 10;
+        const result = await fitPrompt(settings, async messages => {
+            calls++;
+            const size = messages[0].content.startsWith('当前聊天数据库') ? messages[0].content.split('\n').at(-1).length : 0;
+            return 150_000 + cost(size);
+        });
+        const sent = result.databaseKeywordRows[0].sent;
+        assert.equal(sent, uneven ? 96 : 43);
+        assert.equal(result.tokens, 150_000 + cost(sent));
+        assert.ok(cost(sent) <= 430 && cost(sent + 1) > 430);
+        if (!uneven) assert.equal(calls, 4);
+    }
+});
+
 test('long runs of filtered history share exact trim probes without dropping additional floors', async () => {
     const args = input();
     args.preset = { openai_max_context: 400, openai_max_tokens: 100 };

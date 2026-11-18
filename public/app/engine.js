@@ -244,22 +244,36 @@ export function buildPrompt({ character, persona = {}, preset = {}, chat = [], s
 
 async function fitDatabaseKeywords(input, candidate, assemble, count, contextBudget) {
     const limit = input.databaseKeywordBudget;
-    if (!limit || !candidate.databaseKeywordRows?.some(table => table.sent)) return candidate;
-    const selection = input.selectDatabaseKeywords(candidate.keywordUsage);
-    const build = size => assemble({ ...input, ...selection.render(size) });
-    const baseline = build(0);
-    const baselineTokens = await count(baseline.messages);
-    if (baselineTokens >= contextBudget) return baseline;
-    const budget = Math.min(baselineTokens + limit, contextBudget);
-    if (await count(candidate.messages) <= budget) return candidate;
-    let first = 0, last = selection.length - 1, accepted = baseline;
-    while (first < last) {
-        const middle = Math.ceil((first + last) / 2);
-        const next = build(middle);
-        if (await count(next.messages) <= budget) { first = middle; accepted = next; }
-        else last = middle - 1;
+    if (!limit || !candidate.databaseKeywordRows?.some(table => table.sent)) {
+        return { candidate, tokens: await count(candidate.messages) };
     }
-    return accepted;
+    const measure = input.measureKeywordBudget ?? (task => task());
+    return measure(async () => {
+        const selection = input.selectDatabaseKeywords(candidate.keywordUsage);
+        const build = size => assemble({ ...input, ...selection.render(size) });
+        const baseline = build(0);
+        const baselineTokens = await count(baseline.messages);
+        if (baselineTokens >= contextBudget) return { candidate: baseline, tokens: baselineTokens };
+        const budget = Math.min(baselineTokens + limit, contextBudget);
+        const fullTokens = await count(candidate.messages);
+        if (fullTokens <= budget) return { candidate, tokens: fullTokens };
+        let first = 0, last = selection.length;
+        let accepted = { candidate: baseline, tokens: baselineTokens };
+        let rejectedTokens = fullTokens;
+        // Use measured costs to pick the first probes. Every bound is still
+        // checked by the native tokenizer, and uneven rows fall back to bisection.
+        for (let attempt = 0; first + 1 < last; attempt++) {
+            const fraction = (budget - accepted.tokens) / (rejectedTokens - accepted.tokens);
+            const middle = attempt < 2
+                ? Math.max(first + 1, Math.min(last - 1, first + Math.floor((last - first) * fraction)))
+                : Math.floor((first + last) / 2);
+            const next = build(middle);
+            const tokens = await count(next.messages);
+            if (tokens <= budget) { first = middle; accepted = { candidate: next, tokens }; }
+            else { last = middle; rejectedTokens = tokens; }
+        }
+        return accepted;
+    });
 }
 
 export async function fitPrompt(input, count) {
@@ -292,8 +306,8 @@ export async function fitPrompt(input, count) {
     if (accepted.length !== candidate.activated.length) candidate = assemble({ ...input, worldEntries: accepted });
     // Resolve random world activations once, rather than rerolling on each trim.
     const stable = { ...input, worldEntries: candidate.activated };
-    candidate = await fitDatabaseKeywords(stable, candidate, assemble, count, budget);
-    let tokens = await count(candidate.messages);
+    let tokens;
+    ({ candidate, tokens } = await fitDatabaseKeywords(stable, candidate, assemble, count, budget));
     if (tokens <= budget) return { ...candidate, tokens, budget };
     // Keep the same binary search decisions, but share probes across start
     // positions that remove identical prompt content and have no macro effects.
@@ -308,8 +322,7 @@ export async function fitPrompt(input, count) {
             tokens = probes.get(start);
         } else {
             const slice = { ...stable, start };
-            candidate = await fitDatabaseKeywords(slice, assemble(slice), assemble, count, budget);
-            tokens = await count(candidate.messages);
+            ({ candidate, tokens } = await fitDatabaseKeywords(slice, assemble(slice), assemble, count, budget));
             probes.set(start, tokens);
             if (tokens <= budget) best = { ...candidate, tokens, budget };
         }
