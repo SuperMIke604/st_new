@@ -796,6 +796,10 @@ function apiKeyField(parent, value) {
     form.addEventListener('submit', event => event.preventDefault());
     parent.append(form);
     const input = field(form, 'API Key', value, { type: 'password' });
+    const wrapper = el('div', 'field');
+    const label = el('label', '', 'API Key');
+    input.id = 'connection-api-key'; label.htmlFor = input.id;
+    input.parentElement.replaceWith(wrapper); wrapper.append(label, input);
     input.name = 'api-secret';
     input.autocomplete = 'new-password';
     return input;
@@ -983,15 +987,31 @@ async function connectionPanel(profileId = '', draft = null) {
     const picker = el('select'); picker.setAttribute('aria-label', '选择 API 连接');
     for (const profile of profileStore.profiles) { const option = el('option', '', profile.name || profile.url); option.value = profile.id; picker.append(option); }
     if (draft) { const option = el('option', '', '新连接（未保存）'); option.value = draft.id; picker.append(option); }
-    const profileBar = el('div', 'connection-profile-bar');
+    const profileBar = el('div', 'connection-profile-bar connection-settings-bar');
     picker.value = current.id; profileBar.append(picker); body.append(profileBar);
     picker.addEventListener('change', () => run(async () => {
         assertIdle(); const next = picker.value;
         if (panelDirty && !confirm('放弃未保存的连接修改并切换？')) { picker.value = current.id; return; }
         const updated = { ...profileStore, activeId: next }; await persistProfiles(updated); panelDirty = false; await connectionPanel(next);
     }));
+    const profileName = field(body, '连接名称', current.name || '默认连接');
+    const profileNameField = profileName.closest('.field');
+    profileNameField.hidden = true;
     const profileTools = el('div', 'connection-profile-tools');
-    profileTools.append(action('新建连接', () => connectionPanel('', { id: uuid(), name: '新连接', source: 'custom', url: '', model: '', stream: true, postProcessing: 'merge' }), 'plus'),
+    const profileActions = el('div', 'profile-extra-tools');
+    profileActions.id = 'connection-profile-actions'; profileActions.hidden = true;
+    profileActions.setAttribute('role', 'group'); profileActions.setAttribute('aria-label', '连接操作');
+    const more = action('连接操作', () => { more.focus(); setActionsOpen(profileActions.hidden); }, 'more');
+    more.title = '连接操作'; more.setAttribute('aria-label', more.title);
+    more.setAttribute('aria-controls', profileActions.id);
+    more.setAttribute('aria-expanded', 'false');
+    const setActionsOpen = open => {
+        profileActions.hidden = !open;
+        more.setAttribute('aria-expanded', String(open));
+    };
+    profileActions.append(action('修改名称', () => {
+        profileNameField.hidden = false; profileName.focus(); profileName.select();
+    }, 'edit'), action('新建连接', () => connectionPanel('', { id: uuid(), name: '新连接', source: 'custom', url: '', model: '', stream: true, postProcessing: 'merge' }), 'plus'),
         action('复制连接', () => connectionPanel('', { ...copy(current), id: uuid(), name: `${current.name || '连接'}（副本）` }), 'copy'),
         action('删除连接', async () => {
             assertIdle(); if (profileStore.profiles.length <= 1) throw new Error('至少保留一个连接。');
@@ -1000,12 +1020,20 @@ async function connectionPanel(profileId = '', draft = null) {
             await persistProfiles({ version: 1, activeId: profileStore.activeId === current.id ? profiles[0].id : profileStore.activeId, profiles });
             panelDirty = false; await connectionPanel();
         }, 'trash', 'danger'));
-    for (const button of profileTools.children) {
+    for (const button of profileActions.children) {
         const label = button.querySelector('span').textContent;
         button.title = label; button.setAttribute('aria-label', label);
+        button.addEventListener('click', () => { if (!profileActions.hidden) { setActionsOpen(false); more.focus(); } }, { capture: true });
     }
+    const closeActionsOnEscape = event => {
+        if (event.key !== 'Escape' || profileActions.hidden) return;
+        event.preventDefault(); event.stopPropagation(); setActionsOpen(false); more.focus();
+    };
+    profileTools.addEventListener('keydown', closeActionsOnEscape);
+    profileActions.addEventListener('keydown', closeActionsOnEscape);
+    profileTools.append(more);
     profileBar.append(profileTools);
-    const profileName = field(body, '连接名称', current.name || '默认连接');
+    profileBar.after(profileActions);
     const url = field(body, 'API 基础地址', current.url || '', { type: 'url' });
     const model = field(body, '模型', current.model || '', { options: [[current.model || '', current.model || '读取列表或输入模型 ID']] });
     model.dataset.searchable = 'true'; model.dataset.allowCustom = 'true';
@@ -1016,17 +1044,28 @@ async function connectionPanel(profileId = '', draft = null) {
     const key = apiKeyField(body, savedKey);
     url.closest('label').after(key.form);
     let masked = false;
+    const enteredKey = () => masked ? '' : key.value.trim();
     key.addEventListener('focus', () => { if (masked) { key.select(); } });
     key.addEventListener('beforeinput', () => { if (masked) { masked = false; key.value = ''; } });
     key.addEventListener('input', () => { if (masked && key.value !== '********') masked = false; });
-    const keyWrap = el('div', 'key-input-wrap'); key.before(keyWrap); keyWrap.append(key);
+    const keyWrap = el('div', 'connection-key-row'); key.before(keyWrap); keyWrap.append(key);
     const eye = action('显示密钥', async () => {
         if (masked) {
             throw new Error('此旧连接只保留了密钥引用。请重新填写一次密码并保存，之后刷新即可查看。');
         }
         const visible = key.type === 'password'; key.type = visible ? 'text' : 'password';
         eye.replaceChildren(icon(visible ? 'eyeOff' : 'eye')); eye.title = visible ? '隐藏密钥' : '显示密钥'; eye.setAttribute('aria-label', eye.title); eye.setAttribute('aria-pressed', String(visible));
-    }, 'eye', 'key-toggle'); eye.setAttribute('aria-label', '显示密钥'); eye.title = '显示密钥'; eye.setAttribute('aria-pressed', 'false'); keyWrap.append(eye);
+    }, 'eye', 'icon-button'); eye.querySelector('span').remove(); eye.setAttribute('aria-label', '显示密钥'); eye.title = '显示密钥'; eye.setAttribute('aria-pressed', 'false');
+    const copyKey = action('复制密钥', async () => {
+        if (masked) { notify('旧连接仅保留密钥引用，无法复制。请重新填写密钥。', 'info'); return; }
+        const value = enteredKey();
+        if (!value) { notify('没有可复制的 API Key', 'info'); return; }
+        try { await copyDiagnostics(value, key.form); }
+        catch { notify('复制失败，请检查浏览器的剪贴板权限', true); return; }
+        notify('API Key 已复制');
+    }, 'copy', 'icon-button');
+    copyKey.querySelector('span').remove(); copyKey.title = '复制密钥'; copyKey.setAttribute('aria-label', copyKey.title);
+    keyWrap.append(eye, copyKey);
     const secretState = await api.post('/api/secrets/read') || {};
     if (revision !== panelRevision) return;
     if (!savedKey && !key.value) {
@@ -1034,14 +1073,13 @@ async function connectionPanel(profileId = '', draft = null) {
         if (savedKey) { key.value = savedKey; sessionKeys.set(current.secretId, savedKey); }
     }
     const hasStoredReference = current.secretId && !current.secretId.startsWith('no-key-');
-    if (!savedKey && hasStoredReference) { masked = true; key.value = '********'; }
-    const enteredKey = () => masked ? '' : key.value.trim();
+    if (!savedKey && !key.value && hasStoredReference) { masked = true; key.value = '********'; }
     postProcessing.closest('label').after(model.closest('label'));
     const getConnection = () => normalizeConnection({ id: current.id, name: profileName.value.trim(), source: 'custom', url: url.value.trim(), model: model.value.trim(), stream: stream.value === 'stream', postProcessing: postProcessing.value, secretId: current.source === 'custom' ? current.secretId : undefined,
         ...((enteredKey() || current.proxyPassword) ? { proxyPassword: enteredKey() || current.proxyPassword } : {}) });
     const save = async (showNotice = true) => {
         assertIdle(); const value = getConnection();
-        if (!value.name) throw new Error('请输入连接名称。');
+        if (!value.name) { profileNameField.hidden = false; profileName.focus(); throw new Error('请输入连接名称。'); }
         if (value.source === 'custom' && current.source === 'openai' && !enteredKey() && current.secretId && !secretState?.api_key_custom) {
             throw new Error('此反代需要切换到兼容模式。旧密钥保存在官方接口下，请在 API Key 中重新填写反代密钥，再读取模型。');
         }
@@ -1402,7 +1440,7 @@ async function renderPresetPanel(body, revision) {
         await saveOwn({ preset: next }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已删除'); await presetPanel();
     }, 'trash', 'danger');
     if (ivory) {
-        const extra = el('div', 'preset-extra-tools');
+        const extra = el('div', 'profile-extra-tools');
         extra.id = 'preset-extra-' + uuid();
         extra.hidden = true;
         extra.setAttribute('role', 'group');
@@ -2100,18 +2138,50 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     const currentAvatar = state.character?.avatar;
     let folder = (currentAvatar && library.assignments[currentAvatar]) || 'unfiled';
     let mode = 'grid'; let page = 0;
-    let managingFolders = false;
     const selected = new Set();
     const toolbar = el('div', 'library-toolbar');
     const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
     const sort = el('select'); sort.setAttribute('aria-label', '角色排序');
     for (const [value, label] of [['name', '名称排序'], ['recent', '最近创建']]) { const option = el('option', '', label); option.value = value; sort.append(option); }
-    const create = action('新建角色', () => characterEditor(null), 'plus', 'icon-button');
-    const importButton = action('导入角色', () => importCharacter(library.folders.some(item => item.id === folder) ? folder : ''), 'import', 'icon-button');
-    for (const [button, label] of [[create, '新建角色'], [importButton, '导入角色']]) { button.querySelector('span').remove(); button.title = label; button.setAttribute('aria-label', label); }
-    toolbar.append(search, sort, create, importButton); body.append(toolbar);
-    const layout = el('div', 'library-layout');
-    const sidebar = el('aside', 'library-folders'); sidebar.setAttribute('aria-label', '角色分类');
+    const sticky = el('div', 'character-library-sticky');
+    const tools = el('div', 'character-library-tools'); tools.id = `character-library-tools-${uuid()}`; tools.hidden = true;
+    tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', '角色卡工具');
+    const setToolsOpen = open => { tools.hidden = !open; more.setAttribute('aria-expanded', String(open)); };
+    const more = action('更多角色卡操作', () => setToolsOpen(tools.hidden), 'more', 'icon-button');
+    more.title = '更多角色卡操作'; more.setAttribute('aria-label', more.title);
+    more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', tools.id);
+    const create = action('新建角色', () => { setToolsOpen(false); return characterEditor(null); }, 'plus', 'icon-button');
+    const importButton = action('导入角色', () => { setToolsOpen(false); more.focus(); return importCharacter(library.folders.some(item => item.id === folder) ? folder : ''); }, 'import', 'icon-button');
+    const createFolder = action('新建分类', () => { setToolsOpen(false); folderForm(); }, 'folderPlus', 'icon-button');
+    for (const button of [more, create, importButton, createFolder]) {
+        button.title = button.textContent.trim();
+        button.setAttribute('aria-label', button.title);
+        button.querySelector('span').remove();
+    }
+    sticky.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || tools.hidden || (!tools.contains(event.target) && event.target !== more)) return;
+        event.preventDefault(); event.stopPropagation(); setToolsOpen(false); more.focus();
+    });
+    toolbar.append(search, more);
+    tools.append(sort, create, importButton, createFolder);
+    const sidebar = el('aside', 'character-library-categories'); sidebar.setAttribute('aria-label', '角色分类');
+    const categoryRow = el('div', 'character-library-category-row');
+    const category = el('select'); category.setAttribute('aria-label', '角色分类');
+    category.addEventListener('change', () => {
+        const id = category.value;
+        chooseFolder(library.folders.find(item => String(item.id) === id)?.id ?? 'unfiled');
+    });
+    const folderTabs = el('div', 'character-library-folder-manager'); folderTabs.hidden = true;
+    folderTabs.id = `library-folder-manager-${uuid()}`;
+    const folderToggle = action('管理分类', () => {
+        folderTabs.hidden = !folderTabs.hidden;
+        folderToggle.setAttribute('aria-expanded', String(!folderTabs.hidden));
+    }, 'more', 'icon-button');
+    folderToggle.querySelector('span').remove();
+    folderToggle.title = '管理分类'; folderToggle.setAttribute('aria-label', folderToggle.title);
+    folderToggle.setAttribute('aria-controls', folderTabs.id); folderToggle.setAttribute('aria-expanded', 'false');
+    categoryRow.append(category, folderToggle); sidebar.append(categoryRow, folderTabs);
+    sticky.append(toolbar, tools, sidebar); body.append(sticky);
     const content = el('section', 'library-main'); content.setAttribute('aria-label', '角色文件');
     const breadcrumb = el('div', 'library-breadcrumb');
     const path = el('span'); const viewButtons = el('div', 'view-buttons');
@@ -2129,7 +2199,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     bulk.append(selectAll, selectedCount, destination, move);
     const cards = el('div', 'character-files');
     const pager = el('div', 'library-pager');
-    content.append(breadcrumb, cards, pager); layout.append(sidebar, content); body.append(layout);
+    content.append(breadcrumb, cards, pager);
     const form = el('section', 'folder-form'); form.hidden = true;
     const formTitle = el('h3'); form.append(formTitle);
     const folderName = field(form, '分类名称', '', { hint: '最多 40 个字符。分类只整理列表，不移动或删除角色文件。' }); folderName.maxLength = 40;
@@ -2142,7 +2212,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         await persist(raw => renaming ? renameFolder(raw, id, text) : libraryState(raw).folders.some(item => item.id === id) ? libraryState(raw) : addFolder(raw, id, text));
         folder = id; form.hidden = true; panelDirty = false; renderFolders(); renderCards(); notify('分类已保存');
     }, null, 'primary'), action('取消', () => { form.hidden = true; panelDirty = false; }));
-    body.prepend(form);
+    body.append(form, content);
     async function persist(transform) {
         state.settings = await api.patchSettings(settings => {
             const own = settingsOwn(settings); own.characterLibrary = transform(own.characterLibrary);
@@ -2154,94 +2224,56 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     function folderForm(id = null) {
         editingFolder = id; formTitle.textContent = id ? '重命名分类' : '新建分类';
         folderName.value = id ? library.folders.find(item => item.id === id).name : '';
-        const targetRow = id ? [...sidebar.querySelectorAll('[data-folder-id]')].find(row => row.dataset.folderId === id) : null;
-        if (targetRow) targetRow.append(form); else sidebar.insertBefore(form, sidebar.querySelector('.library-folder-tabs'));
-        form.hidden = false; form.scrollIntoView({ block: 'nearest' }); folderName.focus();
+        form.hidden = false; form.scrollIntoView({ block: 'nearest' }); folderName.focus({ preventScroll: true });
     }
     function chooseFolder(id) { folder = id; page = 0; selected.clear(); renderFolders(); renderCards(); }
-    let disposeFolderDrag;
     function renderFolders() {
-        disposeFolderDrag?.();
-        if (sidebar.contains(form)) body.prepend(form); sidebar.replaceChildren();
-        const heading = el('div', 'folder-heading'); heading.append(el('h2', '', '分类'), action('新建分类', () => folderForm(), 'plus'));
-        sidebar.append(heading);
-        const navigation = el('div', 'library-folder-navigation');
-        const folderTabs = el('nav', 'db-table-tabs library-folder-tabs');
-        folderTabs.id = `library-folder-tabs-${uuid()}`;
-        folderTabs.setAttribute('aria-label', '分类列表');
-        const options = [];
-        const folderToggle = action('管理分类', () => {
-            managingFolders = !managingFolders;
-            if (!managingFolders && folderTabs.contains(form)) sidebar.insertBefore(form, folderTabs);
-            updateFolderToggle();
-            if (managingFolders) folderTabs.scrollIntoView({ block: 'nearest' });
-        }, 'more', 'icon-button library-folder-toggle');
-        const updateFolderToggle = () => {
-            const label = managingFolders ? '收起分类管理' : '管理分类';
-            folderTabs.dataset.managing = String(managingFolders);
-            folderToggle.title = label; folderToggle.setAttribute('aria-label', label);
-            folderToggle.setAttribute('aria-expanded', String(managingFolders));
-        };
-        folderToggle.querySelector('span')?.remove();
-        folderToggle.setAttribute('aria-controls', folderTabs.id); updateFolderToggle();
-        sidebar.append(navigation, folderTabs);
-        const customFolders = el('div', 'custom-folders');
-        const append = (id, label) => {
+        const options = [['unfiled', '未分类'], ...library.folders.map(item => [item.id, item.name])];
+        category.replaceChildren(...options.map(([id, label]) => {
+            const total = filterCards(state.characters, library, id).length;
+            const option = el('option', '', `${label}（${total}）`);
+            option.value = id;
+            return option;
+        }));
+        category.value = folder;
+        category.disabled = options.length < 2;
+        folderToggle.disabled = !library.folders.length;
+        if (folderToggle.disabled) { folderTabs.hidden = true; folderToggle.setAttribute('aria-expanded', 'false'); }
+        folderTabs.replaceChildren();
+        for (const { id, name: label } of library.folders) {
             const row = el('div', 'folder-row');
             const button = action(label, () => chooseFolder(id), 'folder', 'folder-button'); button.draggable = false;
             button.classList.toggle('active', folder === id); button.setAttribute('aria-pressed', String(folder === id));
-            const total = filterCards(state.characters, library, id).length;
-            options.push([id, `${label}（${total}）`]);
-            const count = el('small', 'folder-count', String(total)); button.append(count); row.append(button);
-            if (!['all', 'unfiled'].includes(id)) {
-                const rename = action(`重命名 ${label}`, () => folderForm(id), 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
-                const remove = action(`删除 ${label}`, async () => { if (!confirm(`删除分类「${label}」？角色卡将保留并回到未分类。`)) return; await persist(raw => deleteFolder(raw, id)); if (folder === id) chooseFolder('unfiled'); }, 'trash', 'folder-edit danger'); remove.title = '删除分类'; remove.setAttribute('aria-label', `删除分类 ${label}`);
-                const menu = el('span', 'folder-inline-menu inset-action-menu'); menu.hidden = true; menu.append(rename, remove);
-                menu.id = `folder-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '分类操作');
-                const more = action('分类操作', () => {
-                    const expand = menu.hidden;
-                    for (const other of sidebar.querySelectorAll('.folder-inline-menu')) other.hidden = true;
-                    for (const other of sidebar.querySelectorAll('.folder-actions-toggle')) other.setAttribute('aria-expanded', 'false');
-                    menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
-                }, 'more', 'folder-edit folder-actions-toggle');
-                more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作';
-                more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', menu.id);
-                const actionAnchor = el('span', 'folder-action-anchor'); actionAnchor.append(menu, more); row.append(actionAnchor);
-                actionAnchor.addEventListener('keydown', event => {
-                    if (event.key !== 'Escape' || menu.hidden) return;
-                    event.preventDefault(); event.stopPropagation(); menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
-                });
-                row.dataset.folderId = id;
-                button.title = '拖动排序；触屏长按排序';
-                row.addEventListener('dragover', event => { event.preventDefault(); row.classList.add('drop-target'); });
-                row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
-                row.addEventListener('drop', event => {
-                    event.preventDefault(); row.classList.remove('drop-target');
-                    let values; try { values = JSON.parse(event.dataTransfer.getData('application/x-tavern-cards')); } catch { return; }
-                    if (!Array.isArray(values) || !values.every(avatar => state.characters.some(card => card.avatar === avatar))) return;
-                    void run(async () => { await persist(raw => moveCards(raw, values, id)); selected.clear(); renderCards(); notify('角色已移动'); });
-                });
-            }
-            (id === 'unfiled' ? folderTabs : customFolders).append(row);
-        };
-        append('unfiled', '未分类');
-        for (const item of library.folders) append(item.id, item.name);
-        folderTabs.append(customFolders);
-        navigation.append(categorySelect(el, '角色分类', options, folder, id => {
-            const option = options.find(([key]) => String(key) === id);
-            if (option) chooseFolder(option[0]);
-        }), folderToggle);
-        folderToggle.disabled = !library.folders.length;
-        disposeFolderDrag = installPromptDrag(customFolders, body, order => {
-            void run(async () => {
-                try { await persist(raw => {
-                    const next = libraryState(raw);
-                    const rank = new Map(order.map((id, index) => [id, index]));
-                    next.folders.sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length));
-                    return next;
-                }); } catch (error) { renderFolders(); throw error; }
+            const count = el('small', 'folder-count', String(filterCards(state.characters, library, id).length));
+            button.append(count); row.append(button);
+            const rename = action(`重命名 ${label}`, () => { folderTabs.hidden = true; folderToggle.setAttribute('aria-expanded', 'false'); folderForm(id); }, 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
+            const remove = action(`删除 ${label}`, async () => { if (!confirm(`删除分类「${label}」？角色卡将保留并回到未分类。`)) return; await persist(raw => deleteFolder(raw, id)); if (folder === id) chooseFolder('unfiled'); }, 'trash', 'folder-edit danger'); remove.title = '删除分类'; remove.setAttribute('aria-label', `删除分类 ${label}`);
+            const menu = el('span', 'folder-inline-menu inset-action-menu'); menu.hidden = true; menu.append(rename, remove);
+            menu.id = `folder-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '分类操作');
+            const more = action('分类操作', () => {
+                const expand = menu.hidden;
+                for (const other of sidebar.querySelectorAll('.folder-inline-menu')) other.hidden = true;
+                for (const other of sidebar.querySelectorAll('.folder-actions-toggle')) other.setAttribute('aria-expanded', 'false');
+                menu.hidden = !expand; more.setAttribute('aria-expanded', String(expand));
+            }, 'more', 'folder-edit folder-actions-toggle');
+            more.setAttribute('aria-label', `分类操作 ${label}`); more.title = '分类操作';
+            more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', menu.id);
+            const actionAnchor = el('span', 'folder-action-anchor'); actionAnchor.append(menu, more); row.append(actionAnchor);
+            actionAnchor.addEventListener('keydown', event => {
+                if (event.key !== 'Escape' || menu.hidden) return;
+                event.preventDefault(); event.stopPropagation(); menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus();
             });
-        }, { summarySelector: '.folder-button', idKey: 'folderId', allowButton: true, showHandle: false });
+            row.dataset.folderId = id;
+            row.addEventListener('dragover', event => { event.preventDefault(); row.classList.add('drop-target'); });
+            row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
+            row.addEventListener('drop', event => {
+                event.preventDefault(); row.classList.remove('drop-target');
+                let values; try { values = JSON.parse(event.dataTransfer.getData('application/x-tavern-cards')); } catch { return; }
+                if (!Array.isArray(values) || !values.every(avatar => state.characters.some(card => card.avatar === avatar))) return;
+                void run(async () => { await persist(raw => moveCards(raw, values, id)); selected.clear(); renderCards(); notify('角色已移动'); });
+            });
+            folderTabs.append(row);
+        }
         const value = destination.value;
         destination.replaceChildren();
         for (const [id, label] of [['', '未分类'], ...library.folders.map(item => [item.id, item.name])]) { const option = el('option', '', label); option.value = id; destination.append(option); }
@@ -3561,7 +3593,18 @@ document.addEventListener('click', event => { if (!quickReplies.contains(event.t
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
 for (const [label, glyph, callback] of [
     ['刷新页面', 'refresh', () => { assertIdle(); window.location.reload(); }],
-    ['最近请求记录', 'history', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle') })], ['变量管理器', 'tools', variableManagerPanel], ['加载日志', 'history', timingPanel], ['检查更新', 'refresh', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })], ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }], ['聊天记录管理', 'history', chatHistoryPanel], ['历史聊天', 'history', chatsPanel], ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }], ['数据预览', 'database', databasePreviewPanel], ['数据管理', 'tools', () => databasePanel()], ['更多工具', 'tools', toolsPanel]]) {
+    ['最近请求记录', 'requestFlow', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle') })],
+    ['变量管理器', 'tools', variableManagerPanel],
+    ['加载日志', 'activity', timingPanel],
+    ['检查更新', 'updateDownload', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })],
+    ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }],
+    ['聊天记录管理', 'message', chatHistoryPanel],
+    ['历史聊天', 'history', chatsPanel],
+    ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }],
+    ['数据预览', 'eye', databasePreviewPanel],
+    ['数据管理', 'database', () => databasePanel()],
+    ['更多工具', 'more', toolsPanel],
+]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
 $('tools-toggle').addEventListener('click', () => { closeQuickReplies(); composerTools.hidden = !composerTools.hidden; $('tools-toggle').setAttribute('aria-expanded', String(!composerTools.hidden)); if (!composerTools.hidden) positionComposerMenu(composerTools, $('tools-toggle')); });
@@ -3574,7 +3617,7 @@ $('panel').addEventListener('cancel', event => { event.preventDefault(); closePa
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void afterMessageEdit(() => generate(false)); });
-composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'tools'));
+composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'components'));
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('scroll', raiseNotification);

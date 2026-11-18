@@ -232,6 +232,10 @@
     border-color: var(--card-user-border);
 }
 
+[data-palette="ivory-cards"] .message:not(.from-user) {
+    background-color: #efeae1;
+}
+
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message-name {
     padding: 2px 8px;
     border-radius: 8px;
@@ -417,16 +421,7 @@
     border-color: var(--card-field-border);
 }
 
-:root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(
-    .field input:not([type=checkbox], [type=radio], [type=range], [type=color], [aria-invalid=true]),
-    .field textarea,
-    .field select,
-    .select-control,
-    .home-character-search,
-    .library-search,
-    .request-log-filters input,
-    .timing-copy
-):focus-visible {
+:root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.field select, .select-control):focus-visible {
     border-color: var(--green);
 }
 
@@ -445,22 +440,6 @@
 
 /* Ivory preset editor */
 [data-palette="ivory-cards"] #panel.preset-panel {
-    & .field[hidden], & .preset-extra-tools[hidden] { display: none; }
-    & .preset-extra-tools {
-        display: flex;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 4px;
-        padding-block: 4px;
-        border-bottom: 1px solid var(--line);
-    }
-    & .preset-extra-tools .button {
-        width: var(--control-size);
-        height: var(--control-size);
-        padding: 0;
-        flex: 0 0 var(--control-size);
-    }
-    & .preset-extra-tools .button > span { display: none; }
     & .world-global-settings {
         border: 1px solid var(--card-field-border);
         border-radius: var(--control-radius);
@@ -469,7 +448,6 @@
         border: 1px solid var(--card-field-border);
         border-radius: var(--control-radius);
     }
-    & .field :is(input, textarea):not([aria-invalid=true]):focus-visible { border-color: var(--green); }
     & .preset-prompt-heading { align-items: center; }
     & .preset-prompt-heading h2 { margin-block: 0; }
     & .preset-prompt-heading .button {
@@ -498,32 +476,31 @@
     & .preset-prompt-heading .button:is(:hover, :active, :focus-visible)::before { background: var(--soft); }
     & .prompt-list { gap: 7px; }
     & .prompt-item {
+        --preset-entry-outline: color-mix(in srgb, var(--card-field-border) 38%, transparent);
         border-radius: 12px;
         background: var(--card-field);
-        box-shadow: inset 0 0 0 1px var(--card-field-border), 0 2px 3px -2px rgb(78 54 34 / 20%);
+        box-shadow: inset 0 0 0 1px var(--preset-entry-outline), 0 2px 3px -2px rgb(78 54 34 / 20%);
     }
     & .prompt-item[open] {
         background: var(--surface);
-        box-shadow: inset 0 0 0 1px var(--card-field-border), 0 2px 4px -2px rgb(78 54 34 / 20%);
+        box-shadow: inset 0 0 0 1px var(--preset-entry-outline), 0 2px 4px -2px rgb(78 54 34 / 20%);
     }
     & .prompt-item.prompt-disabled { background: var(--soft); }
     & .prompt-token-count { white-space: nowrap; }
 }
 @media (max-width: 700px) {
-    :root[data-palette="ivory-cards"]:has(#panel.preset-panel[open]) {
-        --preset-gutter: max(9px, env(safe-area-inset-left), env(safe-area-inset-right));
-        & .appbar { padding-inline: var(--preset-gutter); }
-        & #panel.preset-panel[open] {
-            inset-inline: var(--preset-gutter);
+    :root[data-palette="ivory-cards"]:has(#panel[open]) {
+        --panel-gutter: max(9px, env(safe-area-inset-left), env(safe-area-inset-right));
+        & .appbar { padding-inline: var(--panel-gutter); }
+        & #panel[open] {
+            inset-inline: var(--panel-gutter);
             width: auto;
             border-radius: 17px 17px 0 0;
             box-shadow: 0 4px 16px rgb(78 54 34 / 8%);
         }
-        & #panel.preset-panel .panel-header {
+        & #panel > .panel-header {
             padding-block: 6px;
-            min-height: 54px;
             background: linear-gradient(110deg, var(--card-gradient-top), var(--surface) 80%);
         }
-        & #panel-title { margin-block: 0; }
     }
 }

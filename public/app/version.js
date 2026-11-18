@@ -1,1 +1,1 @@
-export const BUILD = {"schema": 1, "revision": "0a404e3858b324558c3fc1318beefa38c5823c8d68e844c230ad1c667c165b23", "publishedAt": "2026-11-18T07:03:27.740507+00:00"};
+export const BUILD = {"schema": 1, "revision": "cc63f291e92df13b61d6b09b927a6a2a4b9c358ba032033016a5c6f5267de5fd", "publishedAt": "2026-11-18T09:31:27.308414+00:00"};

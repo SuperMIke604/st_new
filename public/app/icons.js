@@ -38,9 +38,13 @@ const paths = {
     edit: '<path d="m15 4 5 5M4 20l5-1L20 8a3 3 0 0 0-4-4L5 15l-1 5Z"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     refresh: '<path d="M20 4v6h-6M4 20v-6h6m-6-4a8 8 0 0 1 13-6l3 6M4 14l3 6a8 8 0 0 0 13-6"/>',
+    requestFlow: '<path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/>',
+    activity: '<path d="M2 12h4l3-7 5 14 3-7h5"/>',
+    updateDownload: '<path d="M7 17H6a4 4 0 1 1 1-7.9 6 6 0 0 1 11.7 1.9A3 3 0 0 1 18 17h-1M12 12v9m-3-3 3 3 3-3"/>',
     down: '<path d="M12 4v16m-6-6 6 6 6-6"/>',
     up: '<path d="M12 20V4m-6 6 6-6 6 6"/>',
     folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
+    folderPlus: '<path d="M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M12 11v6m-3-3h6"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
 };
