@@ -81,11 +81,15 @@ export class PresetTokenPreview {
         if (this.sheetScope?.signature === signature) return this.sheetScope.promise;
         const promise = (async () => {
             const resources = this.sheetResources ||= generationDatabaseResources(this.chat, this.header, this.databaseConfig, this.database());
-            if (!resources.databaseKeywordBudget || !resources.databaseKeywordRows?.length) return resources.databaseMacros;
+            if (!resources.databaseKeywordBudget || !resources.databaseKeywordRows?.some(table => table.sent)) return resources.databaseMacros;
             const books = await this.books(); check(this.signal);
+            const counts = new WeakMap();
             const result = await fitPrompt({ character: this.character || {}, persona: this.persona,
                 preset: JSON.parse(signature), chat: this.chat, settings: this.settings, books,
-                mvuSeed: this.header?.chat_metadata?.independentMvuSeed, ...resources }, messages => this.countMessages(messages));
+                mvuSeed: this.header?.chat_metadata?.independentMvuSeed, ...resources }, messages => {
+                if (!counts.has(messages)) counts.set(messages, this.countMessages(messages));
+                return counts.get(messages);
+            });
             const macros = { ...resources.databaseMacros };
             for (const { key } of resources.databaseKeywordRows) macros[key] = '';
             for (const { key, text } of result.databaseKeywordMacros || []) macros[key] = text;
@@ -163,11 +167,12 @@ export class PresetTokenPreview {
     }
     countMessages(messages) {
         check(this.signal);
-        const key = `${this.model}\n${JSON.stringify(messages)}`, cached = this.cache.get(key);
+        const body = JSON.stringify(messages);
+        const key = `${this.model}\n${body}`, cached = this.cache.get(key);
         if (cached !== undefined) return cached;
         if (!this.pending.has(key)) {
-            const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
-            const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal }).then(result => {
+            const signal = AbortSignal.any([this.signal, AbortSignal.timeout(45_000)]);
+            const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal, serializedBody: body }).then(result => {
                 signal.throwIfAborted();
                 if (!Number.isFinite(result?.token_count) || result.token_count < 0) throw new Error('无法统计预设条目 tokens');
                 this.cache.set(key, result.token_count); return result.token_count;

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "faecbaf0a3474014217899827222418e336e8e534c1434793610db074d8449ed",
-  "publishedAt": "2026-11-18T00:40:00.230544+00:00",
+  "revision": "f30d522d2fb80003dd2d3070b4d75b2bb1a858aeafaf332b5c05431e0443b509",
+  "publishedAt": "2026-11-18T01:00:28.477088+00:00",
   "files": {
     "public/app/api.js": "4ad2465b727aa5bdaf746e10881f77457da212c00953f1e5a948eafcfdba5b9a",
     "public/app/background-generation.js": "e5ab164c28eb169efd70942b087d685206159b152ce3978d07db59e65913d45d",
@@ -39,7 +39,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4db0e80e4dc39b582ee5d59ef55eb502379e0855408634db9d1e2ec9a16b4e8b",
-    "public/app/main.js": "5871d0f710699afb7091cfd097b02d48efbe286d12618c35c9bc91d0aebb88bc",
+    "public/app/main.js": "36a7965fe74a6857e5117c7d06adea4c01b2a956ab7cfc9d4e210d8f769a8689",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -47,7 +47,9 @@
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
-    "public/app/preset-tokens.js": "e80bfdc0f574106af3f14da6ee96a31712d77efef75f593f1de49fcfad34c079",
+    "public/app/preset-token-client.js": "6ff39e8a06e20300027710472ab638fe21425756f478f32a7ee9d315e04944e0",
+    "public/app/preset-token-worker.js": "b70e60ae0ef43028efe10a76cfcfd5733624d23e36d0ffc652aa9b0c3f9082e8",
+    "public/app/preset-tokens.js": "c4f149a8e80af98071822176d6440b26b97c05db19662255802a04d6c834c240",
     "public/app/prompt-autosize.js": "58e2fa7e3184c890d2029925935873fead42f8316dcf683b99219b27cbde3acb",
     "public/app/prompt-drag.js": "badb1418c16868e66b76c2740159a8b9ebe80e0a301411bc942fa61c3ee32ad0",
     "public/app/reading.js": "6320752f6d9765fc2b28b9776afd78c81aa26fcf1baac9d9ab08e3e7d94458c1",
@@ -91,7 +93,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "9220097bf8a7d857aa5b38cc2b8ca34a46345322d5e157ea186e228a5795b9ea"
+    "public/app/version.js": "0e40515f99b2aee5e35e398ae009e5ae4c31ac6ae898e5b336cf51d24a9cedaf"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

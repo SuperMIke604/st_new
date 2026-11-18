@@ -134,6 +134,19 @@ test('sheet macro previews share the generation budget across enabled preset ent
     assert.deepEqual(await Promise.all(prompts.map(prompt => f.preview.count(prompt))), [null, 10]);
     f.preview.dispose();
 });
+test('keyword previews skip full context fitting when the chat matches no rows', async () => {
+    const database = { mate: { type: 'chatSheets' },
+        sheet_0: { name: '人物', injection: { mode: 'keyword', columns: [1] }, content: [[null, '姓名'], [null, '周凛']] },
+    };
+    const f = fixture({
+        chat: [{ is_user: true, mes: '另一个角色' }], readDatabase: () => database, databaseConfig: { keywordInjectionTokens: 10 },
+        loadBooks: () => assert.fail('empty matches do not need the full context'),
+    });
+    f.preview.start();
+    assert.equal(await f.preview.count({ content: '人物：{{sheet_0}}' }), 3);
+    assert.deepEqual(f.calls.map(call => call.messages), [[{ role: 'system', content: '人物：' }]]);
+    f.preview.dispose();
+});
 test('closing a panel cancels active requests and never starts the queued entries', async () => {
     let calls = 0;
     const f = fixture({ api: { post(path, messages, { signal }) {

@@ -23,7 +23,7 @@ import { exportDiagnostics, copyDiagnostics } from './diagnostic-export.js';
 import { requestLog, showRequestLog } from './request-log.js';
 import { BUILD } from './version.js';
 import { PresetSelection } from './preset-selection.js';
-import { PresetTokenPreview } from './preset-tokens.js';
+import { PresetTokenClient } from './preset-token-client.js';
 import { GenerationPreload, prepareDatabaseResources } from './generation-preload.js';
 import { manualUpdate } from './update.js';
 import { renderDatabasePreview } from './database-preview.js';
@@ -1086,7 +1086,7 @@ async function renderPresetPanel(body, revision) {
         clearTimeout(tokenTimer);
         for(const dispose of promptSizes.splice(0))dispose();
         rows._disposeDrag?.(); tokenPreview?.dispose();
-        tokenPreview = new PresetTokenPreview({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
+        tokenPreview = new PresetTokenClient({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
         const tokenUpdates = [];
         refreshPresetTokens = () => {
             clearTimeout(tokenTimer);
