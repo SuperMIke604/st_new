@@ -220,6 +220,20 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .advanced[open] { padding: 0 12px 12px; }
 .advanced[open] > summary { margin-inline: -12px; margin-bottom: 12px; }
 /* Folder actions share the preset menu surface and open left without relayout. */
+.library-folders .folder-row[data-folder-id] {
+    flex-wrap: nowrap;
+    border: 0;
+    border-radius: var(--control-radius);
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+.folder-row[data-folder-id]:has(> .folder-button[aria-pressed=true]):not(.drop-target) {
+    background: var(--soft);
+}
+#panel .folder-row[data-folder-id] > .folder-button,
+#panel .folder-row[data-folder-id] .folder-actions-toggle {
+    background: transparent;
+    border: 0 !important;
+}
 .folder-action-anchor { position: relative; display: inline-flex; flex: 0 0 var(--control-size); height: var(--control-size); }
 .folder-row .folder-inline-menu {
     position: absolute;
