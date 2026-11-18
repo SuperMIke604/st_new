@@ -9,7 +9,7 @@ const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8')
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, intercept = body => body } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, timeoutWhileWriting = false, intercept = body => body } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
@@ -23,6 +23,10 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         if (native && event === 'message_received') {
             const message = state.chat[args[0]];
             assert.equal(state.busy, true); assert.match(message.mes, /<UpdateVariable>/);
+            if (timeoutWhileWriting) {
+                state.replyScriptEvent.writePending = true;
+                throw new DOMException('超时', 'TimeoutError');
+            }
             (message.variables ||= {})[message.swipe_id || 0] = { stat_data: { score: 5 } };
             message.mes += '\n<StatusPlaceHolderImpl/>';
             if (hideAfterReplyEvent) setVisibility('hidden');
@@ -182,6 +186,19 @@ test('native helper receives raw model text before output regex and its saved va
     assert.ok(f.state.chat.at(-1).mes.includes('<StatusPlaceHolderImpl/>'));
     assert.ok(f.saved.some(chat => chat.at(-1).mes.includes('<UpdateVariable>')), 'raw reply must exist in persistent chat before helper writes');
     assert.equal(f.saved.at(-1).at(-1).variables[0].stat_data.score, 5);
+    assert.deepEqual(f.saveOptions.map(options => options.incremental), [true, true, true]);
+});
+
+test('a reply callback timeout does not overwrite an unconfirmed script write', async () => {
+    const f = fixture({ native: true, timeoutWhileWriting: true }), running = f.run(false);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: 'reply<UpdateVariable>commands</UpdateVariable>' } }] }) });
+    await running;
+    assert.equal(f.saved.length, 2, 'only the user message and raw reply were saved');
+    assert.match(f.state.chatConflict, /无法确认/);
+    assert.equal(f.state.replyScriptEvent, null);
+    assert.deepEqual(f.postGeneration, []);
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '助手事件 message_received').reason, 'timeout');
 });
 test('regeneration allocates exactly one new branch and retains original text and variables when the helper edits the new reply', async () => {
     const f = fixture({ native: true }); f.state.chat[0].variables = { 0: { stat_data: { score: 2 } } };

@@ -1490,7 +1490,9 @@ function scriptSnapshot(value) {
 function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}/${encodeURIComponent(state.own.preset || '')}`; }
 async function helperHostAction(operation, payload, identity, externalCheck = null) {
     const owner = scriptRuntime.frame, epoch = scriptRuntime.epoch;
+    const replyEvent = state.replyScriptEvent;
     const check = () => {
+        replyEvent?.signal.throwIfAborted();
         if (externalCheck) externalCheck();
         else {
             if (scriptRuntime.frame !== owner || scriptRuntime.epoch !== epoch) throw Error('脚本环境已关闭或重新启动，结果未写入。');
@@ -1572,34 +1574,56 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
                 : operation === 'save-chat' ? patchHelperMessages(records, payload?.messages, { changes: payload?.changes ?? null })
                     : patchHelperMessages(records, payload?.messages, { greetings: [(state.character.data || state.character).first_mes, ...((state.character.data || state.character).alternate_greetings || [])].filter(value => typeof value === 'string') });
             let verified;
-            if (state.generation?.dispatchingMessageSent && api.canSaveChatDelta?.(avatar, file)) {
-                const next = patch([state.header, ...state.chat]);
+            const timing = replyEvent?.timing;
+            const signal = replyEvent?.signal;
+            const onWrite = replyEvent ? () => { replyEvent.writePending = true; } : undefined;
+            const applyPatch = records => timing
+                ? timing.measureSync('助手校验聊天变更', 'generation', () => patch(records))
+                : patch(records);
+            const deferPaint = state.generation?.dispatchingMessageSent || replyEvent;
+            if (deferPaint && api.canSaveChatDelta?.(avatar, file)) {
+                const next = applyPatch([state.header, ...state.chat]);
                 try {
-                    if (await api.trySaveChatDelta(avatar, file, next)) { check(); verified = next; }
+                    if (await api.trySaveChatDelta(avatar, file, next, signal, { timing, onWrite })) { check(); verified = next; }
                 } catch (error) {
                     if (error.chatDelta) state.chatConflict = error.status === 409 ? error.message : '无法确认脚本写入结果，请重新打开聊天后再发送。';
+                    else if (replyEvent?.writePending) state.chatConflict ||= '无法确认脚本写入结果，请重新打开聊天后再发送。';
                     throw error;
+                } finally {
+                    if (replyEvent) replyEvent.writePending = false;
                 }
             }
             if (!verified) {
-                const fresh = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
-                // Only the first write of a new session may seed an absent file.
-                const records = state.chatUnpersisted && Array.isArray(fresh) && !fresh.length ? [state.header, ...state.chat] : fresh;
-                const next = patch(records);
-                await api.saveChat(avatar, file, next[0], next.slice(1));
-                check(); state.chatUnpersisted = false;
-                verified = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }); check();
-                if (JSON.stringify(verified) !== JSON.stringify(next)) throw Error('脚本聊天保存核验失败，请重新打开聊天。');
+                const saveNative = async () => {
+                    const fresh = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }, { signal, timing }); check();
+                    // Only the first write of a new session may seed an absent file.
+                    const records = state.chatUnpersisted && Array.isArray(fresh) && !fresh.length ? [state.header, ...state.chat] : fresh;
+                    const next = applyPatch(records);
+                    try {
+                        await api.saveChat(avatar, file, next[0], next.slice(1), { signal, timing, onWrite });
+                        check(); state.chatUnpersisted = false;
+                        const saved = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }, { signal, timing }); check();
+                        if (JSON.stringify(saved) !== JSON.stringify(next)) throw Error('脚本聊天保存核验失败，请重新打开聊天。');
+                        return saved;
+                    } catch (error) {
+                        if (replyEvent?.writePending) state.chatConflict ||= '无法确认脚本写入结果，请重新打开聊天后再发送。';
+                        throw error;
+                    } finally {
+                        if (replyEvent) replyEvent.writePending = false;
+                    }
+                };
+                verified = timing ? await timing.measure('助手整段聊天保存与回读', 'generation', saveNative) : await saveNative();
             }
             // Preserve message object identities held by generation and MVU.
             const messages = verified.slice(1);
             if (messages.length !== state.chat.length) throw Error('聊天楼层数量已变化，请重新打开聊天。');
             state.header = verified[0];
             for (let i = 0; i < messages.length; i++) {
+                if (messages[i] === state.chat[i]) continue;
                 for (const key of Object.keys(state.chat[i])) if (!Object.hasOwn(messages[i], key)) delete state.chat[i][key];
                 Object.assign(state.chat[i], messages[i]);
             }
-            if (!state.generation?.dispatchingMessageSent) list.setMessages(state.chat, { latest: list.follow });
+            if (!deferPaint) list.setMessages(state.chat, { latest: list.follow });
         } else if (['save-settings', 'save-globals', 'save-lore-settings', 'save-buttons'].includes(operation)) {
             const value = operation === 'save-buttons' ? validateVariables({ buttons: payload?.value }) : validateVariables(operation === 'save-lore-settings' ? payload?.settings : payload?.value);
             const plan = nativeScriptPlan(state.settings, state.character, state.preset);
@@ -3184,7 +3208,7 @@ async function generate(mode = false, recovery = null) {
         if (completed && reply && (backgroundJob || scriptRuntime.helperReady)) {
             try {
                 if (regenerate) reply.swipes[reply.swipe_id] = reply.mes;
-                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat({ incremental: !!backgroundJob, signal: backgroundSaveSignal() }));
+                await loadTimings.measure('助手处理前保存模型原文', 'generation', () => saveChat({ incremental: true, signal: backgroundSaveSignal() }));
                 rawSaved = true;
                 acknowledgeReply();
             } catch (error) { notifyGeneration(error.message, true); }
@@ -3192,7 +3216,24 @@ async function generate(mode = false, recovery = null) {
         if (completed && reply && scriptRuntime.helperReady && rawSaved) {
             try {
                 if (document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
-                await loadTimings.measure('助手事件 message_received', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], scriptSnapshot(state), scriptIdentity()));
+                const finish = loadTimings.start('助手事件 message_received', 'generation');
+                const timing = loadTimings.scope(finish.id), controller = new AbortController();
+                const event = { timing, signal: controller.signal, writePending: false };
+                state.replyScriptEvent = event;
+                try {
+                    const snapshot = timing.measureSync('助手准备回复快照', 'generation', () => scriptSnapshot(state));
+                    await timing.measure('助手等待回复回调', 'generation', () => scriptRuntime.dispatch('message_received', [replyIndex], snapshot, scriptIdentity()));
+                    finish();
+                } catch (error) {
+                    finish('error', error.name === 'TimeoutError' ? { reason: 'timeout' } : {});
+                    throw error;
+                } finally {
+                    // A timed-out callback can leave an HTTP write in flight.
+                    if (event.writePending) state.chatConflict ||= '无法确认脚本写入结果，请重新打开聊天后再发送。';
+                    controller.abort();
+                    timing.close('cancelled');
+                    state.replyScriptEvent = null;
+                }
             } catch (error) { notifyGeneration(`回复已保留，角色脚本处理失败：${error.message}`, true); }
         }
         const rawReplyText = reply?.mes;
@@ -3212,7 +3253,7 @@ async function generate(mode = false, recovery = null) {
         if (reply || pendingUser) {
             if (!state.chatConflict) {
                 try {
-                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: !reply || !!backgroundJob, signal: backgroundSaveSignal() }));
+                    if (reply || !userSaved) await loadTimings.measure('回复后保存聊天', 'generation', () => saveChat({ incremental: true, signal: backgroundSaveSignal() }));
                     if (!resumeLater) acknowledgeReply();
                     await rememberChat();
                 } catch (error) { notifyGeneration(error.message, true); }
@@ -3234,7 +3275,7 @@ async function generate(mode = false, recovery = null) {
         else if (!state.dirty) status(state.error ? `请求未完成 · ${state.error}` : '已保存', Boolean(state.error));
         finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled');
         state.error = '';
-        if (completed && !state.dirty) { await autoUpdateDatabase(); preloadNextGeneration(); }
+        if (completed && !state.dirty && !state.chatConflict) { await autoUpdateDatabase(); preloadNextGeneration(); }
     }
     return { completed };
 }

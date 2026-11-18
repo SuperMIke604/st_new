@@ -74,7 +74,11 @@ export class ScriptRuntime {
             if (!this.frame || identity !== this.identity) throw Error('脚本环境或聊天已切换。');
             const id = ++this.eventSequence;
             await new Promise((resolve, reject) => {
-                const timer = setTimeout(() => { this.pendingEvents.delete(id); if (epoch === this.epoch) this.dispose(); reject(Error('角色脚本事件处理超时，脚本环境已停止。')); }, 30000);
+                const timer = setTimeout(() => {
+                    this.pendingEvents.delete(id);
+                    if (epoch === this.epoch) this.dispose();
+                    reject(new DOMException('角色脚本事件处理超时，脚本环境已停止。', 'TimeoutError'));
+                }, 30000);
                 this.pendingEvents.set(id, { resolve, reject, timer });
                 this.frame.contentWindow.postMessage({ channel: 'st-new-scripts', type: 'helper-event', id, event, args, snapshot }, '*');
             });

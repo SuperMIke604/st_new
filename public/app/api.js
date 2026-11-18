@@ -147,10 +147,10 @@ export class TavernAPI {
     canSaveChatDelta(avatar, file) {
         return !this.chatDeltaMissing && this.chatBase?.avatar === avatar && this.chatBase.file === file;
     }
-    async trySaveChatDelta(avatar, file, records, signal) {
+    async trySaveChatDelta(avatar, file, records, signal, { timing, onWrite } = {}) {
         if (!this.canSaveChatDelta(avatar, file)) return false;
         const base = this.chatBase;
-        const prepared = await loadTimings.measure('准备聊天增量传输', 'generation', async () => {
+        const prepared = await (timing || loadTimings).measure('准备聊天增量传输', 'generation', async () => {
             const lines = chatLines(records);
             const delta = await chatDelta(base.lines, lines, base.revision);
             if (!delta) return null;
@@ -159,10 +159,12 @@ export class TavernAPI {
             const bytes = new Blob([serializedBody]).size;
             return bytes <= 4000000 ? { lines, delta, payload, serializedBody, bytes } : null;
         }, value => value ? { metrics: { transferBytes: value.bytes } } : {});
+        signal?.throwIfAborted();
         if (!prepared) return false;
         const { lines, delta, payload, serializedBody } = prepared;
         try {
-            const result = await this.post('/api/plugins/st-new-updater/chat-delta', payload, { serializedBody, signal, fallbackStatuses: [404, 422] });
+            onWrite?.();
+            const result = await this.post('/api/plugins/st-new-updater/chat-delta', payload, { serializedBody, signal, timing, fallbackStatuses: [404, 422] });
             if (!result?.ok || result.revision !== delta.result) throw new Error('聊天增量保存核验失败，请重试。');
         } catch (error) {
             if (error.status === 404) { this.chatDeltaMissing = true; return false; }
@@ -173,17 +175,21 @@ export class TavernAPI {
         this.chatBase = { avatar, file, lines, revision: delta.result };
         return true;
     }
-    async saveChat(avatar, file, header, messages, { incremental = false, signal } = {}) {
+    async saveChat(avatar, file, header, messages, { incremental = false, signal, timing, onWrite } = {}) {
         const payload = { avatar_url: avatar, file_name: file, chat: [header, ...messages] };
-        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat, signal)) return;
-        const json = loadTimings.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
-        const finishCompression = loadTimings.start('准备聊天保存传输', 'generation');
+        if (incremental && await this.trySaveChatDelta(avatar, file, payload.chat, signal, { timing, onWrite })) return;
+        const diagnostics = timing || loadTimings;
+        signal?.throwIfAborted();
+        const json = diagnostics.measureSync('聊天保存 JSON 序列化', 'generation', () => JSON.stringify(payload));
+        const finishCompression = diagnostics.start('准备聊天保存传输', 'generation');
         let prepared;
         try { prepared = await prepareChatSaveBody(json, { compress: this.chatCompression !== false }); finishCompression('success', { metrics: prepared.metrics }); }
         catch (error) { finishCompression('error'); throw error; }
         for (let attempt = 0; ; attempt++) {
+            signal?.throwIfAborted();
             try {
-                const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, signal, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
+                onWrite?.();
+                const result = await this.post('/api/chats/save', payload, { serializedBody: prepared.body, signal, timing, ...(prepared.metrics.gzip ? { contentEncoding: 'gzip', fallbackStatuses: [415] } : {}) });
                 if (!result?.ok) throw new Error('聊天保存失败。');
                 this.rememberChatBase(avatar, file, payload.chat);
                 return;
@@ -192,7 +198,7 @@ export class TavernAPI {
                 if (error.status === 415 && prepared.metrics.gzip) {
                     this.chatCompression = false;
                     prepared = { ...prepared, body: prepared.plainBody, metrics: { ...prepared.metrics, gzip: 0, transferBytes: prepared.metrics.payloadBytes, compressionFallback: 1 } };
-                    loadTimings.start('聊天保存压缩兼容回退', 'generation')('fallback', { httpStatus: 415, reason: 'compatibility', metrics: prepared.metrics });
+                    diagnostics.start('聊天保存压缩兼容回退', 'generation')('fallback', { httpStatus: 415, reason: 'compatibility', metrics: prepared.metrics });
                     attempt--; continue;
                 }
                 if (error.status !== 500 || attempt >= 3) throw error;

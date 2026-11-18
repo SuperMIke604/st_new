@@ -13,7 +13,7 @@ export function helperMessageRevision(message) {
 }
 export function patchHelperVariables(records, changes) {
     if (!Array.isArray(records) || !records[0] || Object.hasOwn(records[0], 'mes')) throw Error('聊天文件格式无效。');
-    const next = structuredClone(records);
+    const next = records.slice();
     applyHelperVariables(next, changes);
     return next;
 }
@@ -36,14 +36,14 @@ function applyHelperVariables(next, changes) {
             current = message.variables || {};
         }
         if (!equal(current, base) && !equal(current, value)) throw Error('变量已被其他页面或脚本修改，请重新读取。');
-        if (change.type === 'chat') (next[0].chat_metadata ||= {}).variables = value;
-        else next[change.message_id + 1].variables = value;
+        if (change.type === 'chat') next[0] = { ...next[0], chat_metadata: { ...next[0].chat_metadata, variables: value } };
+        else next[change.message_id + 1] = { ...next[change.message_id + 1], variables: value };
     }
 }
 export function patchHelperMessages(records, patches, { greetings = [], changes = [] } = {}) {
     if (!Array.isArray(records) || !records[0] || Object.hasOwn(records[0], 'mes')) throw Error('聊天文件格式无效。');
     if (!Array.isArray(patches) || patches.length > 100 || JSON.stringify(patches).length > 4000000) throw Error('消息修改批次无效。');
-    const next = structuredClone(records), seen = new Set();
+    const next = records.slice(), seen = new Set();
     applyHelperVariables(next, changes);
     for (const patch of patches) {
         if (!Number.isSafeInteger(patch?.message_id) || patch.message_id < 0 || seen.has(patch.message_id)) throw Error('消息楼层无效或重复。');
@@ -53,7 +53,7 @@ export function patchHelperMessages(records, patches, { greetings = [], changes 
         if (Object.keys(patch).some(key => !['message_id', 'revision', 'base', 'message', 'data', 'swipes_data', 'swipe_id'].includes(key))) throw Error('此消息修改字段尚未接入。');
         if (patch.swipe_id !== undefined) {
             if (patch.message !== undefined || patch.data !== undefined || patch.swipes_data !== undefined || message.is_user) throw Error('切换回复不能同时改写正文或变量。');
-            const target = next[patch.message_id + 1];
+            const target = next[patch.message_id + 1] = { ...message };
             if (!target.swipes?.length && patch.message_id === 0 && greetings.length && target.mes === greetings[0]) {
                 target.swipes = structuredClone(greetings); target.swipe_info ||= [{ extra: structuredClone(target.extra || {}) }];
             }
@@ -72,11 +72,13 @@ export function patchHelperMessages(records, patches, { greetings = [], changes 
         if (patch.data !== undefined || patch.swipes_data !== undefined) {
             applyHelperVariables(next, [{ type: 'message', message_id: patch.message_id, revision: patch.revision, base: patch.base, value: variables }]);
         }
-        const target = next[patch.message_id + 1];
         if (patch.message !== undefined) {
             if (typeof patch.message !== 'string' || patch.message.length > 1000000) throw Error('消息正文格式无效或过大。');
-            target.mes = patch.message;
-            if (Array.isArray(target.swipes)) target.swipes[target.swipe_id || 0] = patch.message;
+            const target = next[patch.message_id + 1] = { ...next[patch.message_id + 1], mes: patch.message };
+            if (Array.isArray(target.swipes)) {
+                target.swipes = target.swipes.slice();
+                target.swipes[target.swipe_id || 0] = patch.message;
+            }
         }
     }
     return next;

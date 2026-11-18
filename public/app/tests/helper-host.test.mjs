@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { helperMessageRevision, patchHelperVariables, patchHelperMessages } from '../helper-state.js';
 import { validateVariables } from '../variable-manager.js';
 import { scriptSnapshot } from '../scripts.js';
+import { LoadTimings } from '../load-timings.js';
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const hostSource = main.slice(main.indexOf('async function helperHostAction('), main.indexOf('\nfunction variableManagerPanel('));
 function fixture({ unpersisted = false, stored } = {}) {
@@ -110,6 +111,57 @@ test('message_sent applies the confirmed increment without a full chat round tri
     assert.equal(f.writes(), 0);
     assert.equal(f.state.chat[0], reference);
     assert.equal(result.snapshot.chat[0].variables[0].score, 5);
+});
+test('message_received saves just the target branch and defers repaint', async () => {
+    const f = fixture(), timings = new LoadTimings();
+    const finish = timings.start('event', 'generation');
+    const controller = new AbortController();
+    f.state.busy = true;
+    f.state.replyScriptEvent = { signal: controller.signal, timing: timings.scope(finish.id) };
+    f.scriptRuntime.processing = true;
+    const reference = f.state.chat[0];
+    reference.swipe_id = 1; reference.swipes = ['old', 'reply'];
+    const change = { type: 'message', message_id: 0, revision: helperMessageRevision(reference), base: reference.variables, value: { 0: { score: 2 }, 1: { score: 5 } } };
+    f.context.api.canSaveChatDelta = () => true;
+    f.context.api.trySaveChatDelta = async (_avatar, _file, next, signal, { onWrite }) => {
+        assert.equal(signal, controller.signal);
+        onWrite();
+        assert.deepEqual(next[1].variables, change.value);
+        assert.deepEqual(next[1].swipes, ['old', 'reply']);
+        return true;
+    };
+    f.context.api.post = () => assert.fail('unexpected full chat read');
+    await f.call('save-variables', { changes: [change] });
+    assert.equal(f.state.chat[0], reference);
+    assert.equal(f.paints(), 0);
+    assert.equal(f.state.replyScriptEvent.writePending, false);
+    assert.equal(timings.snapshot().find(entry => entry.label === '助手校验聊天变更').parentId, finish.id);
+});
+
+test('message_received falls back to fresh read and verification only for unsupported deltas', async () => {
+    for (const conflict of [false, true]) {
+        const f = fixture(), controller = new AbortController();
+        f.state.busy = true; f.scriptRuntime.processing = true;
+        f.state.replyScriptEvent = { signal: controller.signal };
+        f.context.api.canSaveChatDelta = () => true;
+        f.context.api.trySaveChatDelta = async () => {
+            if (conflict) throw Object.assign(Error('聊天已变化'), { status: 409, chatDelta: true });
+            return false;
+        };
+        let reads = 0;
+        const post = f.context.api.post;
+        f.context.api.post = (...args) => { reads++; return post(...args); };
+        const write = f.call('save-variables', { changes: [{ type: 'chat', base: {}, value: { score: 5 } }] });
+        if (conflict) {
+            await assert.rejects(write, /聊天已变化/);
+            assert.equal(f.state.chatConflict, '聊天已变化');
+            assert.equal(reads, 0); assert.equal(f.writes(), 0);
+        } else {
+            await write;
+            assert.equal(f.records()[0].chat_metadata.variables.score, 5);
+            assert.equal(reads, 2); assert.equal(f.writes(), 1);
+        }
+    }
 });
 test('settings and global-variable saves touch only their own namespaces and reject stale bases', async () => {
     const f = fixture();
