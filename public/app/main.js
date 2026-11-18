@@ -1118,12 +1118,16 @@ async function renderPresetPanel(body, revision) {
         if (draft[key] === undefined) draft[key] = fallback;
         input.addEventListener('input', () => { draft[key] = Number(input.value); refreshPresetTokens(); });
     }
-    const heading = el('div', 'section-heading');
+    const heading = el('div', 'section-heading preset-prompt-heading');
+    heading.append(el('h2', '', '提示词条目'));
+    const stats = el('div', 'preset-prompt-stats item-count');
     const count = el('span', 'item-count');
-    const title = el('div'); title.append(el('h2', '', '提示词条目'), count); heading.append(title);
+    const totalTokens = el('span', 'preset-token-total');
+    const totalLabel = '当前启用条目的预览 token 合计';
+    stats.append(count, totalTokens);
     const rows = el('div', 'prompt-list');
     const opened = new Set();
-    let pageReady = false, tokenPreview, tokenTimer;
+    let pageReady = false, tokenPreview, tokenTimer, tokenSummaryVersion = 0;
     const promptSizes = [];
     body._onReady = () => { pageReady = true; tokenPreview?.start(); };
     body._dispose = () => { pageReady = false; clearTimeout(tokenTimer); tokenPreview?.dispose(); rows._disposeDrag?.(); for(const dispose of promptSizes.splice(0))dispose(); };
@@ -1135,11 +1139,33 @@ async function renderPresetPanel(body, revision) {
         rows._disposeDrag?.(); tokenPreview?.dispose();
         tokenPreview = new PresetTokenClient({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
         const tokenUpdates = [];
+        const countRows = async () => {
+            const scope = tokenPreview;
+            const version = ++tokenSummaryVersion;
+            totalTokens.textContent = '…';
+            totalTokens.title = totalLabel;
+            const enabledCounts = [];
+            for (const { order, updateTokens } of tokenUpdates) {
+                const result = updateTokens();
+                if (order.enabled !== false) enabledCounts.push(result);
+            }
+            const values = await Promise.all(enabledCounts);
+            if (scope.signal.aborted || version !== tokenSummaryVersion || revision !== panelRevision) return;
+            if (values.some(value => value === undefined)) {
+                totalTokens.textContent = '—';
+                totalTokens.title = '有启用条目未能完成 token 统计';
+                return;
+            }
+            totalTokens.textContent = `${values.reduce((sum, value) => sum + value, 0)} Tokens`;
+        };
         refreshPresetTokens = () => {
+            tokenSummaryVersion++;
+            totalTokens.textContent = '…';
+            totalTokens.title = totalLabel;
             clearTimeout(tokenTimer);
             tokenTimer = setTimeout(() => {
                 tokenPreview.invalidatePromptCounts();
-                for (const update of tokenUpdates) void update();
+                void countRows();
             }, 500);
         };
         rows.replaceChildren(); updateCount();
@@ -1172,6 +1198,7 @@ async function renderPresetPanel(body, revision) {
                     if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
                     tokenCount.textContent = Number.isFinite(count) && count > 0 ? String(count) : '-';
                     tokenCount.title = '按当前聊天和资料库注入预算展开后的条目计数，包含条目正文与消息封装';
+                    return count ?? 0;
                 } catch (error) {
                     if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
                     const timedOut = error?.name === 'TimeoutError';
@@ -1181,8 +1208,7 @@ async function renderPresetPanel(body, revision) {
             };
             titleWrap.append(kind);
             summary.append(enabled, titleWrap, tokenCount);
-            tokenUpdates.push(updateTokens);
-            void updateTokens();
+            tokenUpdates.push({ order, updateTokens });
             details.append(summary);
             const content = el('div', 'prompt-form');
             const toolbar = el('span', 'prompt-actions prompt-inline-actions inset-action-menu'); toolbar.hidden = true;
@@ -1262,13 +1288,14 @@ async function renderPresetPanel(body, revision) {
                 markDirty(); renderRows();
             }
         });
+        void countRows();
         if (pageReady) tokenPreview.start();
     };
     heading.append(action('添加条目', () => {
         const id = uuid(); addPrompt(draft, id); opened.add(id); markDirty(); renderRows();
         const target = [...rows.children].find(node => node.dataset.promptId === id); target?.scrollIntoView({ block: 'nearest' });
     }, 'plus'));
-    body.append(heading, rows);
+    body.append(heading, stats, rows);
 
     const loadDraft = (value, title) => {
         draft = presetDraft(value); name.value = title; opened.clear();

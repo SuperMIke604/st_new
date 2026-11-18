@@ -261,6 +261,9 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .world-global-settings{padding:0}.world-global-settings>summary{display:flex;align-items:center;min-height:48px;padding:11px 12px;box-sizing:border-box}.world-global-settings[open]{padding:0 12px 12px}.world-global-settings[open]>summary{margin:0 -12px}
 
 .prompt-token-count{color:var(--muted);white-space:nowrap;flex-shrink:0}.prompt-summary{cursor:pointer}
+.preset-prompt-heading { margin-bottom: 0; }
+.preset-prompt-stats { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.preset-token-total { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .prompt-title>.prompt-kind{flex-shrink:0;margin-left:6px;vertical-align:middle}
 
