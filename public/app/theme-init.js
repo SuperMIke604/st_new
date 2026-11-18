@@ -2,7 +2,7 @@
 (() => {
     const colors = {
         paper: '#f3eee4', sage: '#f7f8f4', mist: '#f3eee4', ivory: '#f3eee4',
-        'claude-day': '#f8f8f6', 'lavender-paper': '#eee9f5', 'ivory-cards': '#efe7da',
+        'claude-day': '#f8f8f6', 'lavender-paper': '#eee9f5', 'ivory-cards': '#efe7da', 'ivory-cards-am': '#efe7da',
     };
     let palette = 'paper';
     try {
