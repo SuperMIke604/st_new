@@ -1082,6 +1082,16 @@ async function presetPanel() {
     return loadPanelContent(host, '预设', (body, revision) => renderPresetPanel(body, revision), () => presetPanel());
 }
 async function renderPresetPanel(body, revision) {
+    const ivory = document.documentElement.dataset.palette === 'ivory-cards';
+    const preferenceKey = ivory ? 'ivory-cards-preset-parameters-collapsed' : presetParametersStorageKey;
+    let collapsed = presetParametersCollapsed;
+    if (ivory) {
+        collapsed = matchMedia('(max-width: 700px)').matches;
+        try {
+            const saved = sessionStorage.getItem(preferenceKey);
+            if (saved !== null) collapsed = saved === 'true';
+        } catch { /* Use the viewport default. */ }
+    }
     if (state.presetMissing) note(body, '保存的预设已不存在，请重新选择；当前未自动启用其他预设。');
     const available = presets();
     let draft = presetDraft(available.length ? state.preset : createPreset());
@@ -1096,25 +1106,38 @@ async function renderPresetPanel(body, revision) {
     name.setAttribute('aria-label', '预设名称');
     const parameters = el('div', 'parameter-grid preset-parameters');
     parameters.id = `preset-parameters-${uuid()}`;
-    const parameterToggle = action('收起生成参数', () => {
-        presetParametersCollapsed = !presetParametersCollapsed;
-        try { sessionStorage.setItem(presetParametersStorageKey, String(presetParametersCollapsed)); } catch { /* Keep the preference in memory. */ }
-        updateParameterToggle();
-    }, null, 'icon-button preset-parameters-toggle');
-    const updateParameterToggle = () => {
-        const parametersExpanded = !presetParametersCollapsed;
-        parameters.hidden = !parametersExpanded;
-        const label = parametersExpanded ? '收起生成参数' : '展开生成参数';
-        parameterToggle.replaceChildren(icon('chevron'));
-        parameterToggle.title = label;
-        parameterToggle.setAttribute('aria-label', label);
-        parameterToggle.setAttribute('aria-expanded', String(parametersExpanded));
+    const nameField = name.parentElement;
+    const rememberParameters = value => {
+        collapsed = value;
+        if (!ivory) presetParametersCollapsed = collapsed;
+        try { sessionStorage.setItem(preferenceKey, String(collapsed)); } catch { /* Use the in-memory state. */ }
     };
-    parameterToggle.setAttribute('aria-controls', parameters.id);
-    updateParameterToggle();
-    const nameRow = el('div', 'preset-name-row');
-    name.parentElement.append(nameRow); nameRow.append(name, parameterToggle);
-    body.append(parameters);
+    if (ivory) {
+        nameField.hidden = true;
+        const group = el('details', 'advanced world-global-settings');
+        group.open = !collapsed;
+        group.append(el('summary', 'preset-parameters-toggle', '生成参数'), parameters);
+        group.addEventListener('toggle', () => rememberParameters(!group.open));
+        body.append(group);
+    } else {
+        const parameterToggle = action('收起生成参数', () => {
+            rememberParameters(!collapsed);
+            updateParameterToggle();
+        }, null, 'icon-button preset-parameters-toggle');
+        const updateParameterToggle = () => {
+            parameters.hidden = collapsed;
+            const label = collapsed ? '展开生成参数' : '收起生成参数';
+            parameterToggle.replaceChildren(icon('chevron'));
+            parameterToggle.title = label;
+            parameterToggle.setAttribute('aria-label', label);
+            parameterToggle.setAttribute('aria-expanded', String(!collapsed));
+        };
+        parameterToggle.setAttribute('aria-controls', parameters.id);
+        updateParameterToggle();
+        const nameRow = el('div', 'preset-name-row');
+        nameField.append(nameRow); nameRow.append(name, parameterToggle);
+        body.append(parameters);
+    }
     const controls = new Map();
     let refreshPresetTokens = () => {};
     for (const [key, label, fallback, step] of [['temperature', 'Temperature', 1, .05], ['top_p', 'Top P', 1, .05], ['openai_max_context', '上下文长度', 8192, 1], ['openai_max_tokens', '最大回复 tokens', 512, 1]]) {
@@ -1168,12 +1191,12 @@ async function renderPresetPanel(body, revision) {
             if (previousCounts.every(value => value !== undefined)) {
                 showTotal(previousCounts);
                 if (refreshing) totalTokens.title = '上次统计的启用条目合计，正在重新核对';
-            } else totalTokens.textContent = '…';
+            } else totalTokens.textContent = ivory ? 'Tokens 统计中' : '…';
             const values = await Promise.all(enabledCounts);
             if (scope.signal.aborted || version !== tokenSummaryVersion || revision !== panelRevision) return;
             totalTokens.title = totalLabel;
             if (values.some(value => value === undefined)) {
-                totalTokens.textContent = '—';
+                totalTokens.textContent = ivory ? 'Tokens 暂不可用' : '—';
                 totalTokens.title = '有启用条目未能完成 token 统计';
                 return;
             }
@@ -1181,7 +1204,7 @@ async function renderPresetPanel(body, revision) {
         };
         refreshPresetTokens = () => {
             tokenSummaryVersion++;
-            totalTokens.textContent = '…';
+            totalTokens.textContent = ivory ? 'Tokens 统计中' : '…';
             totalTokens.title = totalLabel;
             clearTimeout(tokenTimer);
             tokenTimer = setTimeout(() => {
@@ -1234,7 +1257,8 @@ async function renderPresetPanel(body, revision) {
                 } catch (error) {
                     if (!current()) return;
                     const timedOut = error?.name === 'TimeoutError';
-                    tokenCount.textContent = timedOut ? '超时' : '失败';
+                    const status = timedOut ? '超时' : '失败';
+                    tokenCount.textContent = ivory ? '计数' + status : status;
                     tokenCount.title = timedOut ? 'token 统计请求超时' : '无法统计 tokens';
                 }
             };
@@ -1323,14 +1347,17 @@ async function renderPresetPanel(body, revision) {
         void countRows();
         if (pageReady) tokenPreview.start();
     };
-    heading.append(action('添加条目', () => {
+    const addEntry = action('添加条目', () => {
         const id = uuid(); addPrompt(draft, id); opened.add(id); markDirty(); renderRows();
         const target = [...rows.children].find(node => node.dataset.promptId === id); target?.scrollIntoView({ block: 'nearest' });
-    }, 'plus'));
+    }, 'plus');
+    addEntry.title = '添加条目'; addEntry.setAttribute('aria-label', '添加条目');
+    heading.append(addEntry);
     body.append(heading, stats, rows);
 
     const loadDraft = (value, title) => {
         draft = presetDraft(value); name.value = title; opened.clear();
+        if (ivory) nameField.hidden = !draftOnly;
         for (const [key, { input, fallback }] of controls) { draft[key] ??= fallback; input.value = draft[key]; }
         renderRows();
     };
@@ -1374,6 +1401,39 @@ async function renderPresetPanel(body, revision) {
         const next = state.own.preset === target || !available.some(preset => preset.name === state.own.preset) ? available.find(preset => preset.name !== target).name : state.own.preset;
         await saveOwn({ preset: next }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已删除'); await presetPanel();
     }, 'trash', 'danger');
+    if (ivory) {
+        const extra = el('div', 'preset-extra-tools');
+        extra.id = 'preset-extra-' + uuid();
+        extra.hidden = true;
+        extra.setAttribute('role', 'group');
+        extra.setAttribute('aria-label', '预设管理');
+        const rename = toolbarButton('编辑名称', () => {
+            nameField.hidden = false;
+            name.focus(); name.select();
+        }, 'edit');
+        presetTools.prepend(rename);
+        extra.append(...presetTools.children);
+        const more = toolbarButton('更多预设操作', () => setExpanded(extra.hidden), 'more');
+        more.setAttribute('aria-controls', extra.id);
+        const setExpanded = expanded => {
+            extra.hidden = !expanded;
+            more.setAttribute('aria-expanded', String(expanded));
+        };
+        setExpanded(false);
+        extra.addEventListener('click', event => {
+            if (event.target.closest('button')) {
+                setExpanded(false);
+                if (nameField.hidden || document.activeElement !== name) more.focus();
+            }
+        });
+        extra.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.stopPropagation(); event.preventDefault();
+                setExpanded(false); more.focus();
+            }
+        });
+        presetBar.after(extra);
+    }
     select.addEventListener('change', () => run(async () => {
         assertIdle();
         if (panelDirty && !confirm('放弃当前未保存的预设修改并切换？')) { select.value = previousPreset; return; }
@@ -1385,7 +1445,7 @@ async function renderPresetPanel(body, revision) {
             await saveOwn({ preset: target });
         } catch (error) { select.value = previousPreset; throw error; }
         selectPreset(); list.setMessages(state.chat, { reset: true });
-        loadDraft(state.preset, target); previousPreset = target; draftOnly = false; deletePreset.disabled = false; panelDirty = false;
+        draftOnly = false; loadDraft(state.preset, target); previousPreset = target; deletePreset.disabled = false; panelDirty = false;
         for (const option of [...select.options]) if (option.dataset.draft) option.remove();
         notify('预设已切换');
     }));
