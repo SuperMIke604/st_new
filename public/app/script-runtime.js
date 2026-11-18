@@ -7,6 +7,7 @@ import { scriptHelper, helperStartup, SCRIPT_API_NAMES } from './script-helper.j
 import { scriptChat } from './script-chat.js';
 import { ScriptInlineView } from './script-inline.js';
 import { scriptLayoutNodes } from './script-layout.js';
+import { icon } from './icons.js';
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 export function scriptClip(rects, width, height) {
     if (!Array.isArray(rects) || rects.length > 64) return 'path("M0 0Z")';
@@ -91,7 +92,9 @@ export class ScriptRuntime {
         const dialog = document.createElement('dialog'); dialog.className = 'script-runtime-dialog';
         const header = document.createElement('header'); header.className = 'panel-header';
         const title = document.createElement('h1'); title.textContent = '酒馆伴侣';
-        const close = document.createElement('button'); close.textContent = '关闭'; close.type = 'button'; close.className = 'button'; close.onclick = () => dialog.close();
+        const close = document.createElement('button');
+        close.type = 'button'; close.className = 'icon-button diagnostic-close'; close.title = '关闭';
+        close.setAttribute('aria-label', '关闭'); close.append(icon('close')); close.onclick = () => dialog.close();
         const retry = document.createElement('button'); retry.textContent = '重新启动'; retry.type = 'button'; retry.className = 'button'; retry.onclick = () => { this.dispose(); void Promise.resolve(this.onRetry?.()).catch(error => this.notify(error.message, true)); }; header.append(title, retry, close);
         if (snapshot.scriptMessageViews) {
             const view = document.createElement('button'); view.type = 'button'; view.className = 'button'; view.textContent = '角色界面';

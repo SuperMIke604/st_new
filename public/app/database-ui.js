@@ -74,12 +74,16 @@ export function renderDatabasePanel(body, context) {
         note('记录本页面最近 50 次 AI 更新，刷新浏览器后清空。复制只包含摘要。导出会附带最近一次格式异常的完整原文，分享前请检查其中的私密内容。');
         const toolbar = el('div', 'db-toolbar');
         const output = el('textarea', 'timing-copy');
+        const empty = el('p', 'note', '暂无更新日志');
+        empty.setAttribute('role', 'status');
         output.readOnly = true;
         output.rows = 12;
         output.setAttribute('aria-label', '数据库更新日志');
         const refresh = () => {
             const text = databaseLogText();
-            output.value = text || '暂无更新日志';
+            output.value = text;
+            output.hidden = !text;
+            empty.hidden = !!text;
             copy.disabled = save.disabled = clear.disabled = !text;
         };
         toolbarButton(toolbar, '刷新日志', 'refresh', refresh);
@@ -92,7 +96,7 @@ export function renderDatabasePanel(body, context) {
             downloadDiagnostics(JSON.stringify(databaseLogExport(), null, 2), content, { filename: 'database-update-log.json' });
         });
         const clear = toolbarButton(toolbar, '清空日志', 'trash', () => { clearDatabaseLog(); refresh(); });
-        content.append(toolbar, output);
+        content.append(toolbar, empty, output);
         refresh();
     }
     const saveSettings = async () => {
@@ -133,7 +137,12 @@ export function renderDatabasePanel(body, context) {
                 undo.data.push(structuredClone(data)); data = validateDatabase(book); dataDirty = true; context.dirty(true); tab = 'data'; render();
             });
         } else {
-            note(`${context.chatName} · ${sheets(book).length} 张表 · ${sheets(book).reduce((sum, [, table]) => sum + table.content.length - 1, 0)} 行${context.legacy ? ' · 已读取旧插件快照' : ''}`);
+            const source = context.latest?.();
+            const sourceLabel = source?.index >= 0
+                ? `#${source.index}${source.archived ? ' · 覆盖前版本' : ''}`
+                : '模板 / 种子';
+            const summary = el('p', 'note db-source-summary', `${sourceLabel} · ${sheets(book).length} 张表 · ${sheets(book).reduce((sum, [, table]) => sum + table.content.length - 1, 0)} 行${context.legacy ? ' · 已读取旧插件快照' : ''}`);
+            toolbar.before(summary);
             const fillBar = el('div', 'db-fill-bar');
             const from = field(fillBar, '起始楼层', Math.max(0, context.chat.length - settings.batch), { type: 'number' }); from.min = 0;
             const to = field(fillBar, '结束楼层', context.chat.length - 1, { type: 'number' }); to.min = 0;
@@ -444,10 +453,12 @@ export function renderDatabasePanel(body, context) {
         } else {
             const config=settings.apiConfig ||= {};
             config.useMainApi=false;
+            content.append(el('h2', 'db-section-heading', '地址与密钥'));
             const url=field(content,'API 基础地址',config.url||'',{type:'url'});url.addEventListener('input',()=>{config.url=url.value;dirty('settings');});
             const key=apiKeyField(content,config.apiKey||'');key.addEventListener('input',()=>{config.apiKey=key.value;dirty('settings');});
             const keyWrap=el('div','key-input-wrap');key.before(keyWrap);keyWrap.append(key);
             const eye=toolbarButton(keyWrap,'显示密钥','eye',()=>{const visible=key.type==='password';key.type=visible?'text':'password';if(context.icon)eye.replaceChildren(context.icon(visible?'eyeOff':'eye'));eye.title=visible?'隐藏密钥':'显示密钥';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(visible));},'key-toggle');if(context.icon)eye.replaceChildren(context.icon('eye'));else eye.querySelector('span')?.remove();eye.setAttribute('aria-pressed','false');
+            content.append(el('h2', 'db-section-heading', '模型与参数'));
             const model=field(content,'模型',config.model||'',{options:config.model?[[config.model,config.model]]:[['','读取列表或输入模型 ID']]});model.dataset.searchable='true';model.dataset.allowCustom='true';model.addEventListener('change',()=>{config.model=model.value;dirty('settings');});
             const modelRow=el('div','connection-model-row');model.before(modelRow);modelRow.append(model);
             const currentPage=()=>!disposed&&tab==='api'&&model.isConnected;
@@ -458,6 +469,7 @@ export function renderDatabasePanel(body, context) {
                 finally{if(currentPage())load.disabled=false;}
             },'model-refresh');load.querySelector('span')?.remove();
         }
+        if (settings.apiMode === 'tavern') content.append(el('h2', 'db-section-heading', '模型参数'));
         const parameters=el('div','parameter-grid');content.append(parameters);
         for(const [key,label,min,max,step] of [['maxTokens','最大回复 tokens',1,2000000,1],['temperature','Temperature',0,2,.05]]){const control=field(parameters,label,settings[key],{type:'number'});control.min=min;control.max=max;control.step=step;control.addEventListener('input',()=>{settings[key]=Number(control.value);dirty('settings');});}
         toolbarButton(tools,'保存 API 配置','plug',saveSettings,'primary');content.append(tools,status);
@@ -466,6 +478,7 @@ export function renderDatabasePanel(body, context) {
         const config=settings.worldbookConfig ||= {source:'character',manualSelection:[],enabledEntries:{}};
         const source=field(content,'世界书来源',config.source,{options:[['character','角色关联世界书'],['manual','手动选择世界书']]});source.addEventListener('change',()=>{config.source=source.value;dirty('settings');render();});
         const target=content;const books=await context.worlds(config);if(tab!=='world'||target!==content)return;
+        if (!books.length) note(config.source === 'manual' ? '暂无可选的世界书。' : '当前角色没有关联世界书。');
         for(const book of books){
             const section=el('details','dm-world-book'),summary=el('summary','dm-world-heading'),title=el('span','dm-world-title',book.name),tools=el('span','dm-world-tools');tools.setAttribute('role','group');tools.setAttribute('aria-label',`${book.name} 条目选择`);summary.append(title,tools);section.append(summary);
             if(config.source==='manual'){const wrap=el('label','check-field dm-world-use'),check=el('input');check.type='checkbox';check.checked=(config.manualSelection||[]).includes(book.name);wrap.append(check,el('span','','使用此世界书'));section.append(wrap);check.addEventListener('change',()=>{const selected=new Set(config.manualSelection||[]);if(check.checked)selected.add(book.name);else selected.delete(book.name);config.manualSelection=[...selected];dirty('settings');});}
@@ -483,18 +496,21 @@ export function renderDatabasePanel(body, context) {
         const meta=current ? current.meta : context.chat[latest]?.extra?.independentDatabase;
         const recorded=meta?.kind==='database'?(meta.messageSummaryTo??latest):(meta?.to??latest);
         const check=(parent,label,key)=>{const wrap=el('label','check-field'),control=el('input');control.type='checkbox';control.checked=!!settings[key];control.addEventListener('change',()=>{settings[key]=control.checked;dirty('settings');});wrap.append(control,el('span','',label));parent.append(wrap);};
-        const status=el('section','dm-status-card dm-summary-status'),heading=el('div','dm-summary-heading');
-        heading.append(el('h2','','数据库状态'));check(heading,'注入提示词','inject');status.append(heading);
+        const status=el('section','dm-status-card dm-summary-status');
+        status.append(el('h2','','数据库状态'));
         const metrics=el('div','dm-summary-metrics');
         for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}${current?.archived?' · 覆盖前版本':''}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
         status.append(metrics);content.append(status);
-        const grid=el('div','dm-summary-grid');content.append(grid);
-        const card=(title,description)=>{const section=el('section','dm-status-card dm-summary-card');section.append(el('h2','',title),el('p','note',description));grid.append(section);return section;};
+        const grid=el('div','dm-summary-grid');
+        const section=(title,description)=>{const group=el('section','dm-summary-card');group.append(el('h2','',title));if(description)group.append(el('p','note',description));return group;};
         const bindPreset=(parent,label,key)=>{const control=field(parent,label,settings[key],{options:settings.presets.map(preset=>[preset.id,preset.name])});control.addEventListener('change',()=>{settings[key]=control.value;dirty('settings');});};
         const setting=(parent,key,label,type='number',min=0)=>{const control=field(parent,label,settings[key]??'',{type});if(type==='number'){control.min=min;control.step=1;}control.addEventListener('input',()=>{settings[key]=type==='number'?Number(control.value):control.value;dirty('settings');});return control;};
-        setting(status, 'keywordInjectionTokens', '资料库关键词注入 Token 上限（0 为不限）');
+        const injection=section('提示词注入');
+        check(injection,'注入提示词','inject');
+        setting(injection, 'keywordInjectionTokens', '资料库关键词注入 Token 上限（0 为不限）');
+        content.append(injection,grid);
         const run=async callback=>{if(dataDirty)throw Error('请先保存数据');if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
-        const message=card('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');
+        const message=section('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');grid.append(message);
         bindPreset(message,'消息总结预设','messageSummaryPreset');check(message,'自动总结消息','auto');
         check(message,'总结后向 AI 隐藏对应楼层','hideAfterMessageSummary');
         const messageConfig=el('div','dm-config-grid');message.append(messageConfig);
@@ -505,7 +521,7 @@ export function renderDatabasePanel(body, context) {
         const from=field(range,'起始楼层',Math.min(Math.max(0,recorded+1),Math.max(0,context.chat.length-1)),{type:'number'}),to=field(range,'结束楼层',Math.max(0,context.chat.length-1),{type:'number'});from.min=to.min=0;from.max=to.max=Math.max(0,context.chat.length-1);from.step=to.step=1;
         for(const control of [from,to])control.addEventListener('input',()=>context.dirty(hasDraft()));
         const messageRun=toolbarButton(message,'总结所选消息','refresh',()=>run(()=>context.fill(Number(from.value),Number(to.value))),'primary');
-        const database=card('数据库总结','整理最新快照中的已有记录，合并冗余信息。两个阈值满足任意一个即触发，0 表示关闭该条件。');
+        const database=section('数据库总结','整理最新快照中的已有记录，合并冗余信息。两个阈值满足任意一个即触发，0 表示关闭该条件。');grid.append(database);
         bindPreset(database,'数据库总结预设','databaseSummaryPreset');check(database,'自动总结数据库','databaseSummaryAuto');
         const tokenStatus=el('p','note','最新快照总 Token：统计中…');tokenStatus.setAttribute('role','status');database.append(tokenStatus);
         const refreshTokens=()=>{tokenStatus.textContent='最新快照总 Token：统计中…';Promise.resolve().then(()=>context.countDatabaseTokens?.()).then(count=>{if(!disposed&&tab==='settings'&&revision===statusRevision)tokenStatus.textContent=Number.isFinite(count)?`最新快照总 Token：${count}`:'最新快照总 Token：暂不可用';}).catch(error=>{if(!disposed&&tab==='settings'&&revision===statusRevision)tokenStatus.textContent=`Token 统计失败：${error.message}`;});};refreshTokens();
@@ -517,7 +533,12 @@ export function renderDatabasePanel(body, context) {
         database.append(el('p','note','自动检查在回复保存后执行；消息总结启用时，先完成消息总结，再检查数据库。相同快照总结完成后不重复自动触发。'));
         const databaseRun=toolbarButton(database,'总结最新数据库','refresh',()=>run(()=>context.summarize()),'primary');
         messageRun.disabled=databaseRun.disabled=summaryWorking||!!context.isUpdating?.()||!context.chat.some(message=>!message.is_user);
-        const footer=el('div','editor-footer');toolbarButton(footer,'保存配置','edit',saveSettings,'primary');content.append(footer);
+        const footer = el('div', 'editor-footer db-status-footer');
+        toolbarButton(footer, '保存配置', 'edit', saveSettings, 'primary');
+        const saveStatus = el('p', 'db-save-status', statusDirty ? '有未保存的修改' : '');
+        saveStatus.setAttribute('role', 'status');
+        footer.append(saveStatus);
+        content.append(footer);
     }
     render();
 }

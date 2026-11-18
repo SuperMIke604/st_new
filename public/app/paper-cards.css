@@ -28,11 +28,12 @@
     --line: #ded6c9;
     --green: #805b40;
     --card-gradient-top: #efe7da;
-    --card-selected: #e7dac6;
+    --card-selected: #eee3d3;
     --card-hover: #6c4932;
     --card-field: #faf7f0;
     --card-field-border: #95826f;
-    --card-message: #f3eee5;
+    --card-message: #fbf7ef;
+    --card-user-message: #eee3d3;
     --card-user-border: #d8cab8;
     --card-quiet-border: #d1c3b1;
     --card-dialogue: #75452e;
@@ -227,7 +228,7 @@
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message.from-user {
-    background-color: var(--soft);
+    background-color: var(--card-user-message, var(--soft));
     border-color: var(--card-user-border);
 }
 
@@ -240,6 +241,79 @@
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) .message.from-user .message-name {
     background: var(--card-selected);
+}
+
+[data-palette="ivory-cards"] :is(.message, .message.from-user) .message-name {
+    padding: 0;
+    background: transparent;
+    font-weight: 600;
+}
+
+[data-palette="ivory-cards"] .message :is(.message-number, .message-swipe-count, .message-jumps .button) {
+    color: var(--muted);
+}
+
+[data-palette="ivory-cards"] .persona-row:has(> .persona-select[aria-checked=true]) {
+    background: var(--card-selected);
+    border-color: var(--card-user-border);
+    box-shadow: none;
+}
+
+[data-palette="ivory-cards"] :is(.dm-summary-status, .db-overview-status) {
+    background: var(--card-message);
+}
+
+[data-palette="ivory-cards"] .home-recent-grid:has(> .home-character:only-child) {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .card-cover {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 14px;
+    aspect-ratio: auto;
+    padding: 8px;
+    background: var(--card-message);
+}
+
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .card-cover .avatar {
+    width: 54px;
+    height: 66px;
+    border-radius: 8px;
+}
+
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .portrait-missing::after {
+    content: none;
+}
+
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .portrait-missing > .home-recent-avatar {
+    display: grid;
+    width: 54px;
+    height: 66px;
+    flex: 0 0 54px;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--card-selected);
+    color: var(--muted);
+}
+
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .home-recent-summary {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+[data-palette="ivory-cards"] .home-recent-summary .note { margin: 0; }
+[data-palette="ivory-cards"] .home-recent-grid > .home-character:only-child .card-info { display: none; }
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(
+    .db-category-bar, .db-template-save, .db-table-actions
+) {
+    background: var(--surface);
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(.message-content, .reading-sample) blockquote {
@@ -267,19 +341,19 @@
     color: var(--green);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, dialog.request-log-panel) {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog) {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 24px;
     box-shadow: 0 20px 56px color-mix(in srgb, var(--ink) 14.90%, transparent);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .request-log-panel) .panel-header {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .timing-panel, .script-runtime-dialog) .panel-header {
     background: linear-gradient(135deg, var(--soft), var(--surface));
     border-bottom: 1px solid var(--line);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .request-log-panel) .panel-header .icon-button {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"]) :is(#panel, .timing-panel, .script-runtime-dialog) .panel-header .icon-button {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--control-radius);
@@ -335,7 +409,9 @@
     .field select,
     .select-control,
     .home-character-search,
-    .library-search
+    .library-search,
+    .request-log-filters input,
+    .timing-copy
 ) {
     background-color: var(--card-field);
     border-color: var(--card-field-border);
@@ -347,7 +423,9 @@
     .field select,
     .select-control,
     .home-character-search,
-    .library-search
+    .library-search,
+    .request-log-filters input,
+    .timing-copy
 ):focus-visible {
     border-color: var(--green);
 }

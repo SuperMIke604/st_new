@@ -134,7 +134,8 @@ export function renderDatabaseOverview(body, context, draft) {
         draft.pending.size ? `${draft.pending.size} 份快照待删除` : '删除将在保存后生效');
     saveStatus.setAttribute('role', 'status');
     footer.append(saveStatus, undo, save);
-    body.append(el('p', 'note', [context.characterName, context.chatName].filter(Boolean).join(' · ') || '当前聊天'), controls, detail, footer);
+    body.append(el('p', 'note', [context.characterName, context.chatName].filter(Boolean).join(' · ') || '当前聊天'), controls, detail);
+    if (draft.pending.size || draft.saving) body.append(footer);
     if (invalid) controls.append(el('p', 'note warning', `${invalid} 份历史数据格式异常，无法展示。`));
     if (!records.length && !invalid) { detail.append(el('p', 'note', '当前聊天暂无已保存的历史总结数据。')); return; }
     controls.append(selectionRow);

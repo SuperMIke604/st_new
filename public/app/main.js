@@ -562,7 +562,7 @@ function welcome() {
         for (const child of [...recent.children]) if (child !== search) child.remove();
         const query = search.value.trim().toLocaleLowerCase();
         if (!query && !chats.some(chat => chat.avatar)) recent.append(el('p', 'note', '暂无最近使用的角色，可在下方选择角色。'));
-        const grid = el('div', 'home-character-grid'); recent.append(grid);
+        const grid = el('div', query ? 'home-character-grid' : 'home-character-grid home-recent-grid'); recent.append(grid);
         const seen = new Set();
         for (const chat of query ? state.characters.filter(card => card.name?.toLocaleLowerCase().includes(query)) : chats) {
             if (!chat.avatar || seen.has(chat.avatar)) continue;
@@ -575,6 +575,10 @@ function welcome() {
             cover.setAttribute('aria-label', `进入 ${name} 最新聊天`);
             const portrait = image(chat.avatar, 'avatar', true); portrait.loading = 'lazy'; portrait.alt = name;
             portrait.addEventListener('error', () => { portrait.hidden = true; cover.classList.add('portrait-missing'); }, { once: true }); cover.append(portrait);
+            const fallback = el('span', 'home-recent-avatar');
+            fallback.setAttribute('aria-hidden', 'true'); fallback.append(icon('user')); cover.append(fallback);
+            const summary = el('span', 'home-recent-summary');
+            summary.append(el('strong', '', name), el('span', 'note', '继续聊天')); cover.append(summary);
             const info = el('div', 'card-info'); info.append(el('h3', '', name));
             card.append(cover, info); grid.append(card);
             if (!query && seen.size === 6) break;
@@ -730,9 +734,13 @@ function timingPanel() {
     const heading = el('div'), title = el('h1', '', '加载日志'); title.id = 'timing-title';
     heading.append(el('small', '', '最近 200 条 · 耗时记录'), title);
     const header = el('header', 'panel-header'), close = iconAction('关闭日志', () => dialog.close(), 'close');
+    close.autofocus = true;
     header.append(heading, close);
     const body = el('div', 'timing-body'); dialog.append(header, body);
-    dialog.addEventListener('close', () => dialog.remove());
+    dialog.addEventListener('close', () => {
+        dialog.remove();
+        document.getElementById('tools-toggle')?.focus();
+    });
     document.body.append(dialog);
     if (matchMedia('(max-width:700px)').matches) dialog.show(); else dialog.showModal();
     const toolbar = el('div', 'timing-toolbar'), container = el('div', 'timing-table-wrap');
@@ -746,7 +754,15 @@ function timingPanel() {
         head.append(row); table.append(head); const content = el('tbody');
         for (const entry of entries) {
             const row = el('tr'); row.dataset.status = entry.status;
-            row.append(el('td', '', entry.label), el('td', '', new Date(entry.startedAt).toLocaleTimeString()), el('td', '', `${entry.durationMs.toFixed(1)} ms`), el('td', '', timingStatusText(entry)), el('td', '', timingDetailText(entry)));
+            const time = new Date(entry.startedAt);
+            const detail = el('td', 'timing-detail');
+            const summaryText = timingDetailText(entry);
+            if (summaryText) detail.append(el('span', 'timing-detail-summary', summaryText));
+            const expanded = el('details', 'timing-detail-disclosure');
+            expanded.append(el('summary', '', '详情'), el('time', '', time.toLocaleString()));
+            if (summaryText && entry.status !== 'error') expanded.append(el('p', '', summaryText));
+            detail.append(expanded);
+            row.append(el('td', '', entry.label), el('td', '', time.toLocaleTimeString()), el('td', '', `${entry.durationMs.toFixed(1)} ms`), el('td', 'timing-status', timingStatusText(entry)), detail);
             content.append(row);
         }
         table.append(content); container.append(table);
@@ -906,15 +922,46 @@ async function chatsPanel() {
     const chats = await api.post('/api/characters/chats', { avatar_url: state.character.avatar });
     if (revision !== panelRevision) return;
     if (!Array.isArray(chats) || !chats.length) { note(body, '还没有已保存的对话。'); return; }
-    const items = el('div', 'resource-list'); body.append(items);
+    const items = el('div', 'resource-list chat-history-list'); body.append(items);
     for (const chat of chats.sort((a, b) => (Number(b.last_mes) || Date.parse(b.last_mes) || 0) - (Number(a.last_mes) || Date.parse(a.last_mes) || 0))) {
         const row = action(chat.file_name.replace(/\.jsonl$/, ''), async () => { assertSaved(); if (closePanel()) await loadChat(chat.file_name.replace(/\.jsonl$/, '')); }, 'chat', 'resource-row');
-        row.append(el('small', '', `${chat.chat_items || 0} 楼 · ${String(chat.mes || '').slice(0, 100)}`));
+        const preview = String(chat.mes || '')
+            .replace(/(?:```|~~~)[\s\S]*?(?:```|~~~|$)/g, ' ')
+            .replace(/<\/?[a-z][^>]*>/gi, ' ')
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/(?:^|\n)\s*(?:#+|>|[-*+])\s+/g, ' ')
+            .replace(/\*\*|__|~~|`/g, '')
+            .replace(/\s+/g, ' ').trim().slice(0, 100);
+        row.append(el('small', '', [`${chat.chat_items || 0} 楼`, preview].filter(Boolean).join(' · ')));
         const wrapper = el('div','chat-history-row'), tools = el('div','chat-history-tools'); wrapper.append(row,tools); items.append(wrapper);
         const file = chat.file_name.replace(/\.jsonl$/, ''), avatar=state.character.avatar;
         const read = () => api.post('/api/chats/get',{avatar_url:avatar,file_name:file});
         tools.append(action('导出聊天',async()=>{const data=await read();const url=URL.createObjectURL(new Blob([data.map(item=>JSON.stringify(item)).join('\n')],{type:'application/jsonl'}));const link=el('a');link.href=url;link.download=`${file}.jsonl`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);},'export'),action('复制聊天',async()=>{assertSaved();const data=await read();const next=`${file}-副本-${Date.now()}`;await api.post('/api/chats/save',{avatar_url:avatar,file_name:next,chat:data});panelDirty=false;await chatsPanel();},'copy'),action('删除聊天',async()=>{assertSaved();if(!confirm(`删除聊天「${file}」？`))return;await api.post('/api/chats/delete',{avatar_url:avatar,chatfile:file});if(state.file===file)await loadChat(null);panelDirty=false;await chatsPanel();},'trash','danger'));
-        for(const button of tools.children){button.title=button.textContent;button.setAttribute('aria-label',button.textContent);}
+        const label = `${file}的聊天操作`;
+        const menu = action(label, () => {
+            const open = menu.getAttribute('aria-expanded') === 'true';
+            items.querySelectorAll('.chat-history-menu[aria-expanded=true]').forEach(other => other.setAttribute('aria-expanded', 'false'));
+            menu.setAttribute('aria-expanded', String(!open));
+        }, 'more', 'icon-button chat-history-menu');
+        menu.title = label;
+        menu.setAttribute('aria-label', label);
+        menu.setAttribute('aria-expanded', 'false');
+        tools.id = `history-tools-${uuid()}`;
+        tools.setAttribute('role', 'group');
+        tools.setAttribute('aria-label', label);
+        menu.setAttribute('aria-controls', tools.id);
+        tools.before(menu);
+        for (const button of tools.children) {
+            button.title = button.textContent;
+            button.setAttribute('aria-label', button.textContent);
+        }
+        wrapper.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || menu.getAttribute('aria-expanded') !== 'true' || !menu.getClientRects().length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            menu.setAttribute('aria-expanded', 'false');
+            menu.focus();
+        });
 
     }
 }

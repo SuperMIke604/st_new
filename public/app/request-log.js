@@ -54,6 +54,7 @@ export class RequestLog extends EventTarget {
         let messages;
         try { messages = structuredClone(body.messages); } catch { return; }
         const id = ++this.#sequence;
+        const startedAt = performance.now();
         const processing = body.custom_prompt_post_processing ? 'pending' : 'none';
         const entry = { id, source, model: body.model, stream: body.stream === true, time: new Date(), messages, status: 'pending', processing };
         if (keywordRows?.length) entry.keywordRows = structuredClone(keywordRows);
@@ -86,6 +87,7 @@ export class RequestLog extends EventTarget {
             const entry = this.#entries.find(item => item.id === id);
             if (entry?.status !== 'pending') return;
             entry.status = signal?.aborted || error?.name === 'AbortError' ? 'cancelled' : error ? 'error' : 'success';
+            entry.durationMs = performance.now() - startedAt;
             if (typeof reply === 'string' && reply) entry.reply = reply;
             if (typeof reasoning === 'string' && reasoning) entry.reasoning = reasoning;
             if (Number.isInteger(error?.status)) entry.httpStatus = error.status;
@@ -124,7 +126,9 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
     const heading = el('h1', '', '最近请求记录');
     heading.id = 'request-log-title';
     const header = el('header', 'panel-header');
-    const close = action('关闭', () => dialog.close());
+    const close = action('关闭', () => dialog.close(), 'close', 'icon-button diagnostic-close');
+    close.setAttribute('aria-label', '关闭请求记录');
+    close.title = '关闭请求记录';
     close.autofocus = true;
     header.append(heading, close);
 
@@ -176,8 +180,10 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
             const count = entry.processing === 'pending' ? '核对提示词中'
                 : entry.processing === 'unavailable' ? `${entry.messages.length} 条提交给后端的消息`
                     : `${entry.messages.length} 条消息`;
-            context.textContent = `${entry.time.toLocaleTimeString()} · ${count} · ${entry.stream ? '流式' : '非流式'} · `;
+            const duration = Number.isFinite(entry.durationMs) ? ` · ${(entry.durationMs / 1000).toFixed(2)} 秒` : '';
             status.textContent = statuses[entry.status] + (entry.httpStatus ? ` · HTTP ${entry.httpStatus}` : '');
+            status.dataset.status = entry.status;
+            context.textContent = `${duration} · ${entry.time.toLocaleTimeString()} · ${count} · ${entry.stream ? '流式' : '非流式'}`;
             if (content && renderedProcessing !== entry.processing) {
                 renderedProcessing = entry.processing;
                 content.replaceChildren();
@@ -222,7 +228,7 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
         const status = el('span');
         const context = document.createTextNode('');
         const metadata = el('small', 'request-log-meta');
-        metadata.append(context, status);
+        metadata.append(status, context);
         summary.append(el('span', '', `${sources[entry.source]} · ${entry.model || '未知模型'}`), metadata);
         return { details, update };
     };

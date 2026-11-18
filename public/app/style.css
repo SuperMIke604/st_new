@@ -685,3 +685,99 @@ svg[data-ivory-variant]>.ivory-icon{display:none}
 .request-log-content>.button{margin-bottom:8px}
 .request-log-text pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-size:var(--type-code-size,13px);line-height:1.6}
 .request-log-panel :is(summary,input,select):focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+
+.home-recent-summary,
+.home-recent-avatar,
+.chat-history-list .chat-history-menu,
+.chat-history-menu > span,
+.diagnostic-close > span,
+.timing-detail-disclosure { display: none; }
+
+.chat-history-list { grid-template-columns: minmax(0, 1fr); }
+.chat-history-list .chat-history-row {
+    min-width: 0;
+    padding: 0 8px 0 0;
+    border: 1px solid var(--line);
+    border-radius: var(--control-radius);
+    background: var(--surface);
+}
+.chat-history-list .resource-row { background: transparent; }
+.chat-history-list .resource-row:hover { background: var(--soft); }
+.chat-history-list .resource-row small {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.dm-summary-card {
+    padding-block-start: 16px;
+    border-block-start: 1px solid var(--line);
+}
+.dm-summary-card h2 {
+    margin: 0;
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 600;
+}
+.db-content > .dm-summary-card { margin-bottom: 24px; }
+.dm-summary-card > .button { align-self: flex-start; }
+.dm-summary-grid { gap: 24px; }
+.db-content > .db-source-summary { margin: 12px 0 4px; }
+.db-status-footer { align-items: center; }
+.db-status-footer .db-save-status { margin: 0 4px; overflow-wrap: anywhere; }
+.db-section-heading {
+    margin: 24px 0 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    font-size: 16px;
+    line-height: 24px;
+}
+.timing-copy {
+    border: 1px solid var(--line);
+    border-radius: var(--control-radius);
+}
+.timing-copy[hidden] { display: none; }
+.timing-table .timing-detail { white-space: normal; overflow-wrap: anywhere; }
+.timing-table .timing-status { color: var(--muted); }
+.timing-table [data-status=error] :is(.timing-status,.timing-detail-summary) { color: #8c3f2d; }
+.timing-table [data-status=loading] .timing-status { color: var(--green); }
+.request-log-meta [data-status=error] { color: #8c3f2d; }
+.request-log-meta [data-status=pending] { color: var(--green); }
+.diagnostic-close { flex-shrink: 0; }
+
+@media (max-width:700px) {
+    .chat-history-list .chat-history-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0;
+    }
+    .chat-history-list .chat-history-menu { display: inline-grid; place-items: center; }
+    .chat-history-list .chat-history-tools {
+        display: none;
+        grid-column: 1/-1;
+        justify-content: flex-end;
+        margin: 0 0 0 12px;
+        padding: 4px 0;
+        border-top: 1px solid var(--line);
+    }
+    .chat-history-menu[aria-expanded=true] + .chat-history-tools { display: flex; }
+    .timing-table tr { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; padding-block: 10px; }
+    .timing-table td:nth-child(2) { grid-column: 2; grid-row: 2; }
+    .timing-table td:nth-child(3) { grid-column: 3; grid-row: 1; white-space: nowrap !important; }
+    .timing-table td:first-child { grid-column: 1/3; grid-row: 1; }
+    .timing-table .timing-status { grid-column: 1; grid-row: 2; }
+    .timing-table td.timing-detail { grid-column: 3; grid-row: 2; }
+    .timing-table [data-status=error] td.timing-detail,
+    .timing-table td.timing-detail:has(details[open]) { grid-column: 1/-1; grid-row: 3; }
+    .timing-detail-disclosure { display: block; color: var(--muted); }
+    .timing-detail-disclosure > summary {
+        min-height: 42px;
+        align-content: center;
+        cursor: pointer;
+    }
+    .timing-detail-disclosure p { margin: 4px 0; }
+    .timing-table tr:not([data-status=error]) .timing-detail-summary { display: none; }
+    .timing-table .timing-detail { font-size: var(--type-small-size, 12px); }
+}
