@@ -91,6 +91,79 @@ function registerPreview(frame, loaded = false) {
         frame.contentWindow.postMessage({ type: 'tavern-html-measure' }, '*');
     }
 }
+// Runs inside the iframe, where the card's computed styles are available.
+function installPreviewEdgeStyles() {
+    const style = document.createElement('style');
+    document.head.append(style);
+    const marker = 'data-st-new-preview-edge';
+    let previousWidth;
+    let adjustedCard;
+    function update() {
+        const width = document.documentElement.clientWidth;
+        previousWidth = width;
+        adjustedCard?.removeAttribute(marker);
+        adjustedCard = null;
+        style.textContent = '';
+        const body = document.body;
+        if (!body || !width) return;
+        const visible = [...body.children].filter(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.width > 0 && bounds.height > 0 && getComputedStyle(element).visibility === 'visible';
+        });
+        if (visible.length !== 1) return;
+
+        const [card] = visible;
+        const bounds = card.getBoundingClientRect();
+        const appearance = getComputedStyle(card);
+        if (bounds.width < width * 0.85) return;
+        const shadows = appearance.boxShadow.match(/(?:[^(),]|\([^)]*\))+/g) ?? [];
+        const outerShadows = shadows.filter(shadow => !/\binset\b/.test(shadow));
+        const backdrop = getComputedStyle(body);
+        const bottomSpace = body.getBoundingClientRect().bottom + (parseFloat(backdrop.marginBottom) || 0) - bounds.bottom;
+        const reachesEdge = (space, reach) => Math.max(0, space) < Math.min(24, reach);
+        // Darker shadows can leave a visible edge even with a smaller blur.
+        const clipsStrongShadow = outerShadows.some(shadow => {
+            const [color = ''] = shadow.match(/[a-z-]+\([^)]*\)/i) ?? [];
+            const alphaValue = color.match(/\/\s*([\d.]+%?)\)$/)?.[1] ??
+                color.match(/^(?:rgba|hsla)\([^)]*,\s*([\d.]+%?)\)$/)?.[1] ?? '1';
+            const alpha = parseFloat(alphaValue) / (alphaValue.endsWith('%') ? 100 : 1);
+            const lengths = shadow.replace(color, '').match(/-?[\d.]+px/g) ?? [];
+            const [x = 0, y = 0, blur = 0, spread = 0] = lengths.map(length => parseFloat(length));
+            const minimumBlur = alpha >= 0.65 ? 16 : alpha >= 0.3 ? 24 : 40;
+            if (alpha < 0.12 || blur < minimumBlur) return false;
+            const reach = blur / 2 + spread;
+            return reachesEdge(bounds.left, reach - x) || reachesEdge(width - bounds.right, reach + x) ||
+                reachesEdge(bounds.top, reach - y) || reachesEdge(bottomSpace, reach + y);
+        });
+        if (!clipsStrongShadow) return;
+
+        const inset = shadows.filter(shadow => /\binset\b/.test(shadow));
+        const root = getComputedStyle(document.documentElement);
+        // A solid body backdrop under a full-bleed card shows up as a rectangle
+        // beside its rounded corners. Preserve backgrounds used as part of a layout.
+        const fullBleed = Math.abs(bounds.left) <= 1 && Math.abs(width - bounds.right) <= 1;
+        const rounded = parseFloat(appearance.borderBottomLeftRadius) && parseFloat(appearance.borderBottomRightRadius);
+        const useHostSurface = fullBleed && rounded && root.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+            root.backgroundImage === 'none' && backdrop.backgroundImage === 'none' &&
+            (appearance.backgroundImage !== 'none' || appearance.backgroundColor !== 'rgba(0, 0, 0, 0)');
+        adjustedCard = card;
+        card.setAttribute(marker, '');
+        style.textContent = 'body > [' + marker + ']{box-shadow:' + (inset.join(',') || 'none') + '!important}' +
+            (useHostSurface ? 'body{background-color:transparent!important}' : '');
+    }
+    addEventListener('DOMContentLoaded', () => {
+        new MutationObserver(update).observe(document.body, { childList: true });
+        update();
+    }, { once: true });
+    addEventListener('load', update, { once: true });
+    addEventListener('animationend', event => {
+        if (event.target.parentElement === document.body) update();
+    });
+    addEventListener('resize', () => {
+        if (document.documentElement.clientWidth !== previousWidth) update();
+    });
+}
+
 export function previewDocument(source, context = {}, remote = false) {
     const cdn = remote ? ' https://testingcf.jsdelivr.net https://cdn.jsdelivr.net' : '';
     const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob:${cdn}; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
@@ -109,7 +182,7 @@ export function previewDocument(source, context = {}, remote = false) {
         let tap=null;document.addEventListener('pointerup',event=>{if(event.pointerType==='mouse'||!canEdit(event.target)){tap=null;return;}const next={time:Date.now(),x:event.clientX,y:event.clientY};if(tap&&next.time-tap.time<=350&&Math.hypot(next.x-tap.x,next.y-tap.y)<=24){tap=null;parent.postMessage({type:'tavern-html-edit'},'*');}else tap=next;});document.addEventListener('pointercancel',()=>{tap=null;});
     })();<\/script>`;
     const snapshot = { messageId: 0, message: '', name: '', role: 'assistant', personaName: '', blockIndices: {}, ...context };
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}${cardContextScript(snapshot)}</head><body>${source}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{color-scheme:light}body{margin:0;font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere;display:flow-root}*{box-sizing:border-box}img{max-width:100%}pre{white-space:pre-wrap}@media(max-width:700px){*{scrollbar-width:none!important}::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}}</style>${bridge}<script>(${installPreviewEdgeStyles})();<\/script>${cardContextScript(snapshot)}</head><body>${source}</body></html>`;
 }
 
 export function decorateCodeBlocks(container, { icon, notify, send, edit, messageId, message = '', name: messageName = '', role = 'assistant', personaName = '', variables = {}, getAvatars, scriptAction, swipes } = {}) {

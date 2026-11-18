@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "0e457ba2ffbe64624fe6d9ec7f7f1f58b6a8a3bb66bcc4eee9ae5456beaa94c0",
-  "publishedAt": "2026-11-18T14:08:35.651699+00:00",
+  "revision": "2f200cb722d92d898f7d1d11cd7252f4eca7d68a5ca9f9c17274f253fd10066c",
+  "publishedAt": "2026-11-18T15:19:19.432723+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -12,7 +12,7 @@
     "public/app/chat-history.js": "57ecb3d5238639547ba31b71541da92cc5996a58247c6d127ae3f56ea2e8b3ab",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
     "public/app/claude-day.css": "ef615efa89408d25460fb7e7e031bc324bb4c7df1b4416e10e029d79ade9edf6",
-    "public/app/code-blocks.js": "6076efadd65749de7457459b54592a3f05c3696d07fcdd9530a673cb24db8495",
+    "public/app/code-blocks.js": "7d4d4ea93d62845b9da25fb54d445406fffdb3dfddf5ee35b13f0e290fd496e1",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
     "public/app/controls.css": "ffa43ebb9f78902ffabceec86ecd711e0a36090aa8d82c504846ea57dc9a3060",
     "public/app/database-defaults.js": "f6d75503375495738803667afc3abb161199eb9a54090b3e7848c348fc46201f",
@@ -43,7 +43,7 @@
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "f4b7f340d10bbeb8d7ca660ef1159fd3a389fc293d08efb2fed978f2d1d2bdeb",
+    "public/app/paper-cards.css": "7a7fedf6e9b9f6c7e456b6b3d7e15160bb2bc6d1649a036247f875cfec5dc5a3",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -93,7 +93,7 @@
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "e25007183ed71a4d5e3eaa89fafe286d6d54986f53b71ff58e4d62203e15a490"
+    "public/app/version.js": "d00ef0ca478dca573effc8cfc8cc5dab1f0e0f91841bec5faaf5924ad553a236"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

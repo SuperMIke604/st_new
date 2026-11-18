@@ -3,6 +3,40 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { previewDocument, decorateCodeBlocks } from '../code-blocks.js';
 
+test('square preview shells lose short, dark shadows only when they reach an edge', () => {
+    const script = [...previewDocument('').matchAll(/<script>([\s\S]*?)<\/script>/g)]
+        .map(match => match[1]).find(source => source.includes('function installPreviewEdgeStyles'));
+    for (const { opacity, blur, inset, adjusted } of [
+        { opacity: 0.8, blur: 16, inset: 10, adjusted: true },
+        { opacity: 0.2, blur: 16, inset: 10, adjusted: false },
+        { opacity: 0.8, blur: 16, inset: 24, adjusted: false },
+        { opacity: 1, blur: 12, inset: 10, adjusted: false },
+    ]) {
+        const style = {};
+        const events = new Map();
+        const card = {
+            setAttribute() {},
+            getBoundingClientRect: () => ({ width: 372, height: 100, left: 10, right: 382, top: inset, bottom: inset + 100 }),
+        };
+        const body = { children: [card], getBoundingClientRect: () => ({ bottom: 100 + inset * 2 }) };
+        const root = { clientWidth: 392 };
+        const colors = { backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: 'none' };
+        vm.runInNewContext(script, {
+            document: { body, documentElement: root, head: { append() {} }, createElement: () => style },
+            addEventListener: (name, listener) => events.set(name, listener),
+            getComputedStyle: element => element === card ? {
+                visibility: 'visible',
+                backgroundColor: 'rgb(30, 30, 30)',
+                borderBottomLeftRadius: '0px',
+                borderBottomRightRadius: '0px',
+                boxShadow: `rgba(0, 0, 0, ${opacity}) 0px 8px ${blur}px 0px`,
+            } : { ...colors, backgroundColor: element === body ? 'rgb(243, 234, 220)' : colors.backgroundColor },
+        });
+        events.get('load')();
+        assert.equal(style.textContent, adjusted ? 'body > [data-st-new-preview-edge]{box-shadow:none!important}' : '');
+    }
+});
+
 test('late iframe registration remeasures unchanged content and routes card sends', () => {
     const original = { window: globalThis.window, document: globalThis.document, confirm: globalThis.confirm };
     const guestEvents = new Map(), hostEvents = new Map(), frames = [], sent = [], measured = [], attributes = {};

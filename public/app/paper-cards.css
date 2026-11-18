@@ -218,6 +218,8 @@
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list {
     --message-gap: 14px;
     padding-block-start: 6px;
+    border-start-start-radius: var(--card-radius);
+    border-start-end-radius: var(--card-radius);
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .message {
