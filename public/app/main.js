@@ -1137,26 +1137,42 @@ async function renderPresetPanel(body, revision) {
         clearTimeout(tokenTimer);
         for(const dispose of promptSizes.splice(0))dispose();
         rows._disposeDrag?.(); tokenPreview?.dispose();
-        tokenPreview = new PresetTokenClient({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, loadBooks: signal => loadBooks({ signal }) });
+        const cacheRevision = !state.busy && !state.dirty && !state.loading && !state.chatConflict && !variablesSaving
+            ? api.chatBase || state.header || api : null;
+        tokenPreview = new PresetTokenClient({ api, model: connection().model, character: state.character, persona: persona(), preset: draft, chat: state.chat, header: state.header, settings: state.settings, databaseConfig: state.own.database, cacheRevision, loadBooks: signal => loadBooks({ signal }) });
         const tokenUpdates = [];
+        const showTotal = values => { totalTokens.textContent = `${values.reduce((sum, value) => sum + value, 0)} Tokens`; };
         const countRows = async () => {
             const scope = tokenPreview;
             const version = ++tokenSummaryVersion;
-            totalTokens.textContent = '…';
             totalTokens.title = totalLabel;
-            const enabledCounts = [];
-            for (const { order, updateTokens } of tokenUpdates) {
-                const result = updateTokens();
-                if (order.enabled !== false) enabledCounts.push(result);
+            const results = scope.previewCounts();
+            const enabledCounts = [], previousCounts = [];
+            let refreshing = false;
+            for (const { order, prompt, updateTokens } of tokenUpdates) {
+                const snapshot = { ...prompt };
+                const previous = results.get(snapshot);
+                const recount = previous === undefined || results.recheck(snapshot);
+                const result = updateTokens(previous, recount, version, count => results.set(snapshot, count));
+                if (order.enabled !== false) {
+                    previousCounts.push(previous);
+                    enabledCounts.push(result);
+                    refreshing ||= recount;
+                }
             }
+            if (previousCounts.every(value => value !== undefined)) {
+                showTotal(previousCounts);
+                if (refreshing) totalTokens.title = '上次统计的启用条目合计，正在重新核对';
+            } else totalTokens.textContent = '…';
             const values = await Promise.all(enabledCounts);
             if (scope.signal.aborted || version !== tokenSummaryVersion || revision !== panelRevision) return;
+            totalTokens.title = totalLabel;
             if (values.some(value => value === undefined)) {
                 totalTokens.textContent = '—';
                 totalTokens.title = '有启用条目未能完成 token 统计';
                 return;
             }
-            totalTokens.textContent = `${values.reduce((sum, value) => sum + value, 0)} Tokens`;
+            showTotal(values);
         };
         refreshPresetTokens = () => {
             tokenSummaryVersion++;
@@ -1187,20 +1203,31 @@ async function renderPresetPanel(body, revision) {
             const roleLabel = () => ['chatHistory', 'dialogueExamples'].includes(prompt.identifier) && !prompt.independent_role_override ? '原消息角色' : ({ system: '系统', user: '用户', assistant: '助手' }[prompt.role || 'system']);
             const kind = el('small', 'prompt-kind', roleLabel());
             const tokenCount = el('small', 'prompt-token-count', '-');
+            const tokenTitle = '按当前聊天和资料库注入预算展开后的条目计数，包含条目正文与消息封装';
+            const showCount = count => { tokenCount.textContent = count > 0 ? String(count) : '-'; tokenCount.title = tokenTitle; };
             let tokenVersion = 0;
-            const updateTokens = async () => {
+            const updateTokens = async (previous, recount, summaryVersion, cacheCount) => {
                 const scope = tokenPreview;
                 if (scope.signal.aborted || revision !== panelRevision || (pageReady && !tokenCount.isConnected)) return;
                 const version = ++tokenVersion;
-                tokenCount.textContent = '统计中'; tokenCount.title = '后台统计 tokens…';
+                const current = () => !scope.signal.aborted && revision === panelRevision && version === tokenVersion
+                    && summaryVersion === tokenSummaryVersion && tokenCount.isConnected;
+                if (previous !== undefined) {
+                    showCount(previous);
+                    if (!recount) return previous;
+                    tokenCount.title = '上次统计结果，正在重新核对';
+                } else {
+                    tokenCount.textContent = '统计中';
+                    tokenCount.title = '后台统计 tokens…';
+                }
                 try {
-                    const count = await scope.count(prompt);
-                    if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
-                    tokenCount.textContent = Number.isFinite(count) && count > 0 ? String(count) : '-';
-                    tokenCount.title = '按当前聊天和资料库注入预算展开后的条目计数，包含条目正文与消息封装';
-                    return count ?? 0;
+                    const count = (await scope.count(prompt)) ?? 0;
+                    if (!current()) return;
+                    showCount(count);
+                    cacheCount(count);
+                    return count;
                 } catch (error) {
-                    if (scope.signal.aborted || version !== tokenVersion || !tokenCount.isConnected) return;
+                    if (!current()) return;
                     const timedOut = error?.name === 'TimeoutError';
                     tokenCount.textContent = timedOut ? '超时' : '失败';
                     tokenCount.title = timedOut ? 'token 统计请求超时' : '无法统计 tokens';
@@ -1208,7 +1235,7 @@ async function renderPresetPanel(body, revision) {
             };
             titleWrap.append(kind);
             summary.append(enabled, titleWrap, tokenCount);
-            tokenUpdates.push({ order, updateTokens });
+            tokenUpdates.push({ order, prompt, updateTokens });
             details.append(summary);
             const content = el('div', 'prompt-form');
             const toolbar = el('span', 'prompt-actions prompt-inline-actions inset-action-menu'); toolbar.hidden = true;

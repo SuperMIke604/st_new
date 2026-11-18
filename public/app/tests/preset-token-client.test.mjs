@@ -109,4 +109,35 @@ test('worker counts automatically, serializes cold startup, reuses results acros
     finishStartup();
     assert.deepEqual(await Promise.all(coldCounts), [8, 8]);
     assert.equal(sent, 2);
+
+    const scope = { cacheRevision: {} };
+    const loaded = addClient(PresetTokenClient, scope);
+    const literal = { identifier: 'main', role: 'system', content: 'cache-this' };
+    const world = { marker: true, identifier: 'worldInfoBefore' };
+    const counts = loaded.previewCounts();
+    counts.set(history, 6);
+    counts.set(literal, 10);
+    counts.set(world, 0);
+    loaded.dispose();
+
+    const reopened = addClient(PresetTokenClient, scope);
+    const restored = reopened.previewCounts();
+    assert.equal(restored.get(history), 6);
+    assert.equal(restored.get(literal), 10);
+    assert.equal(restored.recheck(history), false);
+    assert.equal(restored.get(world), 0);
+    assert.equal(restored.recheck(world), true);
+    reopened.start();
+    assert.equal(reopened.worker, undefined, 'without a cache miss or external recheck no worker starts');
+    assert.equal(await reopened.count(history), 6, 'a job queued after mounting still starts');
+
+    const editedPreset = addClient(PresetTokenClient, { ...scope, preset: { prompts: [{ ...literal, content: 'edited' }] } });
+    assert.equal(editedPreset.previewCounts().get(history), 6, 'editing unrelated prompts keeps the history count');
+    assert.equal(editedPreset.previewCounts().get({ ...literal, content: 'edited' }), undefined);
+    const savedNewChatRevision = addClient(PresetTokenClient, { cacheRevision: {} });
+    assert.equal(savedNewChatRevision.previewCounts().get(history), undefined);
+    assert.equal(savedNewChatRevision.previewCounts().get(literal), 10);
+    const otherModel = addClient(PresetTokenClient, { ...scope, model: 'different-model' });
+    assert.equal(otherModel.previewCounts().get(literal), undefined);
+    assert.equal(otherModel.previewCounts().get(history), undefined);
 });

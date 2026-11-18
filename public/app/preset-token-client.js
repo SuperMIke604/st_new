@@ -1,4 +1,5 @@
-import { PresetTokenPreview } from './preset-tokens.js';
+import { PresetTokenPreview, TokenCountCache } from './preset-tokens.js';
+import { activeRegexes } from './regex.js';
 import { BUILD } from './version.js';
 
 const cacheKey = `independent-preset-token-counts-v1:${BUILD.revision}`;
@@ -40,6 +41,26 @@ class SessionTokenCounts {
 
 let sessionCounts;
 const tokenizerStartup = new Map();
+const literalPreviewCounts = new TokenCountCache();
+const contextualPreviewCounts = new WeakMap();
+
+function contextualCounts(options) {
+    const { cacheRevision, chat, header, model, persona, character, settings, databaseConfig, preset } = options;
+    if (!cacheRevision) return;
+    const card = character?.data || character;
+    const signature = JSON.stringify([
+        model, persona.name, persona.description, character?.name, card?.description, card?.personality, card?.scenario,
+        activeRegexes(options), settings?.world_info_settings, databaseConfig,
+        Number(databaseConfig?.keywordInjectionTokens) > 0 ? preset : null,
+    ]);
+    if (signature.length > 2_000_000) return;
+    const previous = contextualPreviewCounts.get(chat);
+    if (previous?.revision === cacheRevision && previous.header === header && previous.character === character
+        && previous.signature === signature && previous.expires > Date.now()) return previous.counts;
+    const counts = new TokenCountCache();
+    contextualPreviewCounts.set(chat, { revision: cacheRevision, header, character, signature, counts, expires: Date.now() + cacheLifetime });
+    return counts;
+}
 
 async function countNative(api, path, serializedBody, signal) {
     // SillyTavern can load the same tokenizer twice if cold requests overlap.
@@ -71,8 +92,12 @@ export class PresetTokenClient {
         this.nextJob = 0;
     }
     start() {
-        if (this.signal.aborted || this.worker || this.local) return;
-        const { api, loadBooks, ...options } = this.options;
+        this.started = true;
+        this.startPending();
+    }
+    startPending() {
+        if (!this.started || this.signal.aborted || this.worker || this.local || !this.jobs.size) return;
+        const { api, loadBooks, cacheRevision, ...options } = this.options;
         try {
             const worker = this.worker = new Worker(new URL('./preset-token-worker.js', import.meta.url), { type: 'module' });
             worker.onmessage = event => { if (this.worker === worker) void this.receive(worker, event.data); };
@@ -83,6 +108,29 @@ export class PresetTokenClient {
         } catch {
             this.startLocal();
         }
+    }
+    previewCounts() {
+        const options = this.options;
+        const contextual = contextualCounts(options);
+        const card = options.character?.data || options.character;
+        const worldMacro = /{{\s*(?:getvar|setvar)::/i;
+        const markersUseWorldMacros = [options.persona.description, card?.description, card?.personality, card?.scenario].some(text => worldMacro.test(text || ''));
+        const literal = prompt => !prompt.marker && !String(prompt.content || '').includes('{{');
+        const cacheFor = prompt => literal(prompt) ? literalPreviewCounts : contextual;
+        const key = prompt => JSON.stringify(literal(prompt)
+            ? [options.model, prompt.role, prompt.content]
+            : [prompt.identifier, prompt.marker, prompt.role, prompt.content]);
+        return {
+            get: prompt => cacheFor(prompt)?.get(key(prompt)),
+            set: (prompt, count) => cacheFor(prompt)?.set(key(prompt), count),
+            // External reads and probabilistic activations can change without a local chat save.
+            recheck: prompt => !literal(prompt) && !!options.character && (
+                ['worldInfoBefore', 'worldInfoAfter'].includes(prompt.identifier)
+                || worldMacro.test(prompt.content || '')
+                || (prompt.marker && prompt.identifier !== 'chatHistory' && markersUseWorldMacros)
+                || Number(options.databaseConfig?.keywordInjectionTokens) > 0
+            ),
+        };
     }
     startLocal() {
         if (this.signal.aborted || this.local) return;
@@ -116,7 +164,8 @@ export class PresetTokenClient {
         return new Promise((resolve, reject) => {
             const id = ++this.nextJob;
             this.jobs.set(id, { prompt: { ...prompt }, resolve, reject });
-            this.worker?.postMessage({ type: 'count', id, prompt });
+            if (this.worker) this.worker.postMessage({ type: 'count', id, prompt });
+            else this.startPending();
         });
     }
     async receive(worker, { type, id, path, body, digest, result, error }) {
