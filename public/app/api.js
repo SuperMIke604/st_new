@@ -13,12 +13,12 @@ export class TavernAPI {
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
-    async response(path, data = {}, { signal, form = false, fallbackStatuses = [], serializedBody, contentEncoding, timing } = {}) {
+    async response(path, data = {}, { signal, form = false, fallbackStatuses = [], serializedBody, contentEncoding, timing, logSuccess } = {}) {
         const response = await timedFetch(path, {
             method: 'POST', credentials: 'same-origin', signal,
             headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }), ...(contentEncoding ? { 'Content-Encoding': contentEncoding } : {}) },
             body: form ? data : serializedBody ?? JSON.stringify(data),
-        }, { fallbackStatuses, timing });
+        }, { fallbackStatuses, timing, logSuccess });
         if (response.redirected && response.url.includes('/login')) throw new ApiError('请先在原生页面登录，再重新打开 /app/。', 401);
         if (!response.ok) {
             const raw = await response.text();

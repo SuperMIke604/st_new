@@ -30,6 +30,7 @@ test('counts the final keyword macro expansion and its repetitions in request de
     const macros = [{ key: 'sheet_0', occurrences: 2, text: 'final selected text' }, { key: 'sheet_1', occurrences: 1, text: '' }];
     log.start('chat', { model: 'test-model', messages: [] }, undefined, api, rows, macros);
     assert.deepEqual(log.entries[0].keywordRows.map(row => row.macroTokens), ['pending', 'pending']);
+    assert.deepEqual(calls, [], 'logging must return before starting tokenizer diagnostics');
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(calls, ['', 'final selected text']);
     assert.deepEqual(log.entries[0].keywordRows.map(row => row.macroTokens), [10, 0]);

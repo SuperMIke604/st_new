@@ -7,7 +7,7 @@ import { RequestLog } from '../request-log.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
-const sendPreparation = source.slice(source.indexOf('function setSendPreparation('), source.indexOf('function synchronize('));
+const waitingPresentation = source.slice(source.indexOf('function setReplyWaiting('), source.indexOf('function synchronize('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, timeoutWhileWriting = false, intercept = body => body } = {}) {
@@ -45,9 +45,9 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
         preparePrompt: chat => { promptHistory.push(Array.from(chat, message => message.mes)); return prepared.promise; },
-        list: { follow: true, update() {}, setMessages() {
-            if (state.generation?.reply) assert.equal(requests, 1, 'start the request before painting the waiting placeholder');
-            renders.push(state.chat.map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
+        list: { follow: true, update() {}, setMessages(messages) {
+            if (state.generation?.reply) assert.equal(requests, 1, 'start the request before repainting the chat');
+            renders.push(context.visibleChatMessages(messages).map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
         } },
         api: {
             chatBase: { avatar: state.character.avatar, file: state.file, lines: [] },
@@ -72,7 +72,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         },
         rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
-    vm.runInContext(sendPreparation + generate, context);
+    vm.runInContext(waitingPresentation + generate, context);
     return { state, input, storage, backgroundCalls, releases, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
 }
 
@@ -83,21 +83,27 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.state.generation.regenerate, false);
     assert.match(f.statuses.at(-1), /发送消息.*准备上下文/);
     assert.equal(f.requests(), 0);
-    assert.equal(f.stopClasses.has('is-preparing'), true);
+    assert.equal(f.stopClasses.has('is-waiting'), true);
     assert.equal(f.stopAttributes.get('aria-label'), '正在准备发送，停止生成');
     f.prepared.resolve({ messages: [] }); await tick();
     assert.match(f.statuses.at(-1), /等待回复/);
-    assert.equal(f.renders.at(-1).at(-1).pending, true);
-    assert.equal(f.renders.at(-1).at(-1).text, '');
+    assert.equal(f.renders.at(-1).at(-1).pending, false);
+    assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
     assert.equal(f.requests(), 1);
-    assert.equal(f.stopClasses.has('is-preparing'), false);
-    assert.equal(f.stopAttributes.get('aria-label'), '停止生成');
+    assert.equal(f.stopClasses.has('is-waiting'), true);
+    assert.equal(f.stopAttributes.get('aria-label'), '正在等待回复，停止生成');
     assert.deepEqual(f.requestLog.entries[0].messages, finalMessages);
     assert.equal(f.requestLog.entries[0].status, 'pending');
     assert.deepEqual(f.promptHistory, [['原来的回复', '测试消息']]);
     assert.equal(f.saveOptions[0].incremental, true);
-    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '测试回复' } }] }) });
+    const responseBody = deferred();
+    f.response.resolve({ headers: new Headers(), json: () => responseBody.promise });
+    await tick();
+    assert.equal(f.stopClasses.has('is-waiting'), true, 'headers alone do not reveal a reply');
+    responseBody.resolve({ choices: [{ message: { content: '测试回复' } }] });
     await running;
+    assert.equal(f.stopClasses.has('is-waiting'), false);
+    assert.equal(f.stopAttributes.get('aria-label'), '停止生成');
     assert.deepEqual(f.timings.snapshot().find(entry => entry.label === '模型请求至响应头').metrics,
         { requestedStream: 1, streamResponse: 0 });
     const phaseMetrics = f.timings.snapshot().find(entry => entry.label === '发送消息').metrics;
@@ -130,6 +136,8 @@ test('stopping regeneration clears loading and restores the previous reply', asy
     assert.equal(f.state.generation.regenerate, true);
     assert.equal(f.state.generation.reply.extra.reasoning, undefined, 'old reasoning must not hide the waiting indicator');
     assert.match(f.statuses.at(-1), /重新生成.*等待回复/);
+    assert.equal(f.renders.at(-1).at(-1).text, '原来的回复');
+    assert.equal(f.stopClasses.has('is-waiting'), true);
     f.state.controller.abort(); f.response.reject(new DOMException('stopped', 'AbortError'));
     await running;
     assert.equal(f.state.chat.at(-1).mes, '原来的回复');
@@ -144,14 +152,22 @@ test('stopping regeneration clears loading and restores the previous reply', asy
 });
 
 test('stream diagnostics distinguish response headers, first reasoning text and stream completion', async () => {
-    const f = fixture(), tail = deferred(), running = f.run(false);
+    const f = fixture(), firstText = deferred(), tail = deferred(), running = f.run(false);
     f.prepared.resolve({ messages: [] }); await tick();
     f.response.resolve({ headers: new Headers({ 'content-type': 'text/event-stream' }), events: (async function* () {
+        yield { choices: [{ delta: { role: 'assistant' } }] };
+        await firstText.promise;
         yield { choices: [{ delta: { reasoning_content: 'private reasoning' } }] };
         await tail.promise;
         yield { choices: [{ delta: { content: 'private reply' } }] };
     })() });
     await tick();
+    assert.equal(f.stopClasses.has('is-waiting'), true);
+    assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
+    firstText.resolve();
+    await tick();
+    assert.equal(f.stopClasses.has('is-waiting'), false);
+    assert.equal(f.renders.at(-1).at(-1).pending, true);
     const record = label => f.timings.snapshot().find(entry => entry.label === label);
     assert.equal(record('模型请求至响应头').status, 'success');
     assert.deepEqual(record('模型请求至响应头').metrics, { requestedStream: 1, streamResponse: 1 });
@@ -165,10 +181,10 @@ test('stream diagnostics distinguish response headers, first reasoning text and 
 
 test('prompt failure clears loading without sending a request or losing the input', async () => {
     const f = fixture(), running = f.run(false);
-    assert.equal(f.stopClasses.has('is-preparing'), true);
+    assert.equal(f.stopClasses.has('is-waiting'), true);
     f.prepared.reject(new Error('上下文准备失败')); await running;
     assert.equal(f.requests(), 0);
-    assert.equal(f.stopClasses.has('is-preparing'), false);
+    assert.equal(f.stopClasses.has('is-waiting'), false);
     assert.equal(f.input.value, '测试消息');
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.notices.at(-1), '上下文准备失败');

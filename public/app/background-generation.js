@@ -44,8 +44,12 @@ export async function chatGenerationResponse(api, body, signal, { id, resume = f
     }
     const recoverable = !!id;
     id ||= crypto.randomUUID().replaceAll('-', '');
+    let nextReadLog = 0;
     const call = async (action, fields = {}, options) => {
-        const response = await api.response(endpoint, { action, id, ...fields }, options);
+        const now = Date.now();
+        const logSuccess = action !== 'read' || now >= nextReadLog;
+        if (action === 'read' && logSuccess) nextReadLog = now + 5000;
+        const response = await api.response(endpoint, { action, id, ...fields }, { ...options, logSuccess });
         return response.json();
     };
     const callWithTimeout = async (action, fields, timeout, options) => {

@@ -61,8 +61,11 @@ export class RequestLog extends EventTarget {
         if (entry.keywordRows && keywordMacros?.length) {
             const keys = new Set(keywordMacros.map(({ key }) => key));
             for (const row of entry.keywordRows) if (keys.has(row.key)) row.macroTokens = 'pending';
-            void countKeywordMacroTokens(api, body.model, keywordMacros).then(totals => {
-                if (!this.#entries.includes(entry)) return;
+            const macros = structuredClone(keywordMacros);
+            void Promise.resolve().then(() => {
+                if (this.#entries.includes(entry)) return countKeywordMacroTokens(api, entry.model, macros);
+            }).then(totals => {
+                if (!totals || !this.#entries.includes(entry)) return;
                 for (const row of entry.keywordRows) if (totals.has(row.key)) row.macroTokens = totals.get(row.key);
                 this.dispatchEvent(new Event('change'));
             });

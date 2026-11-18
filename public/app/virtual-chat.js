@@ -1,7 +1,8 @@
 /** Variable-height list. Only the viewport plus overscan owns DOM nodes. */
 export class VirtualChat {
-    constructor(element, render, onRange) {
+    constructor(element, render, onRange, projectMessages = messages => messages) {
         this.element = element; this.renderMessage = render; this.onRange = onRange;
+        this.projectMessages = projectMessages;
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
@@ -46,14 +47,14 @@ export class VirtualChat {
         return Math.min(low, Math.max(0, this.messages.length - 1));
     }
     setMessages(messages, { reset = false, latest = false } = {}) {
-        this.messages = messages;
+        this.messages = this.projectMessages(messages);
         if (reset) {
             this.heights.clear(); this.observer.disconnect(); this.nodes.clear();
             this.observer.observe(this.element);
             this.element.replaceChildren(this.top, this.bottom);
         }
         this.calculate();
-        if (latest) { this.follow = true; this.jump(Math.max(0, messages.length - 1), true); }
+        if (latest) { this.follow = true; this.jump(Math.max(0, this.messages.length - 1), true); }
         else this.paint();
     }
     spacers() {

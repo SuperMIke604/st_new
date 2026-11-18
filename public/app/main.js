@@ -348,10 +348,18 @@ function selectPreset() {
     state.presetMissing = !selected;
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
 }
-function setSendPreparation(preparing) {
+function setReplyWaiting(label = '') {
     const button = $('stop-button');
-    button.classList.toggle('is-preparing', preparing);
-    button.setAttribute('aria-label', preparing ? '正在准备发送，停止生成' : '停止生成');
+    button.classList.toggle('is-waiting', !!label);
+    button.setAttribute('aria-label', label ? label + '，停止生成' : '停止生成');
+}
+
+function visibleChatMessages(messages) {
+    const hidden = state.hiddenReply;
+    if (!hidden || messages.at(-1) !== hidden.reply) return messages;
+    const visible = messages.slice(0, -1);
+    if (hidden.previous) visible.push(hidden.previous);
+    return visible;
 }
 
 function synchronize() {
@@ -467,14 +475,8 @@ function renderMessage(message, index, existing) {
         return node;
     }
     node.querySelector('.inline-editor')?.remove(); node.querySelector('.message-content').hidden = false;
-    let waiting = node.querySelector('.message-waiting');
-    const pending = state.generation?.reply === message && !message.mes && !message.extra?.reasoning;
-    if (pending && !waiting) {
-        waiting = loadingIndicator(state.generation.regenerate ? '正在重新生成，等待回复…' : '正在等待回复…', '', true);
-        waiting.classList.add('message-waiting'); node.querySelector('.message-content').after(waiting);
-    } else if (!pending) waiting?.remove();
-    const companionMessage = inlineScriptMessage(state.settings, state.character, state.preset, state.chat);
-    if (!inlineEdit && index === companionMessage && !pending) {
+    const companionMessage = inlineScriptMessage(state.settings, state.character, state.preset, list.messages);
+    if (!inlineEdit && index === companionMessage) {
         const body = node.querySelector('.message-content');
         let anchor = body.querySelector('.script-chat-anchor');
         if (!anchor) {
@@ -485,7 +487,7 @@ function renderMessage(message, index, existing) {
         queueMicrotask(() => { if (anchor.isConnected) scriptRuntime.bindChat(anchor, index); });
         return node;
     }
-    const depth = state.chat.length - index - 1;
+    const depth = list.messages.length - index - 1;
     if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth || node._userName !== names.user || node._charName !== names.char) {
         const body = node.querySelector('.message-content');
         body.innerHTML = markdown(displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names));
@@ -525,7 +527,7 @@ function renderMessage(message, index, existing) {
 const list = new VirtualChat($('message-list'), renderMessage, range => {
     const viewportLast = list.locate(list.element.scrollTop + list.element.clientHeight);
     $('back-latest').hidden = !state.character || range.total <= 2 || viewportLast >= range.total - 2;
-});
+}, visibleChatMessages);
 installMessageEdit(list.element, messageAtNode, beginMessageEdit);
 $('back-latest').addEventListener('click', () => list.jump(state.chat.length - 1, true));
 function welcome() {
@@ -3234,7 +3236,7 @@ async function generate(mode = false, recovery = null) {
         userSaveBase = api.chatBase;
     };
     try {
-        setSendPreparation(!recovery);
+        setReplyWaiting(recovery ? '正在恢复后台回复' : '正在准备发送');
         let prepared, body;
         if (recovery) {
             const base = api.chatBase;
@@ -3278,6 +3280,7 @@ async function generate(mode = false, recovery = null) {
             if (recovery) throw state.controller.signal.reason;
             return;
         }
+        const waitingPrevious = regenerate ? state.chat.at(-1) : null;
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
@@ -3290,12 +3293,10 @@ async function generate(mode = false, recovery = null) {
         if (recovery?.started) reply.gen_started = recovery.started;
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
+        state.hiddenReply = { reply, previous: waitingPrevious };
         if (prepared) preview = prepared;
         const controller = state.controller;
-        const keywordPrompt = requestLog.enabled && prepared?.databaseKeywordRows?.length ? JSON.stringify(body.messages) : null;
         const fetchReply = async (request, signal) => {
-            const keywordRows = keywordPrompt && JSON.stringify(request.messages) === keywordPrompt ? prepared.databaseKeywordRows : undefined;
-            finishRequest = requestLog.start('chat', request, signal, api, keywordRows, keywordRows && prepared.databaseKeywordMacros);
             const base = api.chatBase;
             if (usesBackgroundGeneration() && base?.avatar === state.character.avatar && base.file === state.file) {
                 const job = {
@@ -3307,8 +3308,12 @@ async function generate(mode = false, recovery = null) {
                 try { localStorage.setItem(backgroundJobKey(), JSON.stringify(job)); }
                 catch { /* The backend can rediscover the job on startup. */ }
             }
+            const keywordRows = requestLog.enabled && prepared?.databaseKeywordRows?.length
+                && (request.messages === body.messages || JSON.stringify(request.messages) === JSON.stringify(body.messages))
+                ? prepared.databaseKeywordRows : undefined;
+            finishRequest = requestLog.start('chat', request, signal, api, keywordRows, keywordRows && prepared.databaseKeywordMacros);
             requestStarted ??= loadTimings.now();
-            setSendPreparation(false);
+            setReplyWaiting('正在等待回复');
             return chatGenerationResponse(api, request, signal, {
                 id: backgroundJob?.id,
                 recovery: backgroundJob,
@@ -3359,7 +3364,13 @@ async function generate(mode = false, recovery = null) {
                 if (!reply.mes && !reply.extra.reasoning && (delta?.content || delta?.reasoning_content || delta?.reasoning || event.choices?.[0]?.text)) status(regenerate ? '正在重新生成…' : '正在回复…');
                 reply.mes += delta?.content || event.choices?.[0]?.text || '';
                 if (delta?.reasoning_content || delta?.reasoning) reply.extra.reasoning = (reply.extra.reasoning || '') + (delta.reasoning_content || delta.reasoning);
-                if (!streamFrame) streamFrame = setTimeout(() => { streamFrame = 0; list.update(replyIndex); }, 90);
+                if (state.hiddenReply && (reply.mes || reply.extra.reasoning)) {
+                    state.hiddenReply = null;
+                    setReplyWaiting();
+                    list.setMessages(state.chat, { latest: list.follow });
+                } else if (!state.hiddenReply && !streamFrame) {
+                    streamFrame = setTimeout(() => { streamFrame = 0; list.update(replyIndex); }, 90);
+                }
             }
         }
         if (!reply.mes && !reply.extra.reasoning) throw new Error('模型没有返回文本。');
@@ -3385,7 +3396,10 @@ async function generate(mode = false, recovery = null) {
             notifyGeneration(state.error, true);
         }
     } finally {
-        setSendPreparation(false);
+        if (!completed) {
+            state.hiddenReply = null;
+            setReplyWaiting();
+        }
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
         state.generation = null;
@@ -3458,6 +3472,8 @@ async function generate(mode = false, recovery = null) {
                 state.chat.pop();
                 $('message-input').value = text; resizeInput();
             }
+            state.hiddenReply = null;
+            setReplyWaiting();
             list.setMessages(state.chat, { latest: list.follow });
         }
         if (!reply && !resumeLater && backgroundJob) acknowledgeReply();

@@ -147,6 +147,13 @@ test('request timings omit query values and bodies and preserve HTTP error behav
         assert.match(timingDetailText(delta), /已确认文件命中：0/);
         await timedFetch('/api/example');
         assert.equal(loadTimings.snapshot().at(-1).metrics, undefined);
+        const retained = loadTimings.snapshot().length;
+        await timedFetch('/api/plugins/st-new-updater/generate-background', {}, { logSuccess: false });
+        assert.equal(loadTimings.snapshot().length, retained);
+        globalThis.fetch = async () => new Response('{}', { status: 410 });
+        await timedFetch('/api/plugins/st-new-updater/generate-background', {}, { logSuccess: false });
+        assert.equal(loadTimings.snapshot().length, retained + 1);
+        assert.equal(loadTimings.snapshot().at(-1).httpStatus, 410);
         globalThis.fetch = async () => { throw new DOMException('private-error', 'AbortError'); };
         await assert.rejects(timedFetch('/api/cancelled'));
         assert.equal(loadTimings.snapshot().at(-1).status, 'cancelled');

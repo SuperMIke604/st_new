@@ -33,11 +33,11 @@ export class LoadTimings {
         try { this.storage?.setItem(storageKey, JSON.stringify(this.snapshot())); } catch { /* Storage may be unavailable or full. */ }
     }
     start(label, kind = 'page', context = {}) {
-        const entry = { id: ++this.sequence, label, kind, startedAt: this.date(), durationMs: 0, status: 'loading' };
+        const entry = { id: ++this.sequence, label, kind, startedAt: context.startedAt ?? this.date(), durationMs: 0, status: 'loading' };
         if (Number.isInteger(context.parentId) && context.parentId > 0) entry.parentId = context.parentId;
         if (kind === 'generation' && ['发送消息', '重新生成'].includes(label)) this.generationId = entry.id;
         if (!entry.parentId && this.generationId && ['generation', 'request'].includes(kind)) entry.generationId = this.generationId;
-        const started = this.now(); this.pending.set(entry, started);
+        const started = context.started ?? this.now(); this.pending.set(entry, started);
         this.retain(entry);
         this.persist();
         let finished = false;
@@ -123,13 +123,18 @@ export function timingDetailText(entry) {
     return http;
 }
 
-export async function timedFetch(path, options, { fallbackStatuses = [], fallbackReason = 'compatibility', timing } = {}) {
+export async function timedFetch(path, options, { fallbackStatuses = [], fallbackReason = 'compatibility', timing, logSuccess = true } = {}) {
     // Only the endpoint path is logged: query values and request/response bodies
     // can contain user data, prompts or credentials and never enter this log.
     const label = String(path).split('?')[0];
-    const finish = (timing || loadTimings).start(label, 'request');
+    const trace = timing || loadTimings;
+    const sampled = !logSuccess && !timing;
+    const context = sampled ? { started: loadTimings.now(), startedAt: loadTimings.date() } : undefined;
+    const finish = sampled ? null : trace.start(label, 'request');
+    const recordFailure = (status, details) => (finish ?? trace.start(label, 'request', context))(status, details);
     try {
         const response = await fetch(path, options);
+        if (sampled && response.ok) return response;
         const fallback = !response.ok && fallbackStatuses.includes(response.status);
         const details = { httpStatus: response.status };
         if (!response.ok) details.reason = fallback ? fallbackReason : 'http-error';
@@ -142,9 +147,10 @@ export async function timedFetch(path, options, { fallbackStatuses = [], fallbac
             }
             if (Object.keys(metrics).length) details.metrics = metrics;
         }
-        finish(response.ok ? 'success' : fallback ? 'fallback' : 'error', details);
+        if (response.ok) finish('success', details);
+        else recordFailure(fallback ? 'fallback' : 'error', details);
         return response;
     } catch (error) {
-        const failure = requestFailure(error, options?.signal, leavingPage); finish(failure.status, failure); throw error;
+        const failure = requestFailure(error, options?.signal, leavingPage); recordFailure(failure.status, failure); throw error;
     }
 }
