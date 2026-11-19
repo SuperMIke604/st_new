@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "da6fe2eb0492bc75c4eea0a73b7dd9dd98b0d757f73b95aa652d7b2829188291",
-  "publishedAt": "2026-11-19T01:25:31.843395+00:00",
+  "revision": "8b947ce18b267d5cc8cf6256e3cea29756e2a9598ea1b047f6ab9747cf409a07",
+  "publishedAt": "2026-11-19T09:02:38.266067+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -35,7 +35,7 @@
     "public/app/html-card-context.js": "e5cff3121116cff7856d86bc7036c0b041de5294f54b3db55fe353dd6a438bf0",
     "public/app/html-card-loader.js": "7ed9a89135acd88a8a704af094a9b58b5d32238cc160b70e500514ea81f63898",
     "public/app/icons.js": "1c9736c9d730cfc34dbe260e88afa5c48e83a2796d992ebc7d532ee67a6f227f",
-    "public/app/index.html": "4dac068b93b6d5048e528f1e246b3efbd339a52af352b0a4d9f6ddbc03148113",
+    "public/app/index.html": "f9d90a7b27c181dee8c8d2e110bd8351a631282b14666a9efa67d3f4a6e605ce",
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "b15df8380aebf99778475aea58cf53944d4379a93215bfc719616f362ad7d7fc",
@@ -43,7 +43,7 @@
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "7a7fedf6e9b9f6c7e456b6b3d7e15160bb2bc6d1649a036247f875cfec5dc5a3",
+    "public/app/paper-cards.css": "1cd44b1cb163dc57abee6ce0b81f7d140c65fc21720930cb0d9876efea50e660",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -89,11 +89,11 @@
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
-    "public/app/virtual-chat.js": "707dda6d43374da0ceb63a8a8b7900e5bf6a8dd0d58ce4516b146248f95a7918",
+    "public/app/virtual-chat.js": "fd8082c1eaf15b1d6194c3f410e141aece5bd0090ab1163207aa1526350fdf94",
     "public/app/world-editor.js": "9c744a26ed3e1f9616852c6bdd13e581ab749a4ef316cf38f255844d9167b010",
     "public/app/world-select.js": "9932ce138076997643a19b5e564cd43c7b55f86bc00e45d129a576eaa9c750f1",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "6eae7e484d5a848476fe5d9ac5816d2a09b2036e515763c6cc6bfc4120f19842"
+    "public/app/version.js": "4c60132ad35e53c53e1a511f1f0f645e03cbac005aa235c2ea087bf7180d4e1e"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

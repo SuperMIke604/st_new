@@ -60,6 +60,7 @@ export class VirtualChat {
     spacers() {
         this.top.style.height = `${this.prefix[this.start || 0] || 0}px`;
         this.bottom.style.height = `${Math.max(0, this.prefix.at(-1) - (this.prefix[this.end || 0] || 0))}px`;
+        this.bottom.dataset.atEnd = String(this.end === this.messages.length);
     }
     paint(forcedIndex = null) {
         const index = forcedIndex ?? this.locate(this.element.scrollTop);

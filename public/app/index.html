@@ -23,7 +23,9 @@
     <span id="save-status" role="status" hidden>连接中</span>
   </header>
   <main id="conversation">
-    <section id="message-list" aria-label="聊天记录" tabindex="0"></section>
+    <div class="message-list-frame">
+      <section id="message-list" aria-label="聊天记录" tabindex="0"></section>
+    </div>
     <div id="chat-loading" class="chat-loading-overlay" hidden>
       <div class="loading-state" role="status" aria-live="polite" aria-atomic="true">
         <span class="loading-spinner" aria-hidden="true"></span>
