@@ -132,15 +132,17 @@ test('stopping regeneration clears loading and restores the previous reply', asy
     const running = f.run(true);
     assert.match(f.statuses.at(-1), /重新生成.*准备上下文/);
     assert.equal(f.state.chat.at(-1).mes, '原来的回复');
+    assert.equal(f.renders.at(-1).length, 0);
     f.prepared.resolve({ messages: [] }); await tick();
     assert.equal(f.state.generation.regenerate, true);
     assert.equal(f.state.generation.reply.extra.reasoning, undefined, 'old reasoning must not hide the waiting indicator');
     assert.match(f.statuses.at(-1), /重新生成.*等待回复/);
-    assert.equal(f.renders.at(-1).at(-1).text, '原来的回复');
+    assert.equal(f.renders.at(-1).length, 0);
     assert.equal(f.stopClasses.has('is-waiting'), true);
     f.state.controller.abort(); f.response.reject(new DOMException('stopped', 'AbortError'));
     await running;
     assert.equal(f.state.chat.at(-1).mes, '原来的回复');
+    assert.equal(f.renders.at(-1).at(-1).text, '原来的回复');
     assert.equal(f.state.chat.at(-1).extra.reasoning, '上次的思考');
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.match(f.notices.at(-1), /生成已停止/);
@@ -189,6 +191,16 @@ test('prompt failure clears loading without sending a request or losing the inpu
     assert.equal(f.state.busy, false); assert.equal(f.state.generation, null);
     assert.equal(f.notices.at(-1), '上下文准备失败');
     assert.deepEqual(f.postGeneration, []);
+});
+
+test('regeneration restores the hidden reply if preparation fails before creating a replacement', async () => {
+    const f = fixture(), running = f.run(true);
+    assert.equal(f.renders.at(-1).length, 0);
+    f.prepared.reject(new Error('准备失败'));
+    await running;
+    assert.equal(f.requests(), 0);
+    assert.equal(f.renders.at(-1).at(-1).text, '原来的回复');
+    assert.equal(f.stopClasses.has('is-waiting'), false);
 });
 
 test('a model error received while hidden is shown on return and does not resend', async () => {

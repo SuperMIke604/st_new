@@ -355,11 +355,7 @@ function setReplyWaiting(label = '') {
 }
 
 function visibleChatMessages(messages) {
-    const hidden = state.hiddenReply;
-    if (!hidden || messages.at(-1) !== hidden.reply) return messages;
-    const visible = messages.slice(0, -1);
-    if (hidden.previous) visible.push(hidden.previous);
-    return visible;
+    return state.hiddenReply && messages.at(-1) === state.hiddenReply ? messages.slice(0, -1) : messages;
 }
 
 function synchronize() {
@@ -3237,6 +3233,10 @@ async function generate(mode = false, recovery = null) {
     };
     try {
         setReplyWaiting(recovery ? '正在恢复后台回复' : '正在准备发送');
+        if (regenerate) {
+            state.hiddenReply = state.chat.at(-1);
+            list.setMessages(state.chat, { latest: list.follow });
+        }
         let prepared, body;
         if (recovery) {
             const base = api.chatBase;
@@ -3280,7 +3280,6 @@ async function generate(mode = false, recovery = null) {
             if (recovery) throw state.controller.signal.reason;
             return;
         }
-        const waitingPrevious = regenerate ? state.chat.at(-1) : null;
         if (regenerate) {
             const old = state.chat.at(-1);
             reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
@@ -3293,7 +3292,7 @@ async function generate(mode = false, recovery = null) {
         if (recovery?.started) reply.gen_started = recovery.started;
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
-        state.hiddenReply = { reply, previous: waitingPrevious };
+        state.hiddenReply = reply;
         if (prepared) preview = prepared;
         const controller = state.controller;
         const fetchReply = async (request, signal) => {
@@ -3472,6 +3471,8 @@ async function generate(mode = false, recovery = null) {
                 state.chat.pop();
                 $('message-input').value = text; resizeInput();
             }
+        }
+        if (reply || pendingUser || regenerate) {
             state.hiddenReply = null;
             setReplyWaiting();
             list.setMessages(state.chat, { latest: list.follow });
