@@ -238,40 +238,12 @@
     margin-block-start: calc(var(--card-gap) - var(--card-bar-inset));
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-frame-top])::before,
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-frame-bottom])::after {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    box-sizing: border-box;
-    height: var(--card-radius);
-    border: 1px solid var(--line);
-    pointer-events: none;
-    z-index: 1;
-}
-
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-frame-top])::before {
-    inset-block-start: 0;
-    border-block-end: 0;
-    border-radius: var(--card-radius) var(--card-radius) 0 0;
-}
-
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-frame-bottom])::after {
-    inset-block-end: 0;
-    border-block-start: 0;
-    border-radius: 0 0 var(--card-radius) var(--card-radius);
-}
-
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list {
+    --clip-message-cards: 1;
     --message-gap: var(--card-gap);
     padding: 0;
     scrollbar-gutter: auto;
     scrollbar-width: none;
-    border-radius: var(--card-radius);
-}
-
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .home-view #message-list {
-    border-radius: 0;
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .home-view .welcome {
@@ -285,7 +257,8 @@
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .message {
     background-color: var(--card-message);
-    border: 1px solid var(--line);
+    --message-outline: var(--line);
+    border: 1px solid var(--message-outline);
     border-radius: var(--card-radius);
     box-shadow: none;
 }
@@ -294,13 +267,31 @@
     margin-block-end: 0;
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-frame-sliver] {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="hidden"] {
     visibility: hidden;
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .message.from-user {
     background-color: var(--card-user-message, var(--soft));
-    border-color: var(--card-user-border);
+    --message-outline: var(--card-user-border);
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="rounded"] {
+    --visible-card-radius: min(var(--card-radius), calc(var(--card-visible-height) / 2));
+    position: relative;
+    border-color: transparent;
+    border-radius: 0;
+    clip-path: inset(var(--card-clip-top) 0 var(--card-clip-bottom) round var(--visible-card-radius));
+}
+
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="rounded"]::after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--card-clip-top) - 1px) -1px calc(var(--card-clip-bottom) - 1px);
+    border: 1px solid var(--message-outline);
+    border-radius: var(--visible-card-radius);
+    pointer-events: none;
+    z-index: 1;
 }
 
 [data-palette="ivory-cards"] .message:not(.from-user) {

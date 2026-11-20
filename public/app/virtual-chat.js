@@ -7,7 +7,7 @@ export class VirtualChat {
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
         this.hasMessageFrame = element.parentElement?.classList.contains('message-list-frame');
         this.frameEdgeCheckPending = false;
-        this.edgeSlivers = [];
+        this.clippedCards = new Set();
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
         this.top.className = this.bottom.className = 'virtual-spacer';
         this.element.replaceChildren(this.top, this.bottom);
@@ -51,28 +51,37 @@ export class VirtualChat {
         requestAnimationFrame(() => {
             this.frameEdgeCheckPending = false;
             const { clientHeight, scrollHeight } = this.element;
-            const radius = parseFloat(getComputedStyle(this.element).borderTopLeftRadius);
-            let topClipped = false, bottomClipped = false;
-            const slivers = [];
-            if (radius > 0 && clientHeight > 0 && scrollHeight > clientHeight) {
+            const clipped = new Map();
+            if (clientHeight > 0 && scrollHeight > clientHeight
+                && getComputedStyle(this.element).getPropertyValue('--clip-message-cards').trim() === '1') {
                 const { top, bottom } = this.element.getBoundingClientRect();
                 for (const node of this.nodes.values()) {
                     const card = node.getBoundingClientRect();
                     if (card.top >= bottom) break;
                     if (card.bottom <= top) continue;
-                    // Leave gaps and the cards' own rounded borders unobstructed.
-                    topClipped ||= card.top < top - 1 && card.bottom >= top + radius;
-                    bottomClipped ||= card.bottom > bottom + 1 && card.top <= bottom - radius;
-                    if ((card.top < top && card.bottom - top <= 8)
-                        || (card.bottom > bottom && bottom - card.top <= 8)) slivers.push(node);
-                    if (topClipped && bottomClipped) break;
+                    const clipTop = Math.max(0, top - card.top);
+                    const clipBottom = Math.max(0, card.bottom - bottom);
+                    if (clipTop > .5 || clipBottom > .5) {
+                        const visibleHeight = card.height - clipTop - clipBottom;
+                        clipped.set(node, { clipTop, clipBottom, visibleHeight });
+                    }
                 }
             }
-            for (const node of this.edgeSlivers) if (!slivers.includes(node)) node.removeAttribute('data-frame-sliver');
-            for (const node of slivers) node.setAttribute('data-frame-sliver', '');
-            this.edgeSlivers = slivers;
-            this.element.toggleAttribute('data-frame-top', topClipped);
-            this.element.toggleAttribute('data-frame-bottom', bottomClipped);
+            for (const node of this.clippedCards) {
+                if (!clipped.has(node)) {
+                    node.removeAttribute('data-card-clip');
+                    node.style.removeProperty('--card-clip-top');
+                    node.style.removeProperty('--card-clip-bottom');
+                    node.style.removeProperty('--card-visible-height');
+                }
+            }
+            for (const [node, { clipTop, clipBottom, visibleHeight }] of clipped) {
+                node.dataset.cardClip = visibleHeight <= (clipTop > 0 ? 8 : 2) ? 'hidden' : 'rounded';
+                node.style.setProperty('--card-clip-top', `${clipTop}px`);
+                node.style.setProperty('--card-clip-bottom', `${clipBottom}px`);
+                node.style.setProperty('--card-visible-height', `${visibleHeight}px`);
+            }
+            this.clippedCards = new Set(clipped.keys());
         });
     }
     locate(offset) {

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "5d2f53886c5c3bd02f00737f1d9b2f86a87276b645ede0aa64bb0513cafb4fed",
-  "publishedAt": "2026-11-20T15:32:07.469234+00:00",
+  "revision": "a2057fa75d61ecc229a7a22da8d28638a86e14d5c6c51c82534fc08f9b05e3c6",
+  "publishedAt": "2026-11-20T15:43:38.531738+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -43,7 +43,7 @@
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "4470543f52aa68a2cf15c50ebf63df9b8d31e4c697d14b8403e2cb71ece6712d",
+    "public/app/paper-cards.css": "87099be7721b1ed971f8e82c95b3fd4994d91c63bf5ad1268e0a8f52ce0d4afe",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -89,11 +89,11 @@
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
-    "public/app/virtual-chat.js": "d8e65d84cb8f8c954972ebd6d82e39890db56f9258dca00a0778271bc35f0a04",
+    "public/app/virtual-chat.js": "b5b04fc53e9b30ca318b84d10bdc17d033ea0b8d9b03471f2dddf093a45d04c6",
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "6f2c526638882cfbdd282ba81b28590de1dd45264efefced2d02753bdedfe428"
+    "public/app/version.js": "f71d9cf374c3091b93f7ccfc151b111ba0d5865d2912c5222d824977856033fb"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
