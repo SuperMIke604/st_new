@@ -412,7 +412,10 @@ function selectPreset() {
 }
 function setReplyWaiting(label = '') {
     const button = $('stop-button');
-    button.classList.toggle('is-waiting', !!label);
+    const waiting = Boolean(label);
+    button.classList.toggle('is-waiting', waiting);
+    button.classList.toggle('send-button', waiting);
+    button.classList.toggle('icon-button', !waiting);
     button.setAttribute('aria-label', label ? label + '，停止生成' : '停止生成');
 }
 
@@ -3717,7 +3720,16 @@ function toolsPanel() {
 }
 
 function resizeInput() {
-    const input = $('message-input'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, innerHeight * .28)}px`;
+    const input = $('message-input');
+    input.style.height = 'auto';
+    if (!input.value) return;
+    const style = getComputedStyle(input);
+    const lineHeight = parseFloat(style.lineHeight);
+    const singleLineHeight = lineHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    // Font metrics can add a few pixels of scroll height to a single visual line.
+    const contentHeight = input.scrollHeight;
+    const height = contentHeight < singleLineHeight + lineHeight / 2 ? singleLineHeight : contentHeight;
+    input.style.height = `${Math.min(height, innerHeight * .28)}px`;
 }
 let activeTopPanel = null;
 const topPanelButtons = new Map();

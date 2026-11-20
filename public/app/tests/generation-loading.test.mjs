@@ -84,6 +84,7 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.match(f.statuses.at(-1), /发送消息.*准备上下文/);
     assert.equal(f.requests(), 0);
     assert.equal(f.stopClasses.has('is-waiting'), true);
+    assert.equal(f.stopClasses.has('send-button'), true);
     assert.equal(f.stopAttributes.get('aria-label'), '正在准备发送，停止生成');
     f.prepared.resolve({ messages: [] }); await tick();
     assert.match(f.statuses.at(-1), /等待回复/);
@@ -91,6 +92,7 @@ test('send stays busy through prompt preparation and first response, then clears
     assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
     assert.equal(f.requests(), 1);
     assert.equal(f.stopClasses.has('is-waiting'), true);
+    assert.equal(f.stopClasses.has('send-button'), true);
     assert.equal(f.stopAttributes.get('aria-label'), '正在等待回复，停止生成');
     assert.deepEqual(f.requestLog.entries[0].messages, finalMessages);
     assert.equal(f.requestLog.entries[0].status, 'pending');
@@ -103,6 +105,8 @@ test('send stays busy through prompt preparation and first response, then clears
     responseBody.resolve({ choices: [{ message: { content: '测试回复' } }] });
     await running;
     assert.equal(f.stopClasses.has('is-waiting'), false);
+    assert.equal(f.stopClasses.has('send-button'), false);
+    assert.equal(f.stopClasses.has('icon-button'), true);
     assert.equal(f.stopAttributes.get('aria-label'), '停止生成');
     assert.deepEqual(f.timings.snapshot().find(entry => entry.label === '模型请求至响应头').metrics,
         { requestedStream: 1, streamResponse: 0 });

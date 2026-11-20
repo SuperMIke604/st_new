@@ -398,18 +398,31 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
 .loading-compact{justify-content:flex-start;min-height:58px;padding:14px 0;gap:10px}.loading-compact .loading-spinner{flex-basis:17px;width:17px;height:17px}.loading-compact .loading-label{color:var(--muted)}
 @media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
 
-#stop-button.is-waiting { position: relative; }
-#stop-button.is-waiting::after {
-    content: "";
-    position: absolute;
-    inset: 5px;
-    border: 2px solid var(--line);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    pointer-events: none;
+#stop-button .reply-wait-wave { display: none; }
+#stop-button.is-waiting { transition: none; }
+#stop-button.is-waiting > svg { display: none; }
+#stop-button.is-waiting .reply-wait-wave {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 16px;
 }
+.reply-wait-wave > span {
+    width: 2px;
+    height: 6px;
+    border-radius: 1px;
+    background: currentColor;
+}
+.reply-wait-wave > span:is(:nth-child(2), :nth-child(4)) { height: 10px; }
+.reply-wait-wave > span:nth-child(3) { height: 16px; }
 @media (prefers-reduced-motion: no-preference) {
-    #stop-button.is-waiting::after { animation: home-spin .8s linear infinite; }
+    .reply-wait-wave > span { animation: reply-wait-pulse 1s ease-in-out infinite alternate; }
+    .reply-wait-wave > span:nth-child(2n) { animation-delay: -.6s; }
+    .reply-wait-wave > span:nth-child(3) { animation-delay: -.3s; }
+}
+@keyframes reply-wait-pulse {
+    from { transform: scaleY(.45); }
+    to { transform: scaleY(1); }
 }
 .message>.message-back-latest{display:flex;align-items:center;justify-content:center;gap:6px;width:max-content;min-height:32px;margin:12px auto 0;padding:5px 12px}
 .message>.message-back-latest>span{display:inline!important}

@@ -6,12 +6,13 @@ export class VirtualChat {
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
         this.hasMessageFrame = element.parentElement?.classList.contains('message-list-frame');
-        this.overflowCheckPending = false;
+        this.frameEdgeCheckPending = false;
+        this.edgeSlivers = [];
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
         this.top.className = this.bottom.className = 'virtual-spacer';
         this.element.replaceChildren(this.top, this.bottom);
         this.observer = new ResizeObserver(entries => {
-            this.scheduleOverflowCheck();
+            this.scheduleFrameEdgeCheck();
             const first = this.nodes.values().next().value;
             if (!first) return;
             const gap = parseFloat(getComputedStyle(first).marginBlockEnd) || 0;
@@ -44,14 +45,34 @@ export class VirtualChat {
         this.prefix = [0];
         for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200) + this.gap);
     }
-    scheduleOverflowCheck() {
-        if (!this.hasMessageFrame || this.overflowCheckPending) return;
-        this.overflowCheckPending = true;
+    scheduleFrameEdgeCheck() {
+        if (!this.hasMessageFrame || this.frameEdgeCheckPending) return;
+        this.frameEdgeCheckPending = true;
         requestAnimationFrame(() => {
-            this.overflowCheckPending = false;
+            this.frameEdgeCheckPending = false;
             const { clientHeight, scrollHeight } = this.element;
-            const scrollable = this.nodes.size > 0 && clientHeight > 0 && scrollHeight > clientHeight;
-            this.element.toggleAttribute('data-scrollable', scrollable);
+            const radius = parseFloat(getComputedStyle(this.element).borderTopLeftRadius);
+            let topClipped = false, bottomClipped = false;
+            const slivers = [];
+            if (radius > 0 && clientHeight > 0 && scrollHeight > clientHeight) {
+                const { top, bottom } = this.element.getBoundingClientRect();
+                for (const node of this.nodes.values()) {
+                    const card = node.getBoundingClientRect();
+                    if (card.top >= bottom) break;
+                    if (card.bottom <= top) continue;
+                    // Leave gaps and the cards' own rounded borders unobstructed.
+                    topClipped ||= card.top < top - 1 && card.bottom >= top + radius;
+                    bottomClipped ||= card.bottom > bottom + 1 && card.top <= bottom - radius;
+                    if ((card.top < top && card.bottom - top <= 8)
+                        || (card.bottom > bottom && bottom - card.top <= 8)) slivers.push(node);
+                    if (topClipped && bottomClipped) break;
+                }
+            }
+            for (const node of this.edgeSlivers) if (!slivers.includes(node)) node.removeAttribute('data-frame-sliver');
+            for (const node of slivers) node.setAttribute('data-frame-sliver', '');
+            this.edgeSlivers = slivers;
+            this.element.toggleAttribute('data-frame-top', topClipped);
+            this.element.toggleAttribute('data-frame-bottom', bottomClipped);
         });
     }
     locate(offset) {
@@ -98,7 +119,7 @@ export class VirtualChat {
         this.nodes = next;
         for (const node of next.values()) this.observer.observe(node, { box: 'border-box' });
         this.spacers();
-        this.scheduleOverflowCheck();
+        this.scheduleFrameEdgeCheck();
         this.onRange?.({ start: this.start, end: this.end, total: this.messages.length, follow: this.follow });
     }
     update(index) {
