@@ -278,20 +278,34 @@
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="rounded"] {
     --visible-card-radius: min(var(--card-radius), calc(var(--card-visible-height) / 2));
-    position: relative;
     border-color: transparent;
     border-radius: 0;
     clip-path: inset(var(--card-clip-top) 0 var(--card-clip-bottom) round var(--visible-card-radius));
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="rounded"]::after {
+.message-list-frame[data-outline-top]::before,
+.message-list-frame[data-outline-bottom]::after {
     content: "";
     position: absolute;
-    inset: calc(var(--card-clip-top) - 1px) -1px calc(var(--card-clip-bottom) - 1px);
-    border: 1px solid var(--message-outline);
-    border-radius: var(--visible-card-radius);
+    inset-inline: 0;
+    box-sizing: border-box;
+    block-size: var(--outline-height);
+    border: 1px solid var(--outline-color);
+    border-radius: min(var(--card-radius), calc(var(--outline-height) / 2));
     pointer-events: none;
     z-index: 1;
+}
+
+.message-list-frame[data-outline-top]::before {
+    --outline-height: var(--outline-top-height);
+    --outline-color: var(--outline-top-color);
+    inset-block-start: 0;
+}
+
+.message-list-frame[data-outline-bottom]::after {
+    --outline-height: var(--outline-bottom-height);
+    --outline-color: var(--outline-bottom-color);
+    inset-block-end: 0;
 }
 
 [data-palette="ivory-cards"] .message:not(.from-user) {

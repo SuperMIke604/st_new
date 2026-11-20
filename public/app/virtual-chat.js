@@ -5,7 +5,7 @@ export class VirtualChat {
         this.projectMessages = projectMessages;
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
-        this.hasMessageFrame = element.parentElement?.classList.contains('message-list-frame');
+        this.messageFrame = element.parentElement?.classList.contains('message-list-frame') ? element.parentElement : null;
         this.frameEdgeCheckPending = false;
         this.clippedCards = new Set();
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
@@ -38,7 +38,7 @@ export class VirtualChat {
         this.observer.observe(element);
         element.addEventListener('scroll', () => {
             this.follow = element.scrollHeight - element.scrollTop - element.clientHeight < 90;
-            if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.paint(); });
+            if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.paint(null, true); });
         }, { passive: true });
     }
     calculate() {
@@ -46,43 +46,63 @@ export class VirtualChat {
         for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200) + this.gap);
     }
     scheduleFrameEdgeCheck() {
-        if (!this.hasMessageFrame || this.frameEdgeCheckPending) return;
+        if (!this.messageFrame || this.frameEdgeCheckPending) return;
         this.frameEdgeCheckPending = true;
         requestAnimationFrame(() => {
             this.frameEdgeCheckPending = false;
-            const { clientHeight, scrollHeight } = this.element;
-            const clipped = new Map();
-            if (clientHeight > 0 && scrollHeight > clientHeight
-                && getComputedStyle(this.element).getPropertyValue('--clip-message-cards').trim() === '1') {
-                const { top, bottom } = this.element.getBoundingClientRect();
-                for (const node of this.nodes.values()) {
-                    const card = node.getBoundingClientRect();
-                    if (card.top >= bottom) break;
-                    if (card.bottom <= top) continue;
-                    const clipTop = Math.max(0, top - card.top);
-                    const clipBottom = Math.max(0, card.bottom - bottom);
-                    if (clipTop > .5 || clipBottom > .5) {
-                        const visibleHeight = card.height - clipTop - clipBottom;
-                        clipped.set(node, { clipTop, clipBottom, visibleHeight });
-                    }
-                }
-            }
-            for (const node of this.clippedCards) {
-                if (!clipped.has(node)) {
-                    node.removeAttribute('data-card-clip');
-                    node.style.removeProperty('--card-clip-top');
-                    node.style.removeProperty('--card-clip-bottom');
-                    node.style.removeProperty('--card-visible-height');
-                }
-            }
-            for (const [node, { clipTop, clipBottom, visibleHeight }] of clipped) {
-                node.dataset.cardClip = visibleHeight <= (clipTop > 0 ? 8 : 2) ? 'hidden' : 'rounded';
-                node.style.setProperty('--card-clip-top', `${clipTop}px`);
-                node.style.setProperty('--card-clip-bottom', `${clipBottom}px`);
-                node.style.setProperty('--card-visible-height', `${visibleHeight}px`);
-            }
-            this.clippedCards = new Set(clipped.keys());
+            this.updateFrameEdges();
         });
+    }
+    updateFrameEdges() {
+        const frame = this.messageFrame;
+        if (!frame) return;
+        const { clientHeight, scrollHeight } = this.element;
+        const clipped = new Map();
+        const outlines = {};
+        if (clientHeight > 0 && scrollHeight > clientHeight
+            && getComputedStyle(this.element).getPropertyValue('--clip-message-cards').trim() === '1') {
+            const { top, bottom } = this.element.getBoundingClientRect();
+            for (const node of this.nodes.values()) {
+                const card = node.getBoundingClientRect();
+                if (card.top >= bottom) break;
+                if (card.bottom <= top) continue;
+                const clipTop = Math.max(0, top - card.top);
+                const clipBottom = Math.max(0, card.bottom - bottom);
+                if (clipTop <= .5 && clipBottom <= .5) continue;
+                const visibleHeight = card.height - clipTop - clipBottom;
+                const hidden = visibleHeight <= (clipTop > 0 ? 8 : 2);
+                clipped.set(node, { clipTop, clipBottom, visibleHeight, hidden });
+                if (!hidden) {
+                    const edge = clipTop > .5 ? 'top' : 'bottom';
+                    const color = getComputedStyle(node).getPropertyValue('--message-outline').trim();
+                    outlines[edge] = { visibleHeight, color };
+                }
+            }
+        }
+        for (const node of this.clippedCards) {
+            if (!clipped.has(node)) {
+                node.removeAttribute('data-card-clip');
+                node.style.removeProperty('--card-clip-top');
+                node.style.removeProperty('--card-clip-bottom');
+                node.style.removeProperty('--card-visible-height');
+            }
+        }
+        for (const [node, { clipTop, clipBottom, visibleHeight, hidden }] of clipped) {
+            node.dataset.cardClip = hidden ? 'hidden' : 'rounded';
+            node.style.setProperty('--card-clip-top', `${clipTop}px`);
+            node.style.setProperty('--card-clip-bottom', `${clipBottom}px`);
+            node.style.setProperty('--card-visible-height', `${visibleHeight}px`);
+        }
+        this.clippedCards = new Set(clipped.keys());
+        // Keep strokes fixed to the viewport while the cards move underneath.
+        for (const edge of ['top', 'bottom']) {
+            const outline = outlines[edge];
+            frame.toggleAttribute(`data-outline-${edge}`, !!outline);
+            if (outline) {
+                frame.style.setProperty(`--outline-${edge}-height`, `${outline.visibleHeight}px`);
+                frame.style.setProperty(`--outline-${edge}-color`, outline.color);
+            }
+        }
     }
     locate(offset) {
         let low = 0; let high = this.messages.length;
@@ -105,7 +125,7 @@ export class VirtualChat {
         this.bottom.style.height = `${Math.max(0, this.prefix.at(-1) - (this.prefix[this.end || 0] || 0))}px`;
         this.bottom.dataset.atEnd = String(this.end === this.messages.length);
     }
-    paint(forcedIndex = null) {
+    paint(forcedIndex = null, duringScroll = false) {
         const index = forcedIndex ?? this.locate(this.element.scrollTop);
         this.start = Math.max(0, index - 8);
         this.end = Math.min(this.messages.length, this.start + 40);
@@ -128,7 +148,8 @@ export class VirtualChat {
         this.nodes = next;
         for (const node of next.values()) this.observer.observe(node, { box: 'border-box' });
         this.spacers();
-        this.scheduleFrameEdgeCheck();
+        if (duringScroll) this.updateFrameEdges();
+        else this.scheduleFrameEdgeCheck();
         this.onRange?.({ start: this.start, end: this.end, total: this.messages.length, follow: this.follow });
     }
     update(index) {
