@@ -7,6 +7,20 @@
     --control-tag-gap: 5px;
     --control-font-size: 14px;
     --control-line-height: 22px;
+    --control-field-border: var(--card-field-border, var(--ivory-field-border, var(--line)));
+    --control-focus-ring: 0 0 0 3px var(--ui-tone-90a7801c, #90a7801c);
+}
+
+#panel { width: min(850px, calc(100vw - 24px)); }
+#panel > .panel-header { gap: var(--control-gap); }
+#panel > .panel-header > div { min-width: 0; }
+#panel-title, #panel-kicker { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#panel-title { margin: 0; }
+#panel-kicker { display: block; line-height: 12px; }
+
+@media (max-width: 700px) {
+    #panel { width: 100%; }
+    #panel > .panel-header { padding-block: max(6px, env(safe-area-inset-top)) 6px; }
 }
 
 input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]),
@@ -38,6 +52,7 @@ textarea { min-height: var(--control-size); }
     justify-content: center;
 }
 .button { max-width: 100%; }
+:is(.button.primary,.send-button) { border: 1px solid #e2dbd1; }
 .composer-tools .button { justify-content: flex-start; text-align: left; }
 .button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-option { padding-block: 0; justify-content: space-between; }
@@ -84,9 +99,21 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .library-toolbar, .library-bulk, .regex-toolbar, .inline-edit-buttons,
 .persona-actions, .db-toolbar, .db-fill-bar, .db-template-field { gap: var(--control-gap); }
 .connection-model-row > .model-refresh { flex-basis: var(--control-size); }
-.key-input-wrap { height: var(--control-size); }
-:root #panel .field .key-input-wrap > input { padding-right: calc(var(--control-size) + 12px); }
-.key-toggle { right: 0; top: 0; transform: none; }
+#panel .connection-settings-bar { flex-wrap: nowrap; }
+#panel .connection-settings-bar > :is(select,.select-control) { flex: 1 1 0; }
+.connection-key-row > .button[aria-pressed=true] { background: var(--soft); }
+.profile-extra-tools {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-block: 4px;
+    border-bottom: 1px solid var(--line);
+}
+.profile-extra-tools .button { width: var(--control-size); padding: 0; flex: 0 0 var(--control-size); }
+.profile-extra-tools .button > span { display: none; }
+.connection-key-row { display: flex; align-items: center; gap: var(--control-gap); }
+.connection-key-row > input { flex: 1 1 0; }
 .global-world-control { min-height: var(--control-size); padding: var(--control-tag-gap); border: 0; border-radius: var(--control-radius); box-shadow: inset 0 0 0 1px var(--line); }
 .global-world-tags { min-width: 0; gap: var(--control-tag-gap); padding: 0; }
 .global-world-tag { height: var(--control-inset-state); padding: 0 0 0 8px; }
@@ -126,12 +153,16 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 
 /* Text fields share the base select border, without a second focus ring. */
 :root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea:not(#message-input)) {
-    border: 1px solid var(--line);
+    border-width: 1px;
+    border-style: solid;
     outline: none;
     box-shadow: none;
 }
+:root body :is(input:not([type=checkbox],[type=radio],[type=file],[type=color],[type=range],[type=hidden]),textarea:not(#message-input)):not([aria-invalid=true]) {
+    border-color: var(--control-field-border);
+}
 :root body :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]), textarea:not(#message-input)):focus {
-    background: color-mix(in srgb, var(--soft) 45%, var(--surface));
+    box-shadow: var(--control-focus-ring);
 }
 
 /* A collapsed preset row is one control high, including its visual boundary. */
@@ -140,6 +171,9 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     border-radius: var(--control-radius);
     background: var(--surface);
     box-shadow: inset 0 0 0 1px var(--editor-entry-border, var(--line));
+}
+.preset-panel .prompt-list > .prompt-item {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--editor-entry-border, var(--line)) 30%, transparent);
 }
 :is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-disabled { background: var(--soft); opacity: 1; }
 :is(.preset-panel,.regex-panel) .prompt-summary {
@@ -262,7 +296,44 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 
 /* Keep the mobile sort label readable; search takes its own row when needed. */
 .library-toolbar > .select-control { flex: 0 0 auto; width: auto; min-width: max-content; }
+#panel.library-panel #panel-body:has(.character-library-sticky) {
+    padding-block-start: 0;
+    scroll-padding-block-start: calc(2 * var(--control-size) + 32px);
+}
+.character-library-sticky {
+    --library-gutter: 25px;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    margin-inline: calc(-1 * var(--library-gutter));
+    margin-block-end: var(--control-gap);
+    padding: 8px var(--library-gutter);
+    background: var(--surface);
+    box-shadow: 0 1px var(--line);
+}
+.character-library-sticky > .library-toolbar,
+.character-library-tools, .character-library-category-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+}
+.library-panel .character-library-sticky .library-toolbar > .library-search,
+.character-library-tools > :is(select,.select-control),
+.character-library-category-row > :is(select,.select-control) { flex: 1 1 0; width: 100%; min-width: 0; }
+.character-library-tools, .character-library-categories { margin-block-start: var(--control-gap); }
+.character-library-folder-manager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--control-gap);
+    max-height: 25dvh;
+    overflow: auto;
+    margin-block-start: var(--control-gap);
+}
 @media (max-width: 700px) {
+    .character-library-sticky { --library-gutter: 20px; }
     .library-panel .library-toolbar > .library-search { flex-basis: 100%; }
     .library-panel .library-toolbar > .select-control { flex: 1 0 auto; }
 }

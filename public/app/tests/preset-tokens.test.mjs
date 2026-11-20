@@ -73,6 +73,25 @@ test('301-message history preserves regex/macros and yields to the browser betwe
     assert.equal(chat[300].mes, '楼层 300 secret {{user}}');
     f.preview.dispose();
 });
+test('sheet macro previews share the generation budget across enabled preset entries', async () => {
+    const database = { mate: { type: 'chatSheets' },
+        sheet_0: { name: '角色', injection: { mode: 'keyword', columns: [1], priority: 'high' }, content: [[null, '姓名', '状态'], [null, '周凛', 'person-row']] },
+        sheet_1: { name: '事件', injection: { mode: 'keyword', columns: [1] }, content: [[null, '人物', '事件'], [null, '周凛', 'event-row']] },
+    };
+    const prompts = [{ identifier: 'person', content: '{{sheet_0}}' }, { identifier: 'event', content: '{{sheet_1}}' }];
+    const order = [...prompts.map(({ identifier }) => ({ identifier, enabled: true })), { identifier: 'chatHistory', enabled: true }];
+    const f = fixture({ readDatabase: () => database, chat: [{ is_user: true, mes: '周凛' }],
+        preset: { prompts, prompt_order: [{ order }] }, databaseConfig: { inject: false, keywordInjectionTokens: 10 },
+        api: { async post(_path, messages) {
+            return { token_count: (messages.map(message => message.content).join('\n').match(/person-row|event-row/g)?.length ?? 0) * 10 };
+        } },
+    });
+    f.preview.start();
+    assert.deepEqual(await Promise.all(prompts.map(prompt => f.preview.count(prompt))), [10, null]);
+    order[0].enabled = false;
+    assert.deepEqual(await Promise.all(prompts.map(prompt => f.preview.count(prompt))), [null, 10]);
+    f.preview.dispose();
+});
 test('closing a panel cancels active requests and never starts the queued entries', async () => {
     let calls = 0;
     const f = fixture({ api: { post(path, messages, { signal }) {

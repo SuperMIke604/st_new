@@ -1,5 +1,6 @@
 import { uuid } from './uuid.js';
-import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings } from './database.js';
+import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings, recentFillRows } from './database.js';
+import { databaseInjection, splitDatabaseKeywords } from './database-injection.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
 import { databaseLogText, databaseLogExport, clearDatabaseLog } from './database-log.js';
@@ -11,11 +12,12 @@ export function renderDatabasePanel(body, context) {
     let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
     const promptSizes = [];
-    const statusFields = ['inject','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
+    const statusFields = ['inject','keywordInjectionTokens','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','hideAfterMessageSummary','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
     const overviewDraft = { pending: new Set() };
-    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0;
+    const blockedKeywordDrafts = new Map();
+    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0 || blockedKeywordDrafts.size > 0;
     const settingsValue = includeStatus => databaseSettings({ ...settings, ...(includeStatus ? {} : savedStatus) });
     const undo = { data: [], template: [] }, pages = new Map();
     let saveTimer, editVersion=0, saveQueue=Promise.resolve(), disposed=false;
@@ -40,7 +42,7 @@ export function renderDatabasePanel(body, context) {
     const render = () => {
         for(const dispose of promptSizes.splice(0))dispose();
         tabs.replaceChildren();
-        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [...(dataDirty || tab === 'data' ? [['data', '聊天数据']] : []), ['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
+        for (const [key, label] of (context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['data', '聊天数据'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']])) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); control.disabled = !!overviewDraft.saving; tabs.append(control);
         }
         content.replaceChildren();
@@ -187,6 +189,85 @@ export function renderDatabasePanel(body, context) {
                     list.querySelector('[aria-pressed=true] > span').textContent = `${name.value || key}（${table.content[0].length - 1}）`;
                     dirty(kind);
                 });
+                const recent = recentFillRows(table);
+                const fillRange = field(editor, '$0 填表范围', recent ? 'recent' : 'all', {
+                    options: [['all', '全表'], ['recent', '最近 N 条记录']], hint: '用于这份预设执行消息总结时。',
+                });
+                fillRange.addEventListener('change', () => change(() => { table.fillRecentRows = fillRange.value === 'recent' ? 10 : 0; }));
+                if (recent) {
+                    const rows = field(editor, '$0 保留最近记录数', recent, { type: 'number' });
+                    rows.min = 1; rows.step = 1;
+                    rows.addEventListener('change', () => {
+                        const value = rows.valueAsNumber;
+                        const limit = Number.isSafeInteger(value) && value > 0 ? value : recentFillRows(table);
+                        rows.value = limit;
+                        if (limit === recentFillRows(table)) return;
+                        remember(); table.fillRecentRows = limit; dirty(kind);
+                    });
+                }
+                const injection = databaseInjection(table);
+                const setInjection = patch => { table.injection = { ...table.injection, ...databaseInjection(table), ...patch }; };
+                const mode = field(editor, '触发方式', injection.mode, { options: [['constant', '常驻'], ['keyword', '关键词']] });
+                mode.addEventListener('change', () => change(() => setInjection({ mode: mode.value })));
+                if (injection.mode === 'keyword') {
+                    const depth = field(editor, '扫描深度（消息数）', injection.depth, {
+                        type: 'number', hint: '从最新一条消息往前计数，包含本轮输入。0 表示不扫描。',
+                    });
+                    depth.min = 0; depth.max = 1000; depth.step = 1;
+                    depth.addEventListener('change', () => {
+                        const value = Number.isNaN(depth.valueAsNumber) ? 2 : Math.max(0, Math.min(1000, Math.round(depth.valueAsNumber)));
+                        depth.value = value;
+                        if (value === databaseInjection(table).depth) return;
+                        remember(); setInjection({ depth: value }); dirty(kind);
+                    });
+                    const maxRows = field(editor, '最大注入行数', injection.maxRows || '', { type: 'number', hint: '留空或填 0 表示不限。' });
+                    maxRows.min = 0; maxRows.step = 1;
+                    maxRows.addEventListener('change', () => {
+                        const value = maxRows.valueAsNumber;
+                        const limit = Number.isSafeInteger(value) && value > 0 ? value : 0;
+                        maxRows.value = limit || '';
+                        if (limit === databaseInjection(table).maxRows) return;
+                        remember(); setInjection({ maxRows: limit }); dirty(kind);
+                    });
+                    const priority = field(editor, '注入优先级', injection.priority, {
+                        options: [['high', '高'], ['normal', '普通'], ['low', '低']], hint: '多张表共用 Token 上限时，按优先级分配。',
+                    });
+                    priority.addEventListener('change', () => { remember(); setInjection({ priority: priority.value }); dirty(kind); });
+                    const sources = el('section');
+                    const sourcesHeading = el('h2', '', '关键词来源列');
+                    sourcesHeading.id = 'database-keyword-columns';
+                    sources.setAttribute('aria-labelledby', sourcesHeading.id);
+                    sources.append(sourcesHeading, el('p', 'note', '支持多选，用顿号、逗号、分号或换行拆词。完整匹配或匹配到两个连续汉字即可命中；未选择来源列时不触发。'));
+                    const selections = [];
+                    for (let column = 1; column < table.content[0].length; column++) {
+                        const label = el('label', 'check-field'), check = el('input'), caption = el('span');
+                        check.type = 'checkbox'; check.checked = injection.columns.includes(column);
+                        caption.textContent = table.content[0][column] || `字段 ${column}`;
+                        label.append(check, caption); sources.append(label);
+                        selections.push({ column, check, caption });
+                        check.addEventListener('change', () => {
+                            remember(); setInjection({ columns: selections.filter(item => item.check.checked).map(item => item.column) }); dirty(kind);
+                        });
+                    }
+                    editor.append(sources);
+                    const linkLabel = el('label', 'check-field'), link = el('input');
+                    link.type = 'checkbox'; link.checked = injection.linkEnabled;
+                    linkLabel.append(link, el('span', '', '启用联动触发')); editor.append(linkLabel);
+                    link.addEventListener('change', () => change(() => setInjection({ linkEnabled: link.checked })));
+                    const linkSource = injection.linkEnabled ? field(editor, '联动来源列', injection.linkColumn, {
+                        options: [[0, '请选择字段'], ...table.content[0].slice(1).map((header, index) => [index + 1, header || `字段 ${index + 1}`])],
+                        hint: '聊天命中该行后，用此列的完整词查找其他关键词表，只联动一跳。',
+                    }) : null;
+                    linkSource?.addEventListener('change', () => { remember(); setInjection({ linkColumn: Number(linkSource.value) }); dirty(kind); });
+                    editor.addEventListener('input', event => {
+                        const selection = selections.find(item => item.column === Number(event.target.dataset.templateColumn));
+                        if (selection) {
+                            const label = event.target.value || `字段 ${selection.column}`;
+                            selection.caption.textContent = label;
+                            if (linkSource) linkSource.options[selection.column].textContent = label;
+                        }
+                    });
+                }
                 const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
                 toolbarButton(fieldsHeading, '新增字段', 'plus', () => change(() => {
                     table.content[0].push('新字段'); for (const row of table.content.slice(1)) row.push('');
@@ -195,10 +276,18 @@ export function renderDatabasePanel(body, context) {
                 for (let column = 1; column < table.content[0].length; column++) {
                     const row = el('div', 'db-template-field');
                     const input = field(row, `字段 ${column}`, table.content[0][column] ?? '');
+                    input.dataset.templateColumn = column;
                     input.addEventListener('focus', remember, { once: true });
                     input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); });
                     const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
-                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => { for (const dataRow of table.content) dataRow.splice(column, 1); });
+                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => {
+                            if (table.injection) {
+                                const current = databaseInjection(table);
+                                const shift = index => index === column ? 0 : index > column ? index - 1 : index;
+                                setInjection({ columns: current.columns.map(shift).filter(Boolean), linkColumn: shift(current.linkColumn) });
+                            }
+                            for (const dataRow of table.content) dataRow.splice(column, 1);
+                        });
                     }, 'danger');
                     remove.disabled = table.content[0].length <= 2; fields.append(row);
                 }
@@ -220,11 +309,40 @@ export function renderDatabasePanel(body, context) {
             const heading = el('div', 'db-sheet-heading');
             const tableName = el('input'); tableName.value = table.name || key; tableName.setAttribute('aria-label', `表名 ${key}`); tableName.addEventListener('focus', remember, { once: true }); tableName.addEventListener('input', () => { table.name = tableName.value; dirty(kind); });
             heading.append(tableName, el('small', '', key));
+            const keywords = el('div');
+            const savedWords = () => context.blockedKeywords(key).join('\n');
+            const blocked = field(keywords, '屏蔽关键词', blockedKeywordDrafts.get(key) ?? savedWords(), {
+                multiline: true, rows: 3, hint: '仅用于当前聊天的这张表。支持顿号、逗号、分号或换行；清空后保存即可解除屏蔽。',
+            });
+            blocked.placeholder = '例如：周老师、赵月';
+            const saveBlocked = toolbarButton(keywords, '保存屏蔽关键词', 'edit', async () => {
+                const submitted = blocked.value;
+                saveBlocked.disabled = blocked.disabled = true;
+                try {
+                    await context.saveBlockedKeywords(key, splitDatabaseKeywords(submitted));
+                    if (blockedKeywordDrafts.get(key) === submitted) {
+                        blockedKeywordDrafts.delete(key);
+                        blocked.value = savedWords();
+                    }
+                    context.dirty(hasDraft());
+                    notify('屏蔽关键词已保存');
+                } finally {
+                    blocked.disabled = false;
+                    saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+                }
+            });
+            saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+            blocked.addEventListener('input', () => {
+                if (blocked.value === savedWords()) blockedKeywordDrafts.delete(key);
+                else blockedKeywordDrafts.set(key, blocked.value);
+                saveBlocked.disabled = !blockedKeywordDrafts.has(key);
+                context.dirty(hasDraft());
+            });
             toolbarButton(heading, '新增行', 'plus', () => change(() => table.content.push([null, ...table.content[0].slice(1).map(() => '')])));
             toolbarButton(heading, '新增列', 'plus', () => {
                 change(() => { table.content[0].push('新列'); for (const row of table.content.slice(1)) row.push(''); });
             });
-            toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { delete book[key]; }); }, 'danger'); section.append(heading);
+            toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { blockedKeywordDrafts.delete(key); delete book[key]; }); }, 'danger'); section.append(heading, keywords);
             const scroll = el('div', 'db-table-scroll'), grid = el('table'); const head = el('thead'), header = el('tr'); header.append(el('th', '', '行'));
             for (let column = 1; column < table.content[0].length; column++) {
                 const cell = el('th'), input = el('input'); input.value = table.content[0][column] || ''; input.setAttribute('aria-label', `列名 ${table.name} ${column}`);
@@ -269,7 +387,7 @@ export function renderDatabasePanel(body, context) {
         });
         const name = field(content, '预设名称', preset.name); name.addEventListener('input', () => { preset.name = name.value; dirty('settings'); });
         const heading = el('div', 'section-heading'), title = el('div');title.append(el('h2', '', '提示词条目'), el('span', 'item-count', `${preset.messages.length} 个条目`));heading.append(title);toolbarButton(heading, '添加条目', 'plus', () => { const message={role:'user',content:''};preset.messages.push(message);openedPrompts.add(message);dirty('settings');render();content.querySelector('.prompt-item:last-child')?.scrollIntoView({block:'nearest'}); });content.append(heading);
-        note('$0 为当前表格，$1 为选定楼层对话，$4 为可选世界书参考内容。');
+        note('$0 按模板范围提供表格，$FULL_TABLES 读取完整资料库，$1 为选定楼层对话，$4 为可选世界书参考内容。');
         const rows = el('div', 'prompt-list');content.append(rows);
         preset.messages.forEach((message, index) => {
             const section = el('details', 'prompt-item');section.open=openedPrompts.has(message);section.addEventListener('toggle',()=>{if(!section.isConnected)return;if(section.open)openedPrompts.add(message);else openedPrompts.delete(message);});
@@ -331,21 +449,23 @@ export function renderDatabasePanel(body, context) {
         const revision=++statusRevision;
         const current=context.latest?.();if(current)data=validateDatabase(current.data);
         const tables=sheets(data),latest=current?.index??context.chat.findLastIndex(message=>!message.is_user&&message.TavernDB_ACU_Data);
-        const meta=context.chat[latest]?.extra?.independentDatabase;
+        const meta=current ? current.meta : context.chat[latest]?.extra?.independentDatabase;
         const recorded=meta?.kind==='database'?(meta.messageSummaryTo??latest):(meta?.to??latest);
         const check=(parent,label,key)=>{const wrap=el('label','check-field'),control=el('input');control.type='checkbox';control.checked=!!settings[key];control.addEventListener('change',()=>{settings[key]=control.checked;dirty('settings');});wrap.append(control,el('span','',label));parent.append(wrap);};
         const status=el('section','dm-status-card dm-summary-status'),heading=el('div','dm-summary-heading');
         heading.append(el('h2','','数据库状态'));check(heading,'注入提示词','inject');status.append(heading);
         const metrics=el('div','dm-summary-metrics');
-        for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
+        for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}${current?.archived?' · 覆盖前版本':''}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
         status.append(metrics);content.append(status);
         const grid=el('div','dm-summary-grid');content.append(grid);
         const card=(title,description)=>{const section=el('section','dm-status-card dm-summary-card');section.append(el('h2','',title),el('p','note',description));grid.append(section);return section;};
         const bindPreset=(parent,label,key)=>{const control=field(parent,label,settings[key],{options:settings.presets.map(preset=>[preset.id,preset.name])});control.addEventListener('change',()=>{settings[key]=control.value;dirty('settings');});};
         const setting=(parent,key,label,type='number',min=0)=>{const control=field(parent,label,settings[key]??'',{type});if(type==='number'){control.min=min;control.step=1;}control.addEventListener('input',()=>{settings[key]=type==='number'?Number(control.value):control.value;dirty('settings');});return control;};
+        setting(status, 'keywordInjectionTokens', '资料库关键词注入 Token 上限（0 为不限）');
         const run=async callback=>{if(dataDirty)throw Error('请先保存数据');if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
         const message=card('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');
         bindPreset(message,'消息总结预设','messageSummaryPreset');check(message,'自动总结消息','auto');
+        check(message,'总结后向 AI 隐藏对应楼层','hideAfterMessageSummary');
         const messageConfig=el('div','dm-config-grid');message.append(messageConfig);
         setting(messageConfig,'autoUpdateFrequency','保留最新 N 层', 'number',0);
         setting(messageConfig,'updateBatchSize','每次总结楼层数','number',1);

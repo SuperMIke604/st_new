@@ -27,17 +27,27 @@ test('generation content cannot expose or overwrite connection, credentials or b
     assert.equal(merged.secret_id, 'private'); assert.equal(merged.custom_include_body, body.custom_include_body);
     for (const key of ['custom_url', 'secret_id', 'chat_completion_source', 'custom_include_body', '__proto__']) assert.throws(() => mergeGenerationContent(body, { ...exposed, [key]: 'bad' }), /认证字段/);
     assert.throws(() => mergeGenerationContent(body, { ...exposed, messages: 'bad' }), /格式无效/);
+    assert.throws(() => mergeGenerationContent(body, { ...exposed, custom_prompt_post_processing: 'bad' }), /后处理模式无效/);
 });
 
 test('isolated interceptor transforms requests and JSON responses with one upstream call', async () => {
     let calls = 0;
     const fx = transportFixture(async (url, init, next) => {
+        assert.equal(init.generationType, 'swipe');
         const body = JSON.parse(init.body); assert.equal(body.secret_id, undefined);
+        assert.equal(body.custom_prompt_post_processing, 'merge');
+        body.custom_prompt_post_processing = 'merge_tools';
         body.tools = [{ type: 'function', function: { name: 'transport' } }];
         const response = await next(url, { ...init, body: JSON.stringify(body) });
         const data = await response.json(); return Response.json({ choices: [{ message: { content: data.result } }] });
     });
-    const response = await fx.run(request(), async body => { calls++; assert.equal(body.secret_id, 'private'); assert.equal(body.tools[0].function.name, 'transport'); return Response.json({ result: '还原正文' }); });
+    const response = await fx.run({ ...request(), custom_prompt_post_processing: 'merge' }, async body => {
+        calls++;
+        assert.equal(body.secret_id, 'private');
+        assert.equal(body.tools[0].function.name, 'transport');
+        assert.equal(body.custom_prompt_post_processing, 'merge_tools');
+        return Response.json({ result: '还原正文' });
+    }, { generationType: 'swipe' });
     assert.equal((await response.json()).choices[0].message.content, '还原正文');
     assert.equal(calls, 1); assert.equal(fx.jobs.size, 0);
 });

@@ -1,7 +1,10 @@
-import { expand, activateWorlds, copyVariableState } from './engine.js';
+import { expand, activateWorlds, copyVariableState, fitPrompt } from './engine.js';
 import { applyRegex, activeRegexes } from './regex.js';
 import { MESSAGE_VARIABLES, messageVariableContext } from './variable-macros.js';
 import { databaseSettings, databaseForChat, referenceDatabaseText, sheetText } from './database.js';
+import { generationDatabaseResources } from './generation-preload.js';
+
+const hasSheetMacro = value => /{{\s*sheet_[\w-]+\s*}}/i.test(value || '');
 
 function check(signal) { if (signal.aborted) throw new DOMException('预设计数已取消', 'AbortError'); }
 const yieldTask = async signal => { check(signal); await new Promise(resolve => setTimeout(resolve, 0)); check(signal); };
@@ -33,6 +36,9 @@ export class PresetTokenPreview {
         this.rules = activeRegexes({ settings, preset, character });
     }
     start() { this.started = true; this.pump(); }
+    invalidatePromptCounts() {
+        this.worldsPromise = this.historyPromise = null;
+    }
     dispose() {
         this.controller.abort(); clearTimeout(this.timer); this.timer = null;
         for (const job of this.jobs.splice(0)) job.reject(new DOMException('预设计数已取消', 'AbortError'));
@@ -58,29 +64,53 @@ export class PresetTokenPreview {
         }
         return this.databaseText.get(key);
     }
-    variables() {
+    books() {
+        return this.booksPromise ||= this.loadBooks(this.signal);
+    }
+    async sheetMacros() {
+        check(this.signal);
+        const signature = JSON.stringify(this.preset);
+        if (this.sheetScope?.signature === signature) return this.sheetScope.promise;
+        const promise = (async () => {
+            const resources = this.sheetResources ||= generationDatabaseResources(this.chat, this.header, this.databaseConfig, this.database());
+            if (!resources.databaseKeywordBudget || !resources.databaseKeywordRows?.length) return resources.databaseMacros;
+            const books = await this.books(); check(this.signal);
+            const result = await fitPrompt({ character: this.character || {}, persona: this.persona,
+                preset: JSON.parse(signature), chat: this.chat, settings: this.settings, books,
+                mvuSeed: this.header?.chat_metadata?.independentMvuSeed, ...resources }, messages => this.countMessages(messages));
+            const macros = { ...resources.databaseMacros };
+            for (const { key } of resources.databaseKeywordRows) macros[key] = '';
+            for (const { key, text } of result.databaseKeywordMacros || []) macros[key] = text;
+            return macros;
+        })();
+        this.sheetScope = { signature, promise };
+        return promise;
+    }
+    variables(macros = {}) {
         const card = this.character?.data || this.character;
         const base = { [MESSAGE_VARIABLES]: messageVariableContext(this.chat, this.header?.chat_metadata?.independentMvuSeed), char: this.character?.name || '', user: this.persona.name, description: card?.description || '', personality: card?.personality || '', scenario: card?.scenario || '', persona: this.persona.description };
         const known = key => key === 'tabledata' || /^sheet_(?:\d|1\d)$/.test(key);
         const custom = key => /^sheet_[\w-]+$/.test(key) && Object.hasOwn(this.database(), key);
+        const databaseMacro = key => Object.hasOwn(macros, key) ? macros[key] : this.databaseMacro(key);
         // Database extraction is lazy: {{char}} and {{getvar}} alone must not
         // scan hundreds of messages or serialize every database sheet.
         return new Proxy(base, {
-            getOwnPropertyDescriptor: (target, key) => typeof key === 'string' && (known(key) || custom(key)) ? { configurable: true, enumerable: true, get: () => this.databaseMacro(key) } : Reflect.getOwnPropertyDescriptor(target, key),
-            get: (target, key) => typeof key === 'string' && (known(key) || custom(key)) ? this.databaseMacro(key) : Reflect.get(target, key),
+            getOwnPropertyDescriptor: (target, key) => typeof key === 'string' && (known(key) || custom(key)) ? { configurable: true, enumerable: true, get: () => databaseMacro(key) } : Reflect.getOwnPropertyDescriptor(target, key),
+            get: (target, key) => typeof key === 'string' && (known(key) || custom(key)) ? databaseMacro(key) : Reflect.get(target, key),
         });
     }
     worlds() {
         return this.worldsPromise ||= (async () => {
-            const books = await this.loadBooks(this.signal); check(this.signal);
-            const variables = this.variables();
+            const books = await this.books(); check(this.signal);
+            const containsSheet = books.some(book => Object.values(book?.entries || {}).some(entry => hasSheetMacro(entry?.content)));
+            const variables = this.variables(containsSheet ? await this.sheetMacros() : undefined);
             const entries = activateWorlds(books, this.chat, this.settings, variables, Math.random, this.rules);
             return { entries, variables };
         })();
     }
     history() {
         return this.historyPromise ||= (async () => {
-            const variables = this.variables(), messages = [];
+            const variables = this.variables(this.chat.some(message => hasSheetMacro(message.mes)) ? await this.sheetMacros() : undefined), messages = [];
             let sliceStarted = performance.now();
             for (let index = 0; index < this.chat.length; index++) {
                 check(this.signal);
@@ -110,12 +140,26 @@ export class PresetTokenPreview {
             else return null;
         }
         if (/{{/.test(value)) {
-            const variables = this.variables();
+            const variables = this.variables(hasSheetMacro(value) ? await this.sheetMacros() : undefined);
             if (this.character && /{{\s*(?:getvar|setvar)::/i.test(value)) copyVariableState((await this.worlds()).variables, variables);
             value = expand(value, variables);
         }
         check(this.signal);
         return value ? [{ role: prompt.role || 'system', content: value }] : null;
+    }
+    countMessages(messages) {
+        check(this.signal);
+        const key = `${this.model}\n${JSON.stringify(messages)}`, cached = this.cache.get(key);
+        if (cached !== undefined) return cached;
+        if (!this.pending.has(key)) {
+            const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal: this.signal }).then(result => {
+                check(this.signal);
+                if (!Number.isFinite(result?.token_count) || result.token_count < 0) throw new Error('无法统计预设条目 tokens');
+                this.cache.set(key, result.token_count); return result.token_count;
+            }).finally(() => this.pending.delete(key));
+            this.pending.set(key, request);
+        }
+        return this.pending.get(key);
     }
     count(prompt) {
         if (this.signal.aborted) return Promise.reject(new DOMException('预设计数已取消', 'AbortError'));
@@ -123,17 +167,7 @@ export class PresetTokenPreview {
         const promise = new Promise((resolve, reject) => this.jobs.push({ resolve, reject, run: async () => {
             check(this.signal);
             const messages = await this.messages(snapshot); check(this.signal); if (!messages) return null;
-            const key = `${this.model}\n${JSON.stringify(messages)}`, cached = this.cache.get(key);
-            if (cached !== undefined) return cached;
-            if (!this.pending.has(key)) {
-                const request = this.api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(this.model)}`, messages, { signal: this.signal }).then(result => {
-                    check(this.signal);
-                    if (!Number.isFinite(result?.token_count) || result.token_count < 0) throw new Error('无法统计预设条目 tokens');
-                    this.cache.set(key, result.token_count); return result.token_count;
-                }).finally(() => this.pending.delete(key));
-                this.pending.set(key, request);
-            }
-            return this.pending.get(key);
+            return this.countMessages(messages);
         } }));
         this.pump(); return promise;
     }

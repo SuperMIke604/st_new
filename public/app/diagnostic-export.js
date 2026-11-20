@@ -35,6 +35,20 @@ export function exportDiagnostics(text, parent, isGenerating, dependencies = {})
         if (isGenerating()) { note.textContent = '对话仍在生成，快照已保留，可先全选复制。生成结束后再点击下载。'; return; }
         downloadDiagnostics(text, parent, dependencies);
     });
+    const copy = doc.createElement('button'); copy.type = 'button'; copy.className = 'button'; copy.textContent = '复制此快照';
+    copy.addEventListener('click', async () => {
+        try {
+            await copyDiagnostics(text, section, dependencies);
+            note.textContent = '已复制此快照。生成结束后可下载同一份日志。';
+        } catch {
+            preview.focus();
+            preview.select();
+            note.textContent = '自动复制失败，已选中日志，可使用浏览器的复制功能。';
+        }
+    });
     parent.querySelector('.timing-export-snapshot')?.remove();
-    const section = doc.createElement('section'); section.className = 'timing-export-snapshot'; section.append(note, preview, save); parent.append(section);
+    const section = doc.createElement('section'); section.className = 'timing-export-snapshot'; section.append(note, preview, save, copy);
+    const list = parent.querySelector('.timing-table-wrap');
+    if (list) list.before(section); else parent.append(section);
+    section.scrollIntoView?.({ block: 'nearest' });
 }

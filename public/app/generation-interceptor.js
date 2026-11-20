@@ -1,12 +1,14 @@
 // Only generation content crosses the opaque iframe boundary. Connection,
 // credential and routing fields remain in the application.
-export const GENERATION_CONTENT_FIELDS = ['messages', 'stream', 'tools', 'tool_choice', 'parallel_tool_calls'];
+export const GENERATION_CONTENT_FIELDS = ['messages', 'stream', 'tools', 'tool_choice', 'parallel_tool_calls', 'custom_prompt_post_processing'];
+const PROMPT_PROCESSING_MODES = new Set(['', 'claude', 'merge', 'merge_tools', 'semi', 'semi_tools', 'strict', 'strict_tools', 'single']);
 export function generationContent(body) {
     return structuredClone(Object.fromEntries(GENERATION_CONTENT_FIELDS.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]])));
 }
 export function mergeGenerationContent(original, value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !GENERATION_CONTENT_FIELDS.includes(key))) throw Error('脚本不能修改生成连接或认证字段。');
     if (!Array.isArray(value.messages) || typeof value.stream !== 'boolean' || JSON.stringify(value).length > 16000000) throw Error('脚本生成请求格式无效或过大。');
+    if (Object.hasOwn(value, 'custom_prompt_post_processing') && !PROMPT_PROCESSING_MODES.has(value.custom_prompt_post_processing)) throw Error('脚本生成请求的提示词后处理模式无效。');
     const merged = { ...original };
     for (const key of GENERATION_CONTENT_FIELDS) { if (Object.hasOwn(value, key)) merged[key] = structuredClone(value[key]); else delete merged[key]; }
     return merged;
@@ -41,7 +43,7 @@ export function generationInterceptorBridge(applicationParent, report) {
         };
         const selected = event.data.ids.map(id => handlers.get(id));
         const dispatch = (index, url, init) => index === selected.length ? next(url, init) : selected[index](url, init, (nextUrl, nextInit) => dispatch(index + 1, nextUrl, nextInit));
-        Promise.resolve().then(() => { if (selected.some(handler => typeof handler !== 'function')) throw Error('生成处理器已失效。'); return dispatch(0, '/api/backends/chat-completions/generate', { method: 'POST', body: JSON.stringify(event.data.body), signal: abort.signal }); }).then(response => {
+        Promise.resolve().then(() => { if (selected.some(handler => typeof handler !== 'function')) throw Error('生成处理器已失效。'); return dispatch(0, '/api/backends/chat-completions/generate', { method: 'POST', body: JSON.stringify(event.data.body), signal: abort.signal, generationType: event.data.generationType }); }).then(response => {
             if (!(response instanceof Response) || !used) throw Error('生成处理器未返回有效的模型响应。');
             const body = response.body;
             port.postMessage({ type: 'result', body, status: response.status, statusText: response.statusText, headers: { 'content-type': response.headers.get('content-type') || 'application/json' } }, body ? [body] : []);
@@ -51,7 +53,7 @@ export function generationInterceptorBridge(applicationParent, report) {
     return register;
 }
 
-export function interceptGeneration(frame, ids, body, { signal, current, fetch, jobs }) {
+export function interceptGeneration(frame, ids, body, { signal, current, fetch, jobs, generationType = 'normal' }) {
     const channel = new MessageChannel(), port = channel.port1, abort = new AbortController();
     let cancelJob; const job = () => cancelJob?.(); jobs.add(job);
     return new Promise((resolve, reject) => {
@@ -93,7 +95,7 @@ export function interceptGeneration(frame, ids, body, { signal, current, fetch, 
                 } else if (data.type === 'error') throw Error(data.error || '生成处理器失败。');
             } catch (error) { fail(error); }
         };
-        try { frame.contentWindow.postMessage({ channel: 'st-new-scripts', type: 'generation-transport', ids, body: generationContent(body) }, '*', [channel.port2]); }
+        try { frame.contentWindow.postMessage({ channel: 'st-new-scripts', type: 'generation-transport', ids, generationType, body: generationContent(body) }, '*', [channel.port2]); }
         catch (error) { fail(error); }
     });
 }

@@ -4,6 +4,32 @@ import { defaultDatabase, validateDatabase, databaseSettings, migrateLegacySetti
 import { buildPrompt, fitPrompt } from '../engine.js';
 import { databaseSummaryTriggered, messageSummaryRange } from '../database.js';
 
+test('the latest valid archive at a newer floor is used until that floor has a current snapshot', () => {
+    const chat = Array.from({ length: 1035 }, (_, index) => ({ is_user: index % 2 !== 0, mes: 'message' }));
+    const header = {};
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'older active' }, 40);
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'first archive' }, 1030, { kind: 'message', to: 1030 });
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'latest archive' }, 1030, { kind: 'database', messageSummaryTo: 1028 });
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'active' }, 1030);
+    assert.equal(databaseForChat(chat, header).data.marker, 'active');
+    delete chat[1030].TavernDB_ACU_Data;
+    chat[1030].extra.independentDatabase.snapshotDeleted = true;
+    header.chat_metadata.independentDatabase.history.push(
+        { index: 1030, data: { mate: { type: 'other' } } },
+        { index: 1033, data: defaultDatabase() },
+        { index: 1036, data: defaultDatabase() },
+    );
+    const before = structuredClone({ chat, header });
+    const fallback = databaseForChat(chat, header);
+    assert.equal(fallback.archived, true);
+    assert.equal(fallback.index, 1030);
+    assert.equal(fallback.data.marker, 'latest archive');
+    assert.deepEqual(messageSummaryRange(chat, { autoUpdateFrequency: 0, updateBatchSize: 2 }, header), { from: 1029, to: 1030 });
+    assert.deepEqual({ chat, header }, before);
+    storeDatabase(chat, header, { ...defaultDatabase(), marker: 'later active' }, 1032);
+    assert.equal(databaseForChat(chat, header).data.marker, 'later active');
+});
+
 const messages = () => [{ name: '角色', is_user: false, mes: '开场白', extra: {} }, { name: '用户', is_user: true, mes: '时间是早上。' }, { name: '角色', is_user: false, mes: '我们到了书店。', extra: {} }];
 const filled = () => applyOperations(defaultDatabase(), [{ action: 'insert', sheet: 'sheet_0', data: { 0: '地点', 1: '书店' } }]);
 
@@ -18,6 +44,8 @@ test('summary bindings survive editor selection, round trips, and deleted preset
     assert.equal(restored.databaseSummaryPreset, 'compact');
     assert.deepEqual(restored.unknown, { keep: true });
     assert.equal('autoHideMessages' in restored, false);
+    assert.equal(restored.hideAfterMessageSummary, false);
+    assert.equal(databaseSettings(JSON.parse(JSON.stringify({ ...restored, hideAfterMessageSummary: true }))).hideAfterMessageSummary, true);
     assert.ok(fillMessages(restored, filled(), messages(), 0, 2)[0].content.startsWith('消息 '));
     const compact = fillMessages(restored, filled(), [], 0, 0, '', 'database')[0].content;
     assert.ok(compact.startsWith('数据库 ')); assert.ok(compact.includes('书店')); assert.ok(!compact.includes('开场白'));
@@ -131,4 +159,29 @@ test('edited template survives serialized settings and active preset restoration
     const restored = databaseSettings(JSON.parse(JSON.stringify(saved)));
     assert.equal(restored.template.sheet_0.name, '修改后的模板');
     assert.deepEqual(restored.presets.find(item => item.id === restored.activePreset).template, restored.template);
+});
+
+test('$0 uses the executing preset’s recent rows with original indices and protects unseen rows', () => {
+    const data = defaultDatabase();
+    data.sheet_2.content.push([null, 't0', 'old-event', 'old'], [null, 't1', 'new-event', 'new']);
+    const template = structuredClone(data);
+    template.sheet_2.fillRecentRows = 1;
+    const preset = { id: 'message', messages: [{ role: 'user', content: '$0\n$1' }], template };
+    const settings = databaseSettings({ presets: [preset, { id: 'editing', template: data }], activePreset: 'editing', messageSummaryPreset: 'message' });
+    const partial = new Set();
+    const [prompt] = fillMessages(settings, data, [], 0, 0, '', 'message', partial);
+    assert.doesNotMatch(prompt.content, /old-event/);
+    assert.match(prompt.content, /\[1\] t1\|new-event/);
+    assert.deepEqual([...partial], ['sheet_2']);
+    const update = parseUpdate('{"operations":[{"action":"update","sheet":2,"row":1,"data":{"1":"updated-event"}}]}', data, {}, {}, partial);
+    assert.equal(update.sheet_2.content[1][2], 'old-event');
+    assert.equal(update.sheet_2.content[2][2], 'updated-event');
+    const replace = `<dataUpdate>${JSON.stringify({ sheet_2: { ...data.sheet_2, content: [data.sheet_2.content[0], data.sheet_2.content[2]] } })}</dataUpdate>`;
+    assert.throws(() => parseUpdate(replace, data, {}, {}, partial), /\$FULL_TABLES/);
+    settings.presets[0].messages[0].content = '$FULL_TABLES';
+    const full = new Set();
+    assert.match(fillMessages(settings, data, [], 0, 0, '', 'message', full)[0].content, /old-event/);
+    assert.equal(full.size, 0);
+    assert.equal(parseUpdate(replace, data, {}, {}, full).sheet_2.content.length, 2);
+    assert.match(fillMessages(settings, data, [], 0, 0, '', 'database')[0].content, /old-event/);
 });

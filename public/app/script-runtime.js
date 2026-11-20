@@ -33,7 +33,12 @@ export function scriptDocument(scripts, snapshot, jquery) {
         if (script.enabled === false || !support.supported) return [];
         const id = `${script.scope || 'script'}-${script.id || index}`;
         const urls = support.adapter === 'remote-module' ? scriptModuleUrls(script.content) : null;
-        const content = urls ? `(${requireMvuHost.toString()})(); await window.__mvuLibrariesReady; await Promise.all(window.__helperSchemas || []); await (${loadScriptModules.toString()})(${json(urls)},undefined,${!!fallbackModuleUrls(script.content)}); await window.__helperWaitForStartup(); window.__scriptReport({type:'helper-ready',id:${json(id)}});` : support.adapter === 'remote-schema' ? `await window.__mvuLibrariesReady;\n${remoteSchemaContent(script.content)};\nawait window.__helperWaitForCallbacks();` : roleScriptContent(script, support.adapter);
+        let content;
+        try {
+            content = urls ? `(${requireMvuHost.toString()})(); await window.__mvuLibrariesReady; await Promise.all(window.__helperSchemas || []); await (${loadScriptModules.toString()})(${json(urls)},undefined,${!!fallbackModuleUrls(script.content)}); await window.__helperWaitForStartup(); window.__scriptReport({type:'helper-ready',id:${json(id)}});` : support.adapter === 'remote-schema' ? `await window.__mvuLibrariesReady;\n${remoteSchemaContent(script.content)};\nawait window.__helperWaitForCallbacks();` : roleScriptContent(script, support.adapter);
+        } catch (error) {
+            content = `throw Error(${json(error.message)});`;
+        }
         const bindings = SCRIPT_API_NAMES.join(',');
         const run = `(async()=>{const {${bindings}}=window.__scriptScope(${json(id)},${json(script.button?.buttons || [])});try{\n${content}\nwindow.__scriptReport({type:'executed',id:${json(id)}});}catch(error){window.__scriptReport({type:'failed',id:${json(id)},text:${json(script.name || '脚本')}+': '+error.message,error:true});${support.adapter === 'remote-schema' ? 'throw error;' : ''}}})()`;
         return [tag(support.adapter === 'remote-schema' ? `(window.__helperSchemas ||= []).push(${run}); window.__helperSchemas.at(-1).catch(()=>{});` : `${run};`)];
@@ -114,11 +119,11 @@ export class ScriptRuntime {
         frame.srcdoc = scriptDocument(scripts, { ...snapshot, pageDisplay: true }, this.jquery);
         this.readyTimer = setTimeout(() => { if (this.frame === frame) { note.textContent = '未收到脚本启动确认。请查看脚本状态，或点击“重新启动”。'; statuses.open = true; } }, 8000);
     }
-    generate(body, { signal, identity, fetch }) {
+    generate(body, { signal, identity, fetch, generationType }) {
         const frame = this.frame, epoch = this.epoch;
         const ids = [...this.generationInterceptors].filter(id => this.statusRows.get(id)?.dataset?.active === 'true');
         if (!ids.length) return fetch(body, signal);
-        return interceptGeneration(frame, ids, body, { signal, fetch, jobs: this.generationJobs, current: () => this.frame === frame && this.epoch === epoch && this.identity === identity && ids.every(id => this.generationInterceptors.has(id) && this.statusRows.get(id)?.dataset?.active === 'true') });
+        return interceptGeneration(frame, ids, body, { signal, fetch, generationType, jobs: this.generationJobs, current: () => this.frame === frame && this.epoch === epoch && this.identity === identity && ids.every(id => this.generationInterceptors.has(id) && this.statusRows.get(id)?.dataset?.active === 'true') });
     }
     async receive(event) {
         if (!this.frame || event.source !== this.frame.contentWindow || event.data?.channel !== 'st-new-scripts') return;

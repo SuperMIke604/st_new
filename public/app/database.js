@@ -39,12 +39,13 @@ export function databaseSettings(value = {}) {
     settings.databaseSummaryPreset = presets.some(preset => preset.id === source.databaseSummaryPreset) ? source.databaseSummaryPreset : (presets.find(preset => preset.id === 'database-summary') || presets[0]).id;
     settings.databaseSummaryAuto = !!source.databaseSummaryAuto;
     settings.databaseSummaryTable = String(source.databaseSummaryTable || '');
-    for (const [key, fallback, min] of [['databaseSummaryTokens', 0, 0], ['databaseSummaryRows', 0, 0], ['autoUpdateFrequency', 0, 0], ['updateBatchSize', 1, 1]]) {
+    for (const [key, fallback, min] of [['databaseSummaryTokens', 0, 0], ['databaseSummaryRows', 0, 0], ['keywordInjectionTokens', 0, 0], ['autoUpdateFrequency', 0, 0], ['updateBatchSize', 1, 1]]) {
         const number = Number(source[key] ?? fallback);
         if (!Number.isSafeInteger(number) || number < min) throw new Error(`数据库设置 ${key} 超出范围。`);
         settings[key] = number;
     }
     delete settings.autoHideMessages;
+    settings.hideAfterMessageSummary = source.hideAfterMessageSummary === true;
     settings.template = validateDatabase(source.template || settings.presets.find(preset => preset.id === settings.activePreset).template || defaultDatabase());
     settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(settings.template);
     for (const [key, min, max] of [['frequency', 1, 100], ['batch', 1, 500], ['maxTokens', 1, 2000000], ['temperature', 0, 2]]) {
@@ -76,11 +77,39 @@ export function sourceHash(chat, end = chat.length - 1) {
     }
     return (hash >>> 0).toString(16);
 }
+export function findDatabaseSnapshot(chat, header, { through = chat.length - 1, structuredOnly = false } = {}) {
+    const history = header?.chat_metadata?.independentDatabase?.history;
+    const archives = new Map();
+    if (Array.isArray(history)) {
+        // History is appended in save order. Try the newest record at each floor first.
+        for (let offset = history.length - 1; offset >= 0; offset--) {
+            const item = history[offset], index = item?.index;
+            if (!Number.isInteger(index) || index < 0 || index > through || !chat[index] || chat[index].is_user) continue;
+            if (!archives.has(index)) archives.set(index, []);
+            archives.get(index).push(item);
+        }
+    }
+    for (let index = Math.min(through, chat.length - 1); index >= 0; index--) {
+        const message = chat[index];
+        if (message.is_user) continue;
+        const meta = message.extra?.independentDatabase;
+        const data = structuredOnly ? message.TavernDB_ACU_Data : extractDataFromMessage(message, { requireMate: true });
+        if (data) return { data, index, meta };
+        for (const item of archives.get(index) || []) {
+            try {
+                return { data: validateDatabase(item.data), index, meta: item.snapshotMeta, archived: true };
+            } catch (error) {
+                if (!(error instanceof DatabaseFormatError)) throw error;
+            }
+        }
+    }
+    return null;
+}
 export function databaseForChat(chat, header, template = defaultDatabase()) {
-    for (let index = chat.length - 1; index >= 0; index--) {
-        const message = chat[index], meta = message.extra?.independentDatabase;
-        const extracted = extractDataFromMessage(message,{requireMate:true});
-        if (!message.is_user && extracted) return { data: validateDatabase(extracted), index, legacy: !meta, updatedAt: meta?.updatedAt };
+    const snapshot = findDatabaseSnapshot(chat, header);
+    if (snapshot) {
+        const { data, index, meta, archived } = snapshot;
+        return { data: archived ? data : validateDatabase(data), index, meta, archived, legacy: !meta, updatedAt: meta?.updatedAt };
     }
     const seed = header?.chat_metadata?.independentDatabase?.seed;
     return { data: validateDatabase(seed || template), index: -1, legacy: false };
@@ -116,8 +145,8 @@ export function databaseText(database, includeEmpty = false) {
         return `[${key}] ${table.name || key}\n${lines.join('\n')}`;
     }).join('\n\n');
 }
-export function parseUpdate(text, current, counts, diagnostics) {
-    const result = referenceUpdate(text, current, diagnostics);
+export function parseUpdate(text, current, counts, diagnostics, partialTables) {
+    const result = referenceUpdate(text, current, diagnostics, partialTables);
     if (diagnostics) {
         diagnostics.issues = {};
         for (const item of result.feedback) {
@@ -166,7 +195,11 @@ export function applyOperations(current, operations) {
     }
     return validateDatabase(result);
 }
-export function fillMessages(settings, database, chat, from, to, worldText = '', kind = 'message') {
+export function recentFillRows(table) {
+    return Number.isSafeInteger(table?.fillRecentRows) && table.fillRecentRows > 0 ? table.fillRecentRows : 0;
+}
+
+export function fillMessages(settings, database, chat, from, to, worldText = '', kind = 'message', partialTables) {
     const presetId = kind === 'database' ? settings.databaseSummaryPreset : settings.messageSummaryPreset;
     const preset = settings.presets.find(item => item.id === (presetId || settings.activePreset));
     const messagesText = '当前最新对话内容:\n' + (chat.slice(from,to+1).map(message=>{
@@ -175,8 +208,28 @@ export function fillMessages(settings, database, chat, from, to, worldText = '',
         if(message.is_user && settings.userMessageTags)for(const tag of settings.userMessageTags.split('|').map(tag=>tag.trim()).filter(Boolean))content=`<${tag}>${content}</${tag}>`;
         return `${message.is_user?(settings.userName||'用户'):(message.name||'角色')}: ${content}`;
     }).join('\n') || '(无最新对话内容)');
-    const replacements = { '$0': referenceDatabaseText(database,settings) || '(当前还没有表格数据)', '$1': messagesText, '$4': worldText };
-    return preset.messages.map(message => ({ role: message.role, content: message.content.replace(/\$[014]/g, token => replacements[token]) }));
+    const rowLimits = new Map();
+    const usesFull = preset.messages.some(message => /\$FULL_TABLES\b/.test(message.content));
+    if (kind === 'message' && preset.messages.some(message => message.content.includes('$0'))) {
+        for (const [key, table] of sheets(database)) {
+            const source = preset.template?.[key];
+            const headers = source?.content?.[0];
+            const sameTable = headers && (source.name === table.name ||
+                (headers.length === table.content[0].length && headers.every((header, index) => header === table.content[0][index])));
+            const limit = sameTable && recentFillRows(source);
+            if (limit && table.content.length - 1 > limit) {
+                rowLimits.set(key, limit);
+                if (!usesFull) partialTables?.add(key);
+            }
+        }
+    }
+    const replacements = { '$1': messagesText, '$4': worldText };
+    return preset.messages.map(message => ({ role: message.role, content: message.content.replace(/\$FULL_TABLES\b|\$[014]/g, token => {
+        if (token === '$0' || token === '$FULL_TABLES') {
+            return replacements[token] ??= referenceDatabaseText(database, settings, token === '$0' ? rowLimits : undefined) || '(当前还没有表格数据)';
+        }
+        return replacements[token];
+    }) }));
 }
 
 export function databaseSummaryTriggered(settings, database, tokens = 0) {
@@ -184,16 +237,10 @@ export function databaseSummaryTriggered(settings, database, tokens = 0) {
     return (tokenLimit > 0 && tokens >= tokenLimit) || (rowLimit > 0 && sheets(database).some(([key, table]) => key === settings.databaseSummaryTable && table.content.length - 1 >= rowLimit));
 }
 
-export function messageSummaryRange(chat, settings) {
-    let recorded = -1;
-    for (let index = chat.length - 1; index >= 0; index--) {
-        if (!chat[index].is_user && chat[index].TavernDB_ACU_Data) {
-            const meta = chat[index].extra?.independentDatabase;
-            // Compaction of a snapshot is not progress through the following messages.
-            recorded = meta?.kind === 'database' ? (meta.messageSummaryTo ?? index) : (meta?.to ?? index);
-            break;
-        }
-    }
+export function messageSummaryRange(chat, settings, header) {
+    const { index = -1, meta } = findDatabaseSnapshot(chat, header, { structuredOnly: true }) || {};
+    // Compaction of a snapshot is not progress through the following messages.
+    const recorded = meta?.kind === 'database' ? (meta.messageSummaryTo ?? index) : (meta?.to ?? index);
     const from = recorded + 1, end = chat.length - 1 - settings.autoUpdateFrequency;
     let to = from + settings.updateBatchSize - 1;
     if (to > end) return null;
@@ -206,4 +253,4 @@ export function sheetText(database, key, summaryLimit = 10) {
  const rows=table.content.slice(1);const start=0;
  return referenceSheetText(table.name,table.content[0].slice(1),rows.slice(start),start);
 }
-export function referenceDatabaseText(database, settings = {}) {return referenceTableText(database,{...settings,summaryTableMaxEntries:Infinity}).text;}
+export function referenceDatabaseText(database, settings = {}, rowLimits) {return referenceTableText(database,{...settings,summaryTableMaxEntries:Infinity},rowLimits).text;}
