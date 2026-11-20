@@ -86,13 +86,26 @@
         const port = event.ports[0];
         connectExports(port);
         const theme = document.querySelector('meta[name="theme-color"]');
+        const root = document.documentElement;
+        const hexColor = /^#[0-9a-f]{6}$/i;
+        let lastBars;
         function updateBars() {
-            if (theme && /^#[0-9a-f]{6}$/i.test(theme.content)) port.postMessage(theme.content);
+            const style = getComputedStyle(root);
+            const gradientTop = style.getPropertyValue('--card-gradient-top').trim();
+            const paper = style.getPropertyValue('--paper').trim();
+            const fallback = theme?.content || '';
+            // The card background fades from the gradient top to the paper color.
+            const bars = hexColor.test(gradientTop) && hexColor.test(paper)
+                ? 'system-bars:' + gradientTop + ':' + paper
+                : fallback;
+            if ((bars === fallback && !hexColor.test(fallback)) || bars === lastBars) return;
+            lastBars = bars;
+            port.postMessage(bars);
         }
-        if (theme) {
-            new MutationObserver(updateBars).observe(theme, { attributes: true, attributeFilter: ['content'] });
-            updateBars();
-        }
+        const themeObserver = new MutationObserver(updateBars);
+        themeObserver.observe(root, { attributes: true, attributeFilter: ['data-palette'] });
+        if (theme) themeObserver.observe(theme, { attributes: true, attributeFilter: ['content'] });
+        updateBars();
 
         const menu = document.getElementById('composer-tools');
         const toggle = document.getElementById('tools-toggle');

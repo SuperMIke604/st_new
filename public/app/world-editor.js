@@ -34,7 +34,12 @@ export function renderWorldEntries(container, book, { el, field, action, dirty, 
     const render = () => {
         container._dispose();
         container.replaceChildren();
-        const header = el('div', 'section-heading'); header.append(el('h2', '', `条目 · ${Object.keys(book.entries).length}`), action('新增条目', () => { freshId = newWorldEntry(book); opened.add(freshId); dirty(); render(); }, 'plus')); container.append(header);
+        const header = el('div', 'section-heading world-entry-heading');
+        const addEntry = action('新增条目', () => { freshId = newWorldEntry(book); opened.add(freshId); dirty(); render(); }, 'plus');
+        addEntry.title = '新增条目';
+        addEntry.setAttribute('aria-label', addEntry.title);
+        header.append(el('h2', '', `条目 · ${Object.keys(book.entries).length}`), addEntry);
+        container.append(header);
         for (const [index, [id, entry]] of Object.entries(book.entries).entries()) {
             const row = el('details', 'prompt-item'); row.open = opened.has(id);
             let active = true; disposers.push(() => { active = false; });

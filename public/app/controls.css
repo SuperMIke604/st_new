@@ -38,7 +38,7 @@ select, .select-control, .select-search, .global-world-search {
 .select-control { display: flex; align-items: center; justify-content: space-between; }
 .select-control > span:first-child { min-width: 0; }
 textarea { min-height: var(--control-size); }
-.field { gap: var(--control-gap); }
+.field { gap: var(--field-label-gap, var(--control-gap)); }
 
 .button, .icon-button, .send-button, .folder-button, .global-world-toggle,
 .select-option, .select-custom, .prompt-drag-handle, .code-toolbar button, #frontend-update button {
@@ -309,9 +309,35 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .regex-panel .regex-list { display: grid; gap: 9px; margin-top: 15px; }
 .regex-panel .regex-list > .regex-rule { padding: 0; margin: 0; }
 .regex-panel .script-manager { padding-top: 16px; }
-.character-manager-target { display: flex; gap: var(--control-gap); align-items: center; }
-.character-manager-target > :is(select,.select-control) { flex: 1; min-width: 0; }
-.character-manager-target > .button { flex-shrink: 0; }
+.regex-panel .regex-toolbar:has(> .regex-rule-count) { align-items: center; flex-wrap: nowrap; }
+.regex-toolbar > .regex-rule-count { flex: 1; min-width: 0; margin: 0; }
+/* Keep page save actions at the bottom of both short and scrollable panels. */
+:root #panel[open] > #panel-body:has(.editor-footer),
+#panel #panel-body :is(.panel-content, .script-manager, .db-content):has(.editor-footer) {
+    display: flex;
+    flex-direction: column;
+}
+:root #panel[open] > #panel-body:has(.editor-footer) {
+    flex: 1 1 auto;
+    padding-block-end: 0;
+}
+/* Flex children no longer collapse the adjoining field margins. */
+#panel-body:has(> .editor-footer) > .field,
+#panel-body:has(> .editor-footer) > form > .field {
+    margin-block: 0 16px;
+}
+#panel #panel-body :is(.panel-content, .script-manager, .db-content):has(.editor-footer) {
+    flex: 1 0 auto;
+}
+#panel #panel-body .editor-footer {
+    flex: 0 0 auto;
+    position: sticky;
+    bottom: 0;
+    margin-block-start: auto;
+    padding-block: 12px max(12px, env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-block-start: 1px solid var(--line);
+}
 .history-controls { padding: 0; margin: 0; border: 0; min-width: 0; }
 .history-toolbar { flex-wrap: wrap; align-items: center; }
 .history-jump-row { display: flex; align-items: flex-end; gap: var(--control-gap); margin-bottom: 16px; }

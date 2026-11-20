@@ -58,35 +58,23 @@ const api = new TavernAPI();
 const presetSelection = new PresetSelection(api);
 const recentCharacters = new RecentCharacters(api);
 const characterCatalog = new CharacterCatalog(api);
-async function loadCharacterCatalog(force = false, timing, allowStale = false) {
+async function loadCharacterCatalog(force = false, timing) {
     const finish = (timing || loadTimings).start('读取角色列表', 'data');
     try {
-        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar, timing, allowStale });
+        const characters = await characterCatalog.load({ force, knownAvatar: state.character?.avatar, timing });
         state.characters = characters; finish('success', { itemCount: characters.length }); return characters;
     } catch (error) { finish(error.name === 'AbortError' ? 'cancelled' : 'error', error.name === 'TimeoutError' ? { reason: 'timeout' } : error.reason ? { reason: error.reason } : {}); throw error; }
 }
-async function loadManagerCharacters(target, timing) {
-    if (characterCatalog.cache?.items.length) return loadCharacterCatalog(false, timing, true);
-    const cards = new Map();
-    for (const card of [state.character, ...state.characters, ...(recentCharacters.cache?.items || []).map(item => ({ avatar: item.avatar, name: item.characterName || item.avatar?.replace(/\.[^.]+$/, '') }))]) {
-        if (card?.avatar && card.name && !cards.has(card.avatar)) cards.set(card.avatar, { avatar: card.avatar, name: card.name });
-    }
-    if (target && !cards.has(target)) cards.set(target, { avatar: target, name: target.replace(/\.[^.]+$/, '') });
-    return cards.size ? [...cards.values()] : loadCharacterCatalog(false, timing);
+function appendManagerTargetPicker(body, label, options, value) {
+    const wrap = el('div', 'field');
+    const select = el('select'); select.setAttribute('aria-label', label);
+    for (const [id, name] of options) { const option = el('option', '', name); option.value = id; select.append(option); }
+    select.value = value ?? '';
+    wrap.append(select); body.append(wrap);
+    return select;
 }
 function appendManagerCharacterPicker(body, cards, selected, scope) {
-    const wrap = el('label', 'field'); wrap.append(el('span', '', '管理的角色卡'));
-    const row = el('div', 'character-manager-target'), select = el('select'); select.setAttribute('aria-label', '管理的角色卡');
-    for (const card of cards) { const option = el('option', '', card.name); option.value = card.avatar; select.append(option); }
-    select.value = selected || '';
-    const refresh = action(characterCatalog.cache ? '刷新角色列表' : '全部角色', async () => {
-        if (panelDirty && !confirm('放弃未保存的修改？')) return;
-        refresh.disabled = true;
-        const revision = panelRevision;
-        try { await loadCharacterCatalog(true); if (revision !== panelRevision) return; panelDirty = false; await regexPanel(scope, select.value); }
-        finally { refresh.disabled = false; }
-    }, 'refresh');
-    row.append(select, refresh); wrap.append(row); body.append(wrap);
+    const select = appendManagerTargetPicker(body, '管理的角色卡', cards.map(card => [card.avatar, card.name]), selected);
     select.addEventListener('change', () => run(async () => {
         if (panelDirty && !confirm('放弃未保存的修改？')) { select.value = selected; return; }
         panelDirty = false; await regexPanel(scope, select.value);
@@ -1217,7 +1205,8 @@ async function connectionPanel(profileId = '', draft = null) {
         [...picker.options].find(option => option.value === value.id).textContent = value.name; picker.value = value.id;
         panelDirty = false; if (showNotice) notify('连接配置已保存');
     };
-    body.append(action('保存连接', save, 'plug', 'primary'));
+    const footer = el('div', 'editor-footer');
+    footer.append(action('保存连接', save, 'plug', 'primary')); body.append(footer);
     const readModels = action('读取模型列表', async () => {
         await save(false);
         const config = getConnection();
@@ -1633,9 +1622,7 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     }
     let entity = null; let rules = []; let selected = target;
     const chooseTarget = (label, options, value) => {
-        const wrap = el('label', 'field'); wrap.append(el('span', '', label)); const select = el('select');
-        for (const [value, name] of options) { const option = el('option', '', name); option.value = value; select.append(option); }
-        select.value = value; wrap.append(select); body.append(wrap);
+        const select = appendManagerTargetPicker(body, label, options, value);
         select.addEventListener('change', () => run(async () => {
             const next = select.value; if (panelDirty && !confirm('放弃当前未保存的正则修改？')) { select.value = selected; return; }
             panelDirty = false; await regexPanel(scope, next);
@@ -1649,7 +1636,7 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
         chooseTarget('管理的预设', available.map(item => [item.name, item.name]), selected);
         rules = copy(presetRegexes(entity?.data));
     } else {
-        const cards = await loadManagerCharacters(target, timing); if (revision !== panelRevision) return;
+        const cards = await loadCharacterCatalog(false, timing); if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
         appendManagerCharacterPicker(body, cards, selected, scope);
         if (selected) entity = cards.find(card => card.avatar === selected);
@@ -1659,23 +1646,31 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     }
     finishData?.('success', { metrics: { ruleCount: rules.length, scopeCode: { global: 1, preset: 2, character: 3 }[scope] } });
     if (scope !== 'global' && !entity) { note(body, '没有可管理的对象，请先创建或导入。'); return; }
-    const count = el('p', 'note'); body.append(count);
-    const toolbar = el('div', 'regex-toolbar'); body.append(toolbar);
+    const count = el('p', 'note regex-rule-count');
+    const toolbar = el('div', 'regex-toolbar'); toolbar.append(count); body.append(toolbar);
     const rows = el('div', 'regex-list'); body.append(rows);
     body._dispose = () => rows._disposeDrag?.();
     const updateCount = () => { count.textContent = `${rules.length} 条规则 · ${rules.filter(rule => !rule.disabled).length} 条启用`; };
     const dirty = () => { panelDirty = true; updateCount(); };
     const render = () => { updateCount(); const build = () => renderRegexEditor(rows, rules, dirty); return timing ? timing.measureSync('正则与脚本 · 构建正则列表', 'data', build, () => ({ metrics: { ruleCount: rules.length } })) : build(); };
-    toolbar.append(action('新建正则', () => {
+    const addRule = action('新建正则', () => {
         rules.push({ id: uuid(), scriptName: '新的正则', findRegex: '', replaceString: '', placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, trimStrings: [], minDepth: null, maxDepth: null, substituteRegex: 0 });
         dirty(); render(); rows.lastElementChild.open = true;
-    }, 'plus'), action('导入正则', async () => {
+    }, 'plus', 'icon-button');
+    const importRules = action('导入正则', async () => {
         const file = await pickFile('.json'); if (!file) return;
         const value = JSON.parse(await file.text());
         const imported = Array.isArray(value) ? value : Array.isArray(value?.extensions?.regex_scripts) ? value.extensions.regex_scripts : Array.isArray(value?.regex_scripts) ? value.regex_scripts : value?.findRegex !== undefined ? [value] : null;
         if (!imported || imported.some(rule => !rule || typeof rule !== 'object' || Array.isArray(rule))) throw new Error('文件中没有可识别的正则规则。');
         rules.push(...copy(imported).map(rule => ({ ...rule, id: uuid() }))); dirty(); render(); notify(`已载入 ${imported.length} 条规则，保存后生效。`);
-    }, 'folder'));
+    }, 'folder', 'icon-button');
+    for (const button of [addRule, importRules]) {
+        const label = button.textContent;
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        button.querySelector('span').remove();
+        toolbar.append(button);
+    }
     const footer = el('div', 'editor-footer');
     footer.append(action('保存正则', async () => {
         assertIdle();
@@ -2114,7 +2109,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
     const kind = scope === 'global-script' ? 'global' : scope === 'preset-script' ? 'preset' : 'character';
     let entity = null, selected = target;
     if (kind === 'character') {
-        const cards = await loadManagerCharacters(target, timing); if (revision !== panelRevision) return;
+        const cards = await loadCharacterCatalog(false, timing); if (revision !== panelRevision) return;
         selected = cards.some(card => card.avatar === selected) ? selected : cards.find(card => card.avatar === state.character?.avatar)?.avatar || cards[0]?.avatar;
         appendManagerCharacterPicker(body, cards, selected, scope);
         if (!selected) { note(body, '没有可管理的角色卡。'); return; }
@@ -2125,7 +2120,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         selected = available.some(item => item.name === selected) ? selected : available.find(item => item.name === state.own.preset)?.name || available[0]?.name;
         entity = available.find(item => item.name === selected);
         if (!entity) { note(body, '没有可管理的预设，请先创建或导入。'); return; }
-        const select = field(body, '管理的预设', selected, { options: available.map(item => [item.name, item.name]) });
+        const select = appendManagerTargetPicker(body, '管理的预设', available.map(item => [item.name, item.name]), selected);
         select.addEventListener('change', () => run(async () => {
             if (panelDirty && !confirm('放弃当前未保存的脚本修改？')) { select.value = selected; return; }
             panelDirty = false; await regexPanel(scope, select.value);
@@ -2526,7 +2521,7 @@ async function characterEditor(avatar = state.character?.avatar) {
     }
     for (const value of Array.isArray(card.alternate_greetings) ? card.alternate_greetings : []) addGreeting(value);
     body.append(action('添加备用开场白', () => { addGreeting(); panelDirty = true; }, 'plus'));
-    const footer = el('div', 'persona-editor-actions'); body.append(footer);
+    const footer = el('div', 'editor-footer'); body.append(footer);
     footer.append(action('保存', async () => {
         assertSaved(); if (!name.value.trim()) throw new Error('请输入角色名称。');
         const data = { name: name.value.trim(), description: description.value, first_mes: first.value, alternate_greetings: greetingInputs.map(input => input.value) };
@@ -2602,14 +2597,8 @@ async function renderPersonasPanel(body, revision) {
     const available = [...new Set([...(Array.isArray(avatars) ? avatars : []), ...Object.keys(power.personas || {})])];
     const toolbar = el('div', 'library-toolbar');
     toolbar.style.justifyContent = 'flex-end';
-    const add = action('新增用户设定', () => {
-        const existing = rows.querySelector('.persona-draft');
-        if (existing) { existing.querySelector('input')?.focus(); return; }
-        const draft = el('article', 'persona-row persona-draft');
-        draft.append(el('h2', 'persona-draft-title', '新增用户设定'));
-        const editor = el('div', 'persona-inline-editor'); draft.append(editor); rows.prepend(draft);
-        personaEditor(null, editor); editor.querySelector('input')?.focus();
-    }, 'plus', 'primary persona-add'); add.title = '新增用户设定'; add.setAttribute('aria-label', '新增用户设定'); toolbar.append(add); body.append(toolbar);
+    const add = action('新增用户设定', () => personaEditor(), 'plus', 'primary persona-add');
+    add.title = '新增用户设定'; add.setAttribute('aria-label', '新增用户设定'); toolbar.append(add); body.append(toolbar);
     const rows = el('div', 'persona-list'); rows.setAttribute('role', 'radiogroup'); rows.setAttribute('aria-label', '用户设定'); body.append(rows);
     for (const avatar of available) {
         const name = power.personas?.[avatar] || (avatar === state.settings.user_avatar ? state.settings.username : avatar), data = power.persona_descriptions?.[avatar] || {};
@@ -2619,7 +2608,8 @@ async function renderPersonasPanel(body, revision) {
         const portrait = el('div', 'persona-portrait'), img = el('img'); img.src = `/thumbnail?type=persona&file=${encodeURIComponent(avatar)}&v=${avatarRevisions.get(avatar) || 0}`; img.alt = ''; img.loading = 'lazy'; themeDefaultAvatar(img, name); portrait.append(img);
         const info = el('div', 'persona-info'), heading = el('h2', '', name); if (persona().avatar === avatar) heading.append(el('small', 'prompt-kind', '当前')); info.append(heading, el('p', '', data.description || '暂无描述'));
         select.append(portrait, info);
-        const actions = el('div', 'persona-actions'), edit = action('编辑', () => { const existing = row.querySelector('.persona-inline-editor'); if (existing) { existing.remove(); edit.setAttribute('aria-expanded', 'false'); } else { const editor = el('div', 'persona-inline-editor'); row.append(editor); edit.setAttribute('aria-expanded', 'true'); personaEditor(avatar, editor); } }, 'edit'); edit.title = '编辑'; edit.setAttribute('aria-label', `${name}：编辑`); actions.append(edit);
+        const actions = el('div', 'persona-actions'), edit = action('编辑', () => personaEditor(avatar), 'edit');
+        edit.title = '编辑'; edit.setAttribute('aria-label', `${name}：编辑`); actions.append(edit);
         const duplicate = action('复制', async () => { assertIdle(); const response = await fetch(`/User%20Avatars/${encodeURIComponent(avatar)}?v=${avatarRevisions.get(avatar) || 0}`); if (!response.ok) throw new Error('无法读取头像'); const form = new FormData(); form.append('avatar', await response.blob(), 'persona.png'); form.append('overwrite_name', `persona-${uuid()}.png`); const uploaded = await api.post('/api/avatars/upload', form, { form: true }); if (!uploaded.path) throw new Error('复制头像失败'); state.settings = await api.patchSettings(settings => { const power = settings.power_user ||= {}; (power.personas ||= {})[uploaded.path] = `${name} 副本`; (power.persona_descriptions ||= {})[uploaded.path] = copy(data); }); await personasPanel(); }, 'copy');
         const remove = action('删除', async () => { assertIdle(); if (!confirm(`删除用户设定「${name}」？`)) return; await api.post('/api/avatars/delete', { avatar }); state.settings = await api.patchSettings(settings => { delete settings.power_user?.personas?.[avatar]; delete settings.power_user?.persona_descriptions?.[avatar]; if (settingsOwn(settings).persona === avatar) delete settingsOwn(settings).persona; }); await personasPanel(); }, 'trash', 'danger');
         for (const [button, label] of [[duplicate, '复制'], [remove, '删除']]) { button.title = label; button.setAttribute('aria-label', `${name}：${label}`); actions.append(button); }
@@ -2628,8 +2618,8 @@ async function renderPersonasPanel(body, revision) {
     if (!available.length) rows.append(el('p', 'note', '暂无用户设定，点击右上角新增。'));
 }
 
-async function personaEditor(avatar = null, inline = null) {
-    const body = inline || showPanel(avatar ? '编辑用户设定' : '新增用户设定', '身份资料'); if (!body) return;
+async function personaEditor(avatar = null) {
+    const body = showPanel(avatar ? '编辑用户设定' : '新增用户设定', '身份资料'); if (!body) return;
     const power = state.settings.power_user || {}, saved = power.persona_descriptions?.[avatar] || {};
     let avatarFile = null;
     const portrait = el('div', 'character-portrait'), img = el('img'); themeDefaultAvatar(img, power.personas?.[avatar] || state.settings.username); img.alt = '用户头像'; img.hidden = !avatar; if (avatar) img.src = `/User%20Avatars/${encodeURIComponent(avatar)}?v=${avatarRevisions.get(avatar) || 0}`;
@@ -2639,7 +2629,7 @@ async function personaEditor(avatar = null, inline = null) {
     const nameError = el('small', 'persona-name-error'); nameError.hidden = true; nameError.id = `persona-name-error-${uuid()}`; nameError.setAttribute('role', 'alert'); name.setAttribute('aria-describedby', nameError.id); name.parentElement.append(nameError);
     name.addEventListener('input', () => { if (name.value.trim()) { nameError.hidden = true; name.removeAttribute('aria-invalid'); } });
     const description = field(body, '描述', saved.description || '', { multiline: true, rows: 8 });
-    const footer = el('div', 'persona-editor-actions'); body.append(footer);
+    const footer = el('div', 'editor-footer'); body.append(footer);
     footer.append(action('保存', async () => {
         assertIdle(); if (!name.value.trim()) { nameError.textContent = '请输入名称'; nameError.hidden = false; name.setAttribute('aria-invalid', 'true'); name.focus(); name.scrollIntoView({ block: 'nearest' }); return; }
         if (!avatar || avatarFile) {
@@ -2658,7 +2648,8 @@ async function personaEditor(avatar = null, inline = null) {
             settingsOwn(settings).persona = avatar;
         }); state.own = state.settings.independent_frontend; panelDirty = false; notify('用户设定已保存'); await personasPanel();
     }, 'edit', 'primary'));
-    footer.append(action('取消', () => { panelDirty = false; if (inline) { const draft = inline.closest('.persona-draft'); if (draft) draft.remove(); else inline.remove(); return; } return personasPanel(); }));
+    footer.append(action('取消', () => { panelDirty = false; return personasPanel(); }));
+    if (!avatar) name.focus();
 }
 
 async function openCharacterWorld(avatar) {
@@ -2688,32 +2679,32 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
     const active = state.settings.world_info_settings?.world_info?.globalSelect ?? state.own.worlds ?? [];
     const globals = new Set(active);
     let bookDirty = !!initial;
+    let editVersion = 0;
+    const markDirty = () => { editVersion++; panelDirty = true; };
     const globalSection = el('div', 'global-world-section'); body.append(globalSection);
-    const buildSelection = () => renderGlobalWorldSelect(globalSection, worlds, globals, { el, icon, changed: () => { panelDirty = true; } });
+    const buildSelection = () => renderGlobalWorldSelect(globalSection, worlds, globals, { el, icon, changed: markDirty });
     if (timing) timing.measureSync('世界书 · 构建全局选择器', 'data', buildSelection, () => ({ metrics: { totalItems: worlds.length } })); else buildSelection();
     const globalSettings = el('details', 'advanced world-global-settings'); globalSettings.append(el('summary', '', '世界书全局设置'));
     const globalDraft = copy(state.settings.world_info_settings || {}), globalGrid = el('div', 'parameter-grid'); globalSettings.append(globalGrid);
     for (const [key, label, fallback, min, max] of worldSettingsFields) {
         const control = field(globalGrid, label, globalDraft[key] ?? fallback, { type: 'number' }); control.min = min; control.max = max; control.step = 1;
-        control.addEventListener('input', () => { globalDraft[key] = control.value === '' ? NaN : Number(control.value); });
+        control.addEventListener('input', () => { globalDraft[key] = control.value === '' ? NaN : Number(control.value); markDirty(); });
     }
     for (const [key, label] of [['world_info_recursive', '启用递归扫描'], ['world_info_case_sensitive', '区分大小写'], ['world_info_match_whole_words', '匹配完整单词']]) {
         const wrap = el('label', 'check-field'), control = el('input'); control.type = 'checkbox'; control.checked = !!globalDraft[key];
-        control.addEventListener('change', () => { globalDraft[key] = control.checked; panelDirty = true; }); wrap.append(control, el('span', '', label)); globalSettings.append(wrap);
+        control.addEventListener('change', () => { globalDraft[key] = control.checked; markDirty(); }); wrap.append(control, el('span', '', label)); globalSettings.append(wrap);
     }
     globalSection.append(globalSettings);
-    const saveGlobals = async () => {
-        const config = validateWorldSettings(globalDraft);
+    const saveGlobals = async (config = validateWorldSettings(globalDraft), selection = [...globals]) => {
         state.settings = await api.patchSettings(settings => {
             const wi = settings.world_info_settings ||= {};
             for (const [key] of worldSettingsFields) if (key in config) wi[key] = config[key];
             for (const key of ['world_info_recursive', 'world_info_case_sensitive', 'world_info_match_whole_words']) if (key in config) wi[key] = config[key];
-            (wi.world_info ||= {}).globalSelect = [...globals];
+            (wi.world_info ||= {}).globalSelect = selection;
             delete settingsOwn(settings).worlds;
         });
         state.own = state.settings.independent_frontend;
     };
-    globalSettings.append(action('保存全局设置', async () => { assertIdle(); await saveGlobals(); panelDirty = bookDirty; notify('世界书全局设置已保存'); }, 'book'));
     const ivory = document.documentElement.dataset.palette === 'ivory-cards';
     const bar = el('div', 'connection-profile-bar');
     if (ivory) {
@@ -2731,7 +2722,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
     const name = { value: initial ? target : original };
     const entries = el('div', 'world-entry-list'); body.append(entries);
     body._dispose = () => { entries._dispose?.(); entries.querySelector(':scope > .panel-content')?._dispose?.(); };
-    const dirty = () => { bookDirty = true; panelDirty = true; };
+    const dirty = () => { bookDirty = true; markDirty(); };
     const render = (target = entries, trace = timing) => {
         const build = () => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
         return trace ? trace.measureSync('世界书 · 构建条目列表', 'data', build, () => ({ metrics: { entryCount: Object.keys(draft.entries || {}).length } })) : build();
@@ -2767,6 +2758,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
         const option = el('option', '', `${target || '新世界书'}（未保存）`); option.value = '__draft__'; select.append(option); select.value = '__draft__'; panelDirty = true;
     }
     let previous = select.value, bookRequest = 0;
+    let savedBookName;
     select.addEventListener('change', () => run(async () => {
         if (panelDirty && !confirm('放弃未保存的修改并切换世界书？')) { select.value = previous; return; }
         const next = select.value, request = ++bookRequest;
@@ -2776,18 +2768,43 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
                 const loaded = await api.post('/api/worldinfo/get', { name: next }, { timing: trace });
                 if (request !== bookRequest || revision !== panelRevision) return;
                 original = next; name.value = next; draft = trace.measureSync('世界书 · 整理条目数据', 'data', () => worldDraft(loaded)); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render(content, trace);
+                savedBookName = undefined;
             }, () => worldsPanel(next, null, character));
         } catch (error) { if (request === bookRequest) select.value = previous; throw error; }
     }));
-    const footer = el('div', 'editor-footer'); footer.append(action('保存世界书', async () => {
-        assertIdle(); if (!name.value.trim()) throw new Error('请输入世界书名称。');
-        const targetName = safeName(name.value.trim());
-        const current = await api.post('/api/worldinfo/list');
-        if (targetName !== original && current.some(book => book.file_id === targetName) && !confirm('覆盖同名世界书？')) return;
-        const value = worldDraft(draft); value.name = targetName;
-        await api.post('/api/worldinfo/edit', { name: targetName, data: value }); await saveGlobals();
-        panelDirty = false; notify('世界书已保存'); await worldsPanel(targetName, null, character);
-    }, 'book', 'primary')); body.append(footer); render();
+    const footer = el('div', 'editor-footer');
+    const saveButton = action('保存世界书', async () => {
+        assertIdle();
+        const config = validateWorldSettings(globalDraft);
+        const selection = [...globals];
+        const version = editVersion;
+        const request = bookRequest;
+        saveButton.disabled = true;
+        try {
+            if (bookDirty) {
+                if (!name.value.trim()) throw new Error('请输入世界书名称。');
+                const targetName = safeName(name.value.trim());
+                const value = worldDraft(draft); value.name = targetName;
+                if (targetName !== original && targetName !== savedBookName) {
+                    const current = await api.post('/api/worldinfo/list');
+                    if (current.some(book => book.file_id === targetName) && !confirm('覆盖同名世界书？')) return;
+                }
+                await api.post('/api/worldinfo/edit', { name: targetName, data: value });
+                if (request === bookRequest) {
+                    savedBookName = targetName;
+                    if (version === editVersion) bookDirty = false;
+                }
+            }
+            await saveGlobals(config, selection);
+            if (revision !== panelRevision || request !== bookRequest || version !== editVersion) return;
+            panelDirty = false;
+            notify(savedBookName ? '世界书和全局设置已保存' : '世界书全局设置已保存');
+            if (savedBookName) await worldsPanel(savedBookName, null, character);
+        } finally {
+            saveButton.disabled = false;
+        }
+    }, 'book', 'primary');
+    footer.append(saveButton); body.append(footer); render();
 }
 
 async function loadBooks(options) {
@@ -3632,7 +3649,6 @@ function databasePreviewPanel() {
 const readingSettingsTitle = '阅读设置';
 function toolsPanel() {
     const body = showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
-    if (state.dirty) body.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
     const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [
@@ -3680,11 +3696,7 @@ function toolsPanel() {
     const sampleDialogue = el('p'); sampleDialogue.append(el('span', 'dialogue-quote', '“这是对话文字的颜色预览。”'));
     sample.append(el('p', '', '风从窗边吹来，书页轻轻翻过。文字沿着页面两侧整齐排列，让每一次阅读都从容一些。'), sampleDialogue); body.append(sample);
     const footer = el('div', 'editor-footer');
-    footer.append(action('恢复默认排版', () => {
-        for (const [key, , fallback] of readingFields) readingInputs.get(key).value = fallback;
-        dialogueColor.value = ''; dialogueColor.setCustomValidity('');
-        rememberReading(values()); panelDirty = true;
-    }, 'refresh'), action('保存阅读设置', async () => {
+    footer.append(action('保存阅读设置', async () => {
         if (readingInputs.get('inputFontSize').validity.badInput) {
             readingInputs.get('inputFontSize').reportValidity();
             return;
@@ -3695,8 +3707,13 @@ function toolsPanel() {
         rememberReading(reading);
         applyPalette(selectedPalette, true);
         panelDirty = false; notify('阅读设置已保存');
-    }, 'tools', 'primary')); body.append(footer);
-    const native = el('a', 'native-link', '打开原生页面'); native.href = '/'; native.target = '_blank'; native.rel = 'noopener'; body.append(native);
+    }, 'tools', 'primary'), action('恢复默认排版', () => {
+        for (const [key, , fallback] of readingFields) readingInputs.get(key).value = fallback;
+        dialogueColor.value = ''; dialogueColor.setCustomValidity('');
+        rememberReading(values()); panelDirty = true;
+    }, 'refresh'));
+    if (state.dirty) footer.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
+    body.append(footer);
 }
 
 function resizeInput() {
@@ -3728,9 +3745,10 @@ const quickReplies = $('quick-replies'), quickRepliesToggle = $('quick-replies-t
 document.body.append(composerTools, quickReplies);
 function positionComposerMenu(menu, toggle) {
     const rect = toggle.getBoundingClientRect();
+    const gap = parseFloat(getComputedStyle(menu).getPropertyValue('--menu-anchor-gap')) || 8;
     menu.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.bottom = `${Math.max(8, innerHeight - rect.top + 8)}px`;
-    menu.style.maxHeight = `${Math.max(60, rect.top - 16)}px`;
+    menu.style.bottom = `${Math.max(8, innerHeight - rect.top + gap)}px`;
+    menu.style.maxHeight = `${Math.max(60, rect.top - 8 - gap)}px`;
 }
 function confirmFrontendUpdate(question) {
     if (document.documentElement.dataset.palette !== 'ivory-cards') return confirm(question);

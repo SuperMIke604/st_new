@@ -107,7 +107,7 @@ export function renderDatabasePanel(body, context) {
         const active = settings.presets.find(item => item.id === settings.activePreset);
         if (active) active.template = structuredClone(settings.template);
         let value=settingsValue(includeStatus);
-        let status=content.querySelector('.db-save-status');if(!status){status=el('p','db-save-status');status.setAttribute('role','status');content.append(status);}status.textContent='保存中…';status.classList.remove('error');
+        let status=content.querySelector('.db-save-status');if(!status){status=el('p','db-save-status');status.setAttribute('role','status');(content.querySelector(':scope > .editor-footer') || content).append(status);}status.textContent='保存中…';status.classList.remove('error');
         const task=saveQueue.catch(()=>{}).then(async()=>{if(!includeStatus)value=databaseSettings({...value,...savedStatus});await context.saveSettings(value);savedStatus=statusValues(value);});saveQueue=task;
         try{await task;if(includeStatus&&savedStatusVersion===statusVersion)statusDirty=false;if(version===editVersion)settingsDirty=false;context.dirty(hasDraft());if(status.isConnected)status.textContent='已保存';notify('数据库设置已保存');}
         catch(error){if(status.isConnected){status.textContent=`保存失败：${error.message}`;status.classList.add('error');}throw error;}
@@ -330,7 +330,7 @@ export function renderDatabasePanel(body, context) {
     function renderAPI() {
         const profileBar=el('div','connection-profile-bar'),mode=el('select');mode.setAttribute('aria-label','API 模式');for(const [value,label]of [['custom','自定义 API'],['tavern','主 API']]){const option=el('option','',label);option.value=value;mode.append(option);}mode.value=settings.apiMode||'custom';profileBar.append(mode);content.append(profileBar);mode.addEventListener('change',()=>{settings.apiMode=mode.value;dirty();render();});
         const status=el('p','db-api-status');status.setAttribute('role','status');
-        const tools=el('div','db-api-actions');
+        const tools=el('div','editor-footer db-api-actions');
         const connectionCard = featureCard(settings.apiMode === 'tavern' ? '' : '地址与密钥');
         const modelCard = featureCard(settings.apiMode === 'tavern' ? '模型参数' : '模型与参数');
         content.append(connectionCard, modelCard);
@@ -408,7 +408,8 @@ export function renderDatabasePanel(body, context) {
             for(const [label,selected]of [['全选',true],['全不选',false]]){const control=toolbarButton(tools,label,null,()=>{for(const [,check]of checks)check.checked=selected;enabled[book.name]=selected?checks.map(([uid])=>uid):[];dirty();});control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});}
             section.append(list);content.append(section);
         }
-        toolbarButton(content,'保存世界书配置','edit',saveSettings,'primary');
+        const footer = el('div', 'editor-footer');
+        toolbarButton(footer,'保存世界书配置','edit',saveSettings,'primary');content.append(footer);
     }
     function renderSettings() {
         const revision=++statusRevision;

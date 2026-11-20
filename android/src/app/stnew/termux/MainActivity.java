@@ -160,24 +160,29 @@ public final class MainActivity extends Activity {
     }
 
     private void applySystemBarColor(int color) {
+        applySystemBarColors(color, color);
+    }
+
+    private void applySystemBarColors(int statusColor, int navigationColor) {
         Window window = getWindow();
         View decor = window.getDecorView();
-        boolean lightBackground = Color.luminance(color) > 0.179;
+        boolean lightNavigation = Color.luminance(navigationColor) > 0.179;
         int appearance = decor.getSystemUiVisibility() & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-        if (lightBackground) {
+        if (Color.luminance(statusColor) > 0.179) {
             appearance |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         }
         if (Build.VERSION.SDK_INT >= 26) {
             appearance &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            if (lightBackground) {
+            if (lightNavigation) {
                 appearance |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }
         }
         decor.setSystemUiVisibility(appearance);
-        window.setStatusBarColor(color);
-        window.setNavigationBarColor(Build.VERSION.SDK_INT < 26 && lightBackground ? 0xff64594b : color);
+        window.setStatusBarColor(statusColor);
+        if (Build.VERSION.SDK_INT < 26 && lightNavigation) navigationColor = 0xff64594b;
+        window.setNavigationBarColor(navigationColor);
         if (Build.VERSION.SDK_INT >= 28) {
-            window.setNavigationBarDividerColor(color);
+            window.setNavigationBarDividerColor(navigationColor);
         }
     }
 
@@ -197,6 +202,9 @@ public final class MainActivity extends Activity {
                 }
                 if (data.matches("#[0-9a-fA-F]{6}")) {
                     applySystemBarColor(Color.parseColor(data));
+                } else if (data.matches("system-bars:#[0-9a-fA-F]{6}:#[0-9a-fA-F]{6}")) {
+                    String[] colors = data.split(":");
+                    applySystemBarColors(Color.parseColor(colors[1]), Color.parseColor(colors[2]));
                 } else if ("check-apk-update".equals(data)) {
                     checkApkUpdate();
                 } else if (data.startsWith("export-")) {
@@ -341,8 +349,7 @@ public final class MainActivity extends Activity {
         boolean rejected = signingIn && !handler.useHttpAuthUsernamePassword();
         authRequest = handler;
         signingIn = false;
-        applySystemBarColor(PAPER);
-        getWindow().setStatusBarColor(LoginPanel.TOP_COLOR);
+        applySystemBarColors(LoginPanel.TOP_COLOR, PAPER);
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         loginPanel.setVisibility(View.VISIBLE);

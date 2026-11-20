@@ -5,10 +5,13 @@ export class VirtualChat {
         this.projectMessages = projectMessages;
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
+        this.hasMessageFrame = element.parentElement?.classList.contains('message-list-frame');
+        this.overflowCheckPending = false;
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
         this.top.className = this.bottom.className = 'virtual-spacer';
         this.element.replaceChildren(this.top, this.bottom);
         this.observer = new ResizeObserver(entries => {
+            this.scheduleOverflowCheck();
             const first = this.nodes.values().next().value;
             if (!first) return;
             const gap = parseFloat(getComputedStyle(first).marginBlockEnd) || 0;
@@ -40,6 +43,16 @@ export class VirtualChat {
     calculate() {
         this.prefix = [0];
         for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200) + this.gap);
+    }
+    scheduleOverflowCheck() {
+        if (!this.hasMessageFrame || this.overflowCheckPending) return;
+        this.overflowCheckPending = true;
+        requestAnimationFrame(() => {
+            this.overflowCheckPending = false;
+            const { clientHeight, scrollHeight } = this.element;
+            const scrollable = this.nodes.size > 0 && clientHeight > 0 && scrollHeight > clientHeight;
+            this.element.toggleAttribute('data-scrollable', scrollable);
+        });
     }
     locate(offset) {
         let low = 0; let high = this.messages.length;
@@ -85,6 +98,7 @@ export class VirtualChat {
         this.nodes = next;
         for (const node of next.values()) this.observer.observe(node, { box: 'border-box' });
         this.spacers();
+        this.scheduleOverflowCheck();
         this.onRange?.({ start: this.start, end: this.end, total: this.messages.length, follow: this.follow });
     }
     update(index) {

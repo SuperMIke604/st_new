@@ -41,6 +41,10 @@
     --card-on-accent: #fffaf1;
 }
 
+:root[data-palette="ivory-cards"] {
+    --line: #d8cab8;
+}
+
 :root:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) {
     --card-radius: 22px;
     --card-bar-height: 66px;
@@ -234,8 +238,8 @@
     margin-block-start: calc(var(--card-gap) - var(--card-bar-inset));
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame::before,
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame::after {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-scrollable])::before,
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-scrollable])::after {
     content: "";
     position: absolute;
     inset-inline: 0;
@@ -246,13 +250,13 @@
     z-index: 1;
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame::before {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-scrollable])::before {
     inset-block-start: 0;
     border-block-end: 0;
     border-radius: var(--card-radius) var(--card-radius) 0 0;
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame::after {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) body:not(.home-view) .message-list-frame:has(> #message-list[data-scrollable])::after {
     inset-block-end: 0;
     border-block-start: 0;
     border-radius: 0 0 var(--card-radius) var(--card-radius);
@@ -488,6 +492,11 @@
     border-color: var(--green);
 }
 
+[data-palette="ivory-cards"] #composer:focus-within {
+    border-color: var(--card-field-border);
+    box-shadow: var(--control-focus-ring);
+}
+
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) :is(.button.primary, .send-button):enabled {
     background: var(--green);
     color: var(--card-on-accent);
@@ -547,10 +556,10 @@
     }
 }
 
-[data-palette="ivory-cards"] :is(#panel.preset-panel, #panel .db-content.preset-panel) {
-    & .preset-prompt-heading { align-items: center; }
-    & .preset-prompt-heading h2 { margin-block: 0; }
-    & .preset-prompt-heading .button {
+[data-palette="ivory-cards"] #panel :is(.preset-prompt-heading, .world-entry-heading) {
+    align-items: center;
+    & > h2 { margin-block: 0; }
+    & > .button {
         display: inline-grid;
         place-items: center;
         width: var(--control-size);
@@ -562,8 +571,8 @@
         border: 0;
         box-shadow: none;
     }
-    & .preset-prompt-heading .button > span { display: none; }
-    & .preset-prompt-heading .button::before {
+    & > .button > span { display: none; }
+    & > .button::before {
         content: "";
         position: absolute;
         inset: 0;
@@ -573,7 +582,7 @@
         border-radius: 5px;
         z-index: -1;
     }
-    & .preset-prompt-heading .button:is(:hover, :active, :focus-visible)::before { background: var(--soft); }
+    & > .button:is(:hover, :active, :focus-visible)::before { background: var(--soft); }
 }
 
 [data-palette="ivory-cards"] #panel.preset-panel {
@@ -619,5 +628,349 @@
             background: linear-gradient(110deg, var(--card-gradient-top), var(--surface) 80%);
         }
         & .timing-body { padding-inline: 20px; }
+    }
+}
+
+/* Shared spacing scale for the Ivory Cards application layout. */
+:root[data-palette="ivory-cards"] {
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --control-gap: var(--space-4);
+    --field-label-gap: var(--space-2);
+    --divider-size: 1px;
+    --divider-space: var(--space-4);
+    --icon-toolbar-end-space: var(--space-1);
+    --section-title-line: 20px;
+    --section-title-offset: calc((var(--control-size) - var(--section-title-line)) / 2);
+    --list-entry-gap: var(--space-2);
+    --breadcrumb-offset: calc((var(--control-size) - var(--type-aux-line)) / 2);
+    --panel-inline-space: var(--space-6);
+    --panel-header-space: var(--space-4);
+    --panel-end-space: var(--space-6);
+    --card-content-space: var(--space-4);
+    --card-grid-gap: var(--space-4);
+    --reading-inline-space: var(--space-6);
+    --message-block-space: var(--space-5);
+    --message-inline-space: var(--space-6);
+    --composer-space: var(--space-3);
+    --menu-anchor-gap: var(--space-1);
+    --menu-padding: var(--space-1);
+    --select-option-gap: 0px;
+    --select-search-gap: var(--space-4);
+
+    & #panel[open] > .panel-header {
+        padding: var(--panel-header-space) var(--panel-inline-space);
+    }
+    & #panel #panel-body {
+        padding: var(--space-4) var(--panel-inline-space) var(--panel-end-space);
+    }
+    & #panel #panel-body:has(.character-library-sticky, .world-book-toolbar) {
+        padding-block-start: 0;
+    }
+    & #panel-body > .panel-content:has(> .world-book-toolbar) {
+        padding-block-start: var(--space-4);
+    }
+    & #panel-body :is(.character-library-sticky, .world-book-toolbar) {
+        --toolbar-gutter: var(--panel-inline-space);
+        padding-block: var(--divider-space);
+        border-block-end: var(--divider-size) solid var(--line);
+        box-shadow: none;
+        margin-block-end: var(--divider-space);
+    }
+    & #panel-body .world-book-toolbar {
+        margin-block-end: max(0px, calc(var(--divider-space) - var(--section-title-offset)));
+    }
+    & #panel-body .world-book-toolbar:has(> .profile-extra-tools:not([hidden])) {
+        padding-block-end: var(--icon-toolbar-end-space);
+    }
+    & #panel-body .character-library-sticky {
+        margin-block-end: max(0px, calc(var(--divider-space) - var(--breadcrumb-offset)));
+    }
+    & #panel-body:has(.character-library-sticky) .library-main {
+        margin-block-start: 0;
+    }
+    & #panel.library-panel #panel-body:has(.character-library-sticky) {
+        scroll-padding-block-start: calc(2 * var(--control-size) + var(--control-gap) + 2 * var(--divider-space) + var(--divider-size));
+    }
+    & #panel-body:has(> .panel-content > .world-book-toolbar) {
+        scroll-padding-block-start: calc(var(--control-size) + 2 * var(--divider-space) + var(--divider-size));
+    }
+    & .library-panel :is(.library-toolbar, .character-library-tools, .character-library-category-row) {
+        gap: var(--control-gap);
+    }
+    & .library-panel .character-files {
+        gap: var(--card-grid-gap);
+    }
+    & .library-panel .character-files:not(.list-view) > .character-file {
+        padding: var(--card-content-space);
+    }
+    & .library-panel .character-files.list-view {
+        gap: var(--space-4);
+    }
+    & .library-panel .library-breadcrumb {
+        margin-block-end: var(--space-4);
+    }
+
+    & #panel-body :is(.parameter-grid, .dm-config-grid, .variable-toolbar) {
+        gap: var(--space-4);
+    }
+    & #panel-body :is(.parameter-grid, .dm-config-grid, .variable-toolbar) > .field {
+        margin: 0;
+    }
+    & #panel-body label.field:has(> small:last-child) {
+        row-gap: 0;
+    }
+    & #panel-body label.field:has(> small:last-child) > span:first-child {
+        margin-block-end: var(--field-label-gap);
+    }
+    & #panel-body label.field > small:last-child {
+        margin-block-start: var(--space-1);
+    }
+    & #panel-body .world-global-settings > .parameter-grid {
+        margin-block: var(--space-3);
+    }
+    & #panel-body .global-world-section .world-global-settings > .parameter-grid {
+        margin-block-end: var(--space-2);
+    }
+    & #panel-body .global-world-section .world-global-settings > .check-field {
+        margin-block: 0;
+    }
+    & #panel-body .global-world-section {
+        padding-block-end: 0;
+        border-block-end: 0;
+        margin-block-end: var(--space-4);
+    }
+    & #panel-body .global-world-section:has(+ .world-book-toolbar) {
+        margin-block-end: 0;
+    }
+    & #panel-body .global-world-section > .world-global-settings {
+        margin-block: var(--space-4) 0;
+    }
+    & #panel-body .global-world-label {
+        margin-block-end: var(--field-label-gap);
+    }
+    & #panel-body .world-book-toolbar + .world-entry-list {
+        margin-block-start: 0;
+    }
+    & #panel-body .world-entry-heading {
+        margin-block-end: 0;
+    }
+    & #panel-body .world-entry-heading:has(+ .prompt-item) {
+        margin-block-end: calc(-1 * var(--section-title-offset));
+    }
+    & #panel-body .world-entry-heading > .button {
+        z-index: 1;
+    }
+    & #panel-body .section-heading > h2 {
+        line-height: var(--section-title-line);
+    }
+    & #panel-body > .chat-history-list {
+        margin-block-start: 0;
+        gap: var(--list-entry-gap);
+    }
+    & #panel-body .history-controls > .field:first-child {
+        margin-block-start: 0;
+    }
+    & #panel-body .variable-list > .variable-row {
+        border-block-end: 0;
+    }
+    & #panel-body .reference-preview-layout,
+    & #panel-body .reference-preview-layout > .reference-preview-fixed {
+        row-gap: var(--space-2);
+    }
+    & #panel-body .reference-preview-layout .reference-preview-toolbar {
+        margin-block: var(--space-2);
+    }
+    & #panel-body .reference-preview-layout > .reference-preview-grid {
+        padding-block-start: 0;
+    }
+    & #panel-body .reference-preview-layout > .db-pager {
+        margin-block-start: var(--space-2);
+    }
+    & #panel-body .regex-panel-content > .regex-category + .regex-toolbar {
+        margin-block-start: max(0px, calc(var(--divider-space) + var(--regex-divider-extra, 0px) - (var(--control-size) - var(--type-body-line)) / 2));
+    }
+    & #panel-body .script-manager > .field:first-child,
+    & #panel-body .script-manager > .field + .note,
+    & #panel-body .regex-list > .note:first-child {
+        margin-block-start: 0;
+    }
+    & #panel-body .regex-panel-content .regex-toolbar {
+        margin-block-end: 0;
+    }
+    & #panel-body .regex-panel-content .regex-list {
+        margin-block-start: var(--space-4);
+        gap: var(--list-entry-gap);
+    }
+    & #panel.preset-panel #panel-body > .panel-content > .preset-profile-bar {
+        margin-block-end: 0;
+    }
+    & #panel.preset-panel #panel-body :is(.preset-extra-tools, .profile-extra-tools) {
+        border-block-end: 0;
+    }
+    & #panel-body :is(.preset-extra-tools, .profile-extra-tools) {
+        padding-block-end: 0;
+    }
+    & #panel-body > .connection-profile-bar:has(+ #connection-profile-actions:not([hidden])) {
+        margin-block-end: 0;
+    }
+    & #panel-body > #connection-profile-actions:not([hidden]) {
+        border-block-end: 0;
+        margin-block-end: var(--icon-toolbar-end-space);
+    }
+    & #panel.preset-panel #panel-body > .panel-content > .world-global-settings {
+        margin-block: var(--space-4) 0;
+    }
+    & #panel.preset-panel #panel-body > .panel-content > :is(.preset-extra-tools, .profile-extra-tools):not([hidden]) + .world-global-settings {
+        margin-block-start: var(--icon-toolbar-end-space);
+    }
+    & #panel.preset-panel #panel-body .preset-prompt-heading {
+        margin-block-start: var(--divider-space);
+        padding-block-start: max(0px, calc(var(--divider-space) - var(--section-title-offset)));
+    }
+    & #panel.preset-panel #panel-body .prompt-list {
+        margin-block-start: var(--space-4);
+    }
+    & #panel-body .preset-prompt-heading + .preset-prompt-stats {
+        margin-block-start: calc(var(--space-2) - var(--section-title-offset));
+    }
+    & #panel-body .preset-prompt-heading > .button {
+        z-index: 1;
+    }
+    & #panel-body .db-content > .connection-profile-bar {
+        margin-block-end: 0;
+    }
+    & #panel-body .db-content > .dm-summary-status {
+        margin-block-start: var(--space-4);
+    }
+    & #panel-body .db-content > :is(.dm-summary-status, .db-feature-card:not(:empty)) + .db-feature-card {
+        margin-block-start: 0;
+    }
+    & #panel.reading-tools-panel #panel-body > .button {
+        margin-block: 0 var(--space-4);
+    }
+    & #panel-body .variable-search {
+        margin-block: var(--space-4);
+    }
+    & #panel-body .variable-pager {
+        margin-block-start: var(--space-4);
+        gap: var(--space-4);
+    }
+    & .timing-panel .timing-body {
+        padding-block-start: var(--space-4);
+    }
+    & .timing-panel :is(.timing-toolbar, .request-log-filters) {
+        gap: var(--space-4);
+    }
+    & #panel-body hr {
+        border: 0;
+        border-block-start: var(--divider-size) solid var(--line);
+        margin-block: var(--divider-space);
+    }
+    & #panel-body .db-tabs,
+    & #panel-body .regex-tabs,
+    & #panel-body :is(.connection-model-row, .connection-key-row),
+    & #notification {
+        gap: var(--space-4);
+    }
+    & #panel.preset-panel #panel-body .prompt-list,
+    & #panel-body .world-entry-list,
+    & #panel-body .db-content.preset-panel .prompt-list {
+        gap: var(--list-entry-gap);
+    }
+    & #panel-body :is(.dm-status-card, .db-feature-card) {
+        padding: var(--card-content-space);
+    }
+    & #panel-body .db-content > :is(.db-preset-bar, .db-prompt-card) {
+        margin-block-start: var(--space-4);
+    }
+    & #panel-body .db-content > .profile-extra-tools:not([hidden]) + .db-prompt-card {
+        margin-block-start: var(--icon-toolbar-end-space);
+    }
+    & #panel-body .db-feature-card:has(.db-table-toolbar > .profile-extra-tools:not([hidden]),
+                                      .db-table-toolbar + .profile-extra-tools:not([hidden])) {
+        padding-block-end: var(--icon-toolbar-end-space);
+    }
+    & #panel-body .editor-footer {
+        bottom: calc(-1 * var(--panel-end-space));
+        padding-block: var(--space-3);
+        gap: var(--control-gap);
+        margin-block-start: var(--space-6);
+    }
+
+    & #conversation {
+        padding-inline: max(var(--reading-inline-space), env(safe-area-inset-left))
+                        max(var(--reading-inline-space), env(safe-area-inset-right));
+    }
+    & #message-list { --message-gap: var(--space-4); }
+    & #message-list > .message {
+        padding: var(--message-block-space) var(--message-inline-space);
+    }
+    & .message-header { margin-block-end: var(--space-4); }
+    & #composer {
+        margin-block-start: var(--space-4);
+        padding: var(--composer-space);
+        gap: var(--control-gap);
+    }
+    & :is(.select-menu, .composer-tools) {
+        padding: var(--menu-padding);
+    }
+    & .searchable-select-menu { gap: var(--select-search-gap); }
+    & .select-option + .select-option,
+    & .composer-tools > .button + .button {
+        margin-block-start: 0;
+    }
+    & .composer-tools { gap: 0; }
+    & .home-view .welcome { padding-inline: var(--home-inner-space, var(--space-6)); }
+    & .home-view .welcome > .home-recent + .button {
+        margin-block-start: var(--home-section-gap, var(--space-8));
+    }
+    & .home-view .home-character-grid { gap: var(--card-grid-gap); }
+}
+
+@media (max-width: 700px) {
+    :root[data-palette="ivory-cards"] {
+        --panel-inline-space: var(--space-4);
+        --panel-end-space: max(var(--space-5), env(safe-area-inset-bottom));
+        --card-content-space: var(--space-3);
+        --card-grid-gap: var(--space-3);
+        --reading-inline-space: var(--space-3);
+        --message-block-space: var(--space-4);
+        --message-inline-space: var(--space-4);
+        --composer-space: var(--space-4);
+        --home-inner-space: var(--space-1);
+        --home-section-gap: var(--space-6);
+
+        & .regex-panel-content { --regex-divider-extra: var(--divider-size); }
+
+        &:has(#panel[open]) #panel[open] > .panel-header,
+        &:has(#panel.preset-panel[open]) #panel.preset-panel > .panel-header {
+            padding-block: max(var(--panel-header-space), env(safe-area-inset-top)) var(--panel-header-space);
+            padding-inline: var(--panel-inline-space);
+        }
+        & #panel #panel-body:has(.regex-category, .db-category-bar, .library-folder-navigation) {
+            --category-gutter: var(--panel-inline-space);
+            --category-padding: var(--space-4);
+        }
+        & #panel #panel-body:has(.regex-category, .db-category-bar) {
+            padding-block-start: 0;
+        }
+        & #panel.library-panel #panel-body:has(.library-folder-navigation):not(:has(.character-library-sticky)) {
+            padding-block-start: var(--space-4);
+        }
+        & .library-panel #panel-body > .panel-content:has(.library-folder-navigation) {
+            padding-block-start: 0;
+        }
+        & #panel-body .parameter-grid {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
+        }
+        & #panel-body .editor-footer {
+            padding-block-end: max(var(--space-3), env(safe-area-inset-bottom));
+        }
     }
 }

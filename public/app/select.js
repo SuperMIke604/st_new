@@ -90,13 +90,20 @@ export function enhanceSelect(select) {
         }
         (select.closest('dialog') || document.body).append(menu);
         const rect = button.getBoundingClientRect();
-        const controlSize = parseFloat(getComputedStyle(button).getPropertyValue('--control-size')) || 42;
-        const height = Math.min(300, items.length * controlSize + Math.max(0, items.length - 1) * 5 + 12 + (filterInput ? controlSize + 14 : 0));
+        const style = getComputedStyle(button);
+        const controlSize = parseFloat(style.getPropertyValue('--control-size')) || 42;
+        const anchorGap = parseFloat(style.getPropertyValue('--menu-anchor-gap')) || 6;
+        const menuPadding = parseFloat(style.getPropertyValue('--menu-padding')) || 6;
+        const optionGap = parseFloat(style.getPropertyValue('--select-option-gap') || '5');
+        const searchGap = parseFloat(style.getPropertyValue('--select-search-gap')) || 7;
+        const height = Math.min(300, items.length * controlSize + Math.max(0, items.length - 1) * optionGap
+            + 2 * menuPadding + (filterInput ? controlSize + 2 * searchGap : 0));
         const below = innerHeight - rect.bottom - 12;
+        const opensBelow = below >= Math.min(height, 160);
         menu.style.width = `${Math.min(Math.max(rect.width, 180), innerWidth - 24)}px`;
         menu.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - Math.max(rect.width, 180) - 12))}px`;
-        menu.style.top = `${below >= Math.min(height, 160) ? rect.bottom + 6 : Math.max(12, rect.top - height - 6)}px`;
-        menu.style.maxHeight = `${Math.max(80, below >= Math.min(height, 160) ? Math.min(300, below - 6) : Math.min(300, rect.top - 18))}px`;
+        menu.style.top = `${opensBelow ? rect.bottom + anchorGap : Math.max(12, rect.top - height - anchorGap)}px`;
+        menu.style.maxHeight = `${Math.max(80, Math.min(300, opensBelow ? below - anchorGap : rect.top - 12 - anchorGap))}px`;
         if (hasPopover) menu.showPopover();
         else menu.hidden = false;
         button.setAttribute('aria-expanded', 'true'); opened = { button, close }; highlight(select.selectedIndex);
