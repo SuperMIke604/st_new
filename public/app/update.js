@@ -13,7 +13,7 @@ export function updateProgress() {
     return { close() { node.remove(); } };
 }
 let checking = false;
-export async function manualUpdate({ api, notify, guard, progress = updateProgress }) {
+export async function manualUpdate({ api, notify, guard, progress = updateProgress, confirmUpdate = question => confirm(question) }) {
     if (checking) return;
     guard(); checking = true;
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 15000);
@@ -29,7 +29,7 @@ export async function manualUpdate({ api, notify, guard, progress = updateProgre
             notify(legacyBackend ? '前端已是最新；后端模块需运行一次安装脚本升级，之后即可一起更新。' : status.restartRequired ? '更新已安装，请重启酒馆使后端插件生效。' : '当前已是最新版本'); return;
         }
         const question = legacyBackend ? '发现新版本，是否更新前端？当前后端模块尚不支持自身更新，需要运行一次安装脚本升级，之后即可一起更新。' : remote.backend ? '发现新版本，是否一起更新前端与后端插件？如插件发生变化，完成后需重启酒馆。' : '发现新版本，是否立即更新前端？';
-        if (!confirm(question)) return;
+        if (!await confirmUpdate(question)) return;
         guard(); activeProgress = progress();
         const result = await api.post('/api/plugins/st-new-updater/install', { revision: remote.revision });
         if (!result?.ok) throw new Error('更新安装失败');

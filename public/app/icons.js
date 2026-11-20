@@ -41,6 +41,7 @@ const paths = {
     requestFlow: '<path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/>',
     activity: '<path d="M2 12h4l3-7 5 14 3-7h5"/>',
     updateDownload: '<path d="M7 17H6a4 4 0 1 1 1-7.9 6 6 0 0 1 11.7 1.9A3 3 0 0 1 18 17h-1M12 12v9m-3-3 3 3 3-3"/>',
+    apkUpdate: '<rect x="5.5" y="2.5" width="13" height="19" rx="2.5"/><path d="M12 6.5v8m-3-3 3 3 3-3M10.5 18h3"/>',
     down: '<path d="M12 4v16m-6-6 6 6 6-6"/>',
     up: '<path d="M12 20V4m-6 6 6-6 6 6"/>',
     folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',

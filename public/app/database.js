@@ -52,6 +52,10 @@ export function databaseSettings(value = {}) {
         const number = Number(settings[key]); if (!Number.isFinite(number) || number < min || number > max || (key !== 'temperature' && !Number.isInteger(number))) throw new Error(`数据库设置 ${key} 超出范围。`); settings[key] = number;
     }
     if(source.profileId && !source.apiMode){settings.apiMode='tavern';settings.tavernProfile=source.profileId;}
+    const overrides = source.tavernModels;
+    settings.tavernModels = overrides && typeof overrides === 'object' && !Array.isArray(overrides)
+        ? Object.fromEntries(Object.entries(overrides).filter(([, model]) => typeof model === 'string' && model.trim()).map(([id, model]) => [id, model.trim()]))
+        : {};
     settings.autoUpdateEnabled = settings.auto;
     settings.enableWorldbookGeneration = settings.inject;
     settings.charCardPrompts = settings.presets.map(preset=>({name:preset.name,prompt:preset.messages,overviewTemplate:JSON.stringify(preset.template)}));

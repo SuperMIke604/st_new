@@ -37,7 +37,7 @@ body {
     line-height: var(--type-page-line);
     font-weight: var(--type-semibold);
 }
-:where(#panel-body,.script-runtime-dialog) h2,
+:where(#panel-body,.script-runtime-dialog,.compact-dialog) h2,
 .section-heading h2, .preset-panel .section-heading h2, .folder-heading h2,
 .home-recent h2, .database-preview-section h2, .dm-status-card h2,
 .db-sheet-heading h2, .db-prompt-heading h2 {

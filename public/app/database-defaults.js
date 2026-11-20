@@ -41,7 +41,8 @@ export const DEFAULT_SETTINGS = {
         max_tokens: 120000,         // 最大Tokens
         temperature: 0.9            // 温度
     },
-    tavernProfile: '',             // 酒馆连接预设ID
+    tavernProfile: '',             // 主 API 渠道 ID
+    tavernModels: {},             // 按渠道保存数据库模型覆盖
 
     // 世界书配置
     worldbookConfig: {

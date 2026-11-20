@@ -22,15 +22,24 @@ test('network and malformed manifests fail explicitly', async () => {
 });
 
 
-test('canceling manual confirmation never installs an update', async () => {
-    const originalFetch = globalThis.fetch, originalConfirm = globalThis.confirm;
+test('manual update waits for the app dialog and does not install after cancellation', async () => {
+    const originalFetch = globalThis.fetch;
     const calls = [];
+    const opened = Promise.withResolvers();
+    const response = Promise.withResolvers();
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ schema: 1, revision: 'f'.repeat(64) }) });
-    globalThis.confirm = () => false;
     try {
-        await manualUpdate({ guard() {}, notify() {}, api: { post: async route => { calls.push(route); return { available: true }; } } });
+        const running = manualUpdate({
+            guard() {}, notify() {},
+            confirmUpdate: question => { opened.resolve(question); return response.promise; },
+            api: { post: async route => { calls.push(route); return { available: true }; } },
+        });
+        assert.match(await Promise.race([opened.promise, running]), /发现新版本/);
         assert.deepEqual(calls, ['/api/plugins/st-new-updater/status']);
-    } finally { globalThis.fetch = originalFetch; globalThis.confirm = originalConfirm; }
+        response.resolve(false);
+        await running;
+        assert.deepEqual(calls, ['/api/plugins/st-new-updater/status']);
+    } finally { globalThis.fetch = originalFetch; }
 });
 
 

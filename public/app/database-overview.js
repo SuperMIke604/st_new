@@ -107,8 +107,9 @@ export function renderDatabaseOverview(body, context, draft) {
         if (draft.pending.has(id)) draft.pending.delete(id); else draft.pending.add(id);
         updateDraft();
     };
-    const controls = el('div'), detail = el('div');
+    const controls = el('section', 'dm-status-card db-feature-card'), detail = el('div', 'db-overview-detail');
     const selectionRow = el('div', 'db-overview-selection');
+    const tablePickerSlot = el('div', 'category-select db-overview-table-picker');
     const footer = el('div', 'editor-footer');
     const save = action('保存', async () => {
         if (draft.saving || !draft.pending.size) return;
@@ -134,11 +135,11 @@ export function renderDatabaseOverview(body, context, draft) {
         draft.pending.size ? `${draft.pending.size} 份快照待删除` : '删除将在保存后生效');
     saveStatus.setAttribute('role', 'status');
     footer.append(saveStatus, undo, save);
-    body.append(el('p', 'note', [context.characterName, context.chatName].filter(Boolean).join(' · ') || '当前聊天'), controls, detail);
+    body.append(controls, detail);
     if (draft.pending.size || draft.saving) body.append(footer);
     if (invalid) controls.append(el('p', 'note warning', `${invalid} 份历史数据格式异常，无法展示。`));
     if (!records.length && !invalid) { detail.append(el('p', 'note', '当前聊天暂无已保存的历史总结数据。')); return; }
-    controls.append(selectionRow);
+    controls.append(selectionRow, tablePickerSlot);
     const select = field(selectionRow, '历史总结记录', selected, { options: records.map(record => [record.id,
         `${floor(record)} · ${typeLabel(record)}${isPending(record.id) ? ' · 待删除' : ''}${record.updatedAt ? ` · ${formatTime(record.updatedAt)}` : ''}`]) });
     select.dataset.searchable = 'true';
@@ -149,6 +150,7 @@ export function renderDatabaseOverview(body, context, draft) {
     if (!records.length) { detail.append(el('p', 'note', '当前聊天暂无可展示的历史总结数据。')); return; }
     const draw = () => {
         detail.replaceChildren();
+        tablePickerSlot.replaceChildren();
         const record = records.find(item => item.id === selected), tables = sheets(record.data);
         const count = tables.reduce((sum, [, table]) => sum + table.content.length - 1, 0);
         const status = el('section', 'dm-status-card db-overview-status');
@@ -165,7 +167,7 @@ export function renderDatabaseOverview(body, context, draft) {
         if (pending) status.append(el('p', 'note warning', '待删除，保存后生效。'));
         if (record.stale) status.append(el('p', 'note warning', '来源消息已修改，此快照仍保留供查阅。'));
         detail.append(status);
-        if (!tables.length) { context.showTablePicker(null); detail.append(el('p', 'note', '此快照暂无数据表。')); return; }
+        if (!tables.length) { detail.append(el('p', 'note', '此快照暂无数据表。')); return; }
         if (!tables.some(([key]) => key === selectedTable)) selectedTable = tables[0][0];
         const fixed = el('div', 'reference-preview-fixed db-overview-navigation'), navigation = el('div', 'reference-table-navigation desktop-category'), tabs = el('nav', 'db-table-tabs');
         tabs.id = 'database-overview-tables'; tabs.dataset.expanded = String(expanded); tabs.setAttribute('aria-label', '历史总结数据表');
@@ -176,7 +178,7 @@ export function renderDatabaseOverview(body, context, draft) {
         const toggle = action(expanded ? '收起表格' : '展开全部表格', () => { expanded = !expanded; draw(); }, 'chevron', 'icon-button');
         toggle.title = expanded ? '收起表格' : '展开全部表格'; toggle.setAttribute('aria-label', toggle.title); toggle.setAttribute('aria-expanded', String(expanded)); toggle.setAttribute('aria-controls', tabs.id); toggle.disabled = tables.length < 2;
         const picker = categorySelect(el, '历史总结数据表', tables.map(([key, table]) => [key, `${table.name || key}（${table.content.length - 1}）`]), selectedTable, key => { selectedTable = key; page = 0; draw(); });
-        context.showTablePicker(picker);
+        tablePickerSlot.append(picker);
         navigation.append(toggle, tabs); fixed.append(navigation); detail.append(fixed);
         const table = record.data[selectedTable], rows = table.content.slice(1), pageCount = Math.max(1, Math.ceil(rows.length / 20));
         page = Math.min(page, pageCount - 1);

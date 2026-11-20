@@ -11,21 +11,16 @@ test('batch visibility preserves branches, variables, snapshots and unknown fiel
     for (const id of [1, 3]) for (const key of ['swipes', 'variables', 'TavernDB_ACU_Data', 'extra', 'unknown']) assert.deepEqual(hidden[id][key], original[id][key]);
     assert.deepEqual(original, before);
 });
-test('move preserves disjoint selections in original order and deletion can remove all messages', () => {
+test('deletion preserves remaining message order and can remove all messages', () => {
     const messages = fixture(), contents = list => list.map(message => message.mes);
-    assert.deepEqual(contents(changeChatHistory(messages, 'move', [3, 1], { target: 0 }).messages), ['1', '3', '0', '2', '4']);
-    assert.deepEqual(contents(changeChatHistory(messages, 'move', [1, 3], { target: 5 }).messages), ['0', '2', '4', '1', '3']);
     assert.deepEqual(contents(changeChatHistory(messages, 'delete', [3, 1]).messages), ['0', '2', '4']);
     assert.deepEqual(changeChatHistory(messages, 'delete', [0, 1, 2, 3, 4]).messages, []);
     assert.deepEqual(contents(messages), ['0', '1', '2', '3', '4']);
 });
-test('insertion accepts first and final positions and validates floor bounds and content', () => {
-    const messages = fixture(), message = { mes: 'new', is_user: true };
-    for (const target of [0, 5]) assert.deepEqual(changeChatHistory(messages, 'insert', [], { target, message }).messages[target], message);
-    for (const target of [-1, 6, NaN, 0.5]) assert.throws(() => changeChatHistory(messages, 'insert', [], { target, message }));
-    assert.throws(() => changeChatHistory(messages, 'insert', [], { target: 1, message: { mes: ' ' } }));
+test('validates selections and rejects the removed move operation', () => {
+    const messages = fixture();
     for (const ids of [[], [-1], [8], [1.5]]) assert.throws(() => changeChatHistory(messages, 'delete', ids));
-    assert.throws(() => changeChatHistory(messages, 'move', [1, 3], { target: 3 }));
+    assert.throws(() => changeChatHistory(messages, 'move', [1, 3]), /未知的聊天记录操作/);
 });
 function persistence({ before, after, failure, check = () => {} } = {}) {
     const header = { chat_metadata: { integrity: 'synthetic', unknown: 42 } }, original = fixture(), messages = changeChatHistory(original, 'hide', [1]).messages;

@@ -90,7 +90,6 @@ export function renderVariableManager(body, { el, action, messages, initialMessa
     const toolbar=el('div','variable-toolbar'); body.append(toolbar);
     const scopeInput=select(toolbar,'变量范围',[['message','消息变量（角色状态）'],['chat','聊天变量'],['global','全局变量']]);
     const messageInput=select(toolbar,'消息楼层',messages.map((m,i)=>[String(i),`#${i} · ${m.is_user?'用户':'AI'}${m.is_system?' · 隐藏':''}`])); messageInput.value=String(messageId);
-    body.append(el('p','note','修改仅在点击“保存”后生效。消息变量对应所选楼层的当前回复分支；全局变量会影响其他聊天。'));
     const search=el('input','variable-search');search.type='search';search.placeholder='搜索变量名称或内容…';search.setAttribute('aria-label','搜索变量');body.append(search);
     const list=el('div','variable-list'), editor=el('div','variable-editor'), pager=el('div','variable-pager');body.append(list,pager);
     const advanced=el('details','advanced'),summary=el('summary','','JSON 编辑');advanced.append(summary);
@@ -134,10 +133,11 @@ export function renderVariableManager(body, { el, action, messages, initialMessa
             const preview=action(text||'（空文本）',()=>edit(row),null,'variable-value');
             preview.title=text||'（空文本）';
             preview.setAttribute('aria-label',`编辑变量 ${path}`);
-            const editButton=action('编辑',()=>edit(row));
+            const editButton=action('编辑',()=>edit(row),'edit','icon-button');
             editButton.setAttribute('aria-label',`编辑 ${path}`);
-            const deleteButton=action('删除',()=>remove(row),null,'danger');
+            const deleteButton=action('删除',()=>remove(row),'trash','icon-button danger');
             deleteButton.setAttribute('aria-label',`删除 ${path}`);
+            editButton.title='编辑'; deleteButton.title='删除';
             const actions=el('div','variable-actions');actions.append(editButton,deleteButton);
             item.append(name,preview,actions);
             if(editing&&equal(editing.path,row.path))item.append(editor);

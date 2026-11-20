@@ -32,7 +32,7 @@ function fixture() {
         notify: (...args) => notices.push(args), list: { setMessages() {}, update: index => refreshedFloors.push(index) },
         assertViewable() {}, assertIdle() {}, status() {}, synchronize() {}, showPanel: () => { panels.push('open'); return { append() {} }; },
         renderDatabasePanel: (_body, value) => { panelContext = value; },
-        el: () => ({}), field() {}, apiKeyField() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {},
+        el: () => ({}), field() {}, apiKeyField() {}, action() {}, icon() {}, pickFile() {}, databaseModels() {}, editName() {}, discloseProfileTools() {},
     });
     vm.runInContext(functions, context);
     vm.runInContext('databaseProgress = () => ({ update() {}, close() {} })', context);
@@ -389,7 +389,6 @@ test('overview context keeps chat history and seed bound to the opened conversat
     f.state.header.chat_metadata.independentDatabase = { seed, history };
     await f.run('databasePanel()');
     const panel = f.panel();
-    assert.equal(panel.characterName, 'A'); assert.equal(panel.chatName, 'chat');
     assert.equal(panel.seed, seed); assert.equal(panel.chat, f.state.chat);
     f.state.header = { chat_metadata: { independentDatabase: { history: [{ index: 99 }] } } };
     f.state.chat = []; f.state.file = 'other';

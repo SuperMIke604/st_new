@@ -1,5 +1,6 @@
 // Keep short prompts compact and scroll long prompts within their original row limit.
 export function autosizePrompt(textarea) {
+    if (globalThis.CSS?.supports('field-sizing', 'content')) return () => {};
     textarea.classList.add('prompt-autosize');
     let frame = 0, width = 0;
     const resize = () => {

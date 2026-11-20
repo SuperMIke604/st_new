@@ -1,7 +1,7 @@
 import { categorySelect } from './category-select.js';
 import { uuid } from './uuid.js';
 import { sheets, validateDatabase, parseDatabase, databaseSettings, defaultDatabase, defaultFillPrompt, migrateLegacySettings, recentFillRows } from './database.js';
-import { databaseInjection, splitDatabaseKeywords } from './database-injection.js';
+import { databaseInjection } from './database-injection.js';
 import { renderDatabaseOverview } from './database-overview.js';
 import { autosizePrompt } from './prompt-autosize.js';
 import { databaseLogText, databaseLogExport, clearDatabaseLog } from './database-log.js';
@@ -9,26 +9,24 @@ import { copyDiagnostics, downloadDiagnostics } from './diagnostic-export.js';
 
 export function renderDatabasePanel(body, context) {
     const { el, field, apiKeyField, action, notify, pickFile } = context;
-    let data = validateDatabase(context.data), settings = databaseSettings(context.settings), tab = context.preview ? 'data' : 'settings', dataDirty = false, settingsDirty = false;
-    let activeTable = '', templateTabsLeft = 0, templateTablesExpanded = false, summaryWorking = false, statusRevision = 0;
+    let settings = databaseSettings(context.settings), tab = 'settings', settingsDirty = false;
+    let activeTable = '', summaryWorking = false, statusRevision = 0;
     const openedPrompts = new WeakSet();
     const promptSizes = [];
     const statusFields = ['inject','keywordInjectionTokens','auto','messageSummaryPreset','autoUpdateFrequency','updateBatchSize','hideAfterMessageSummary','removeTags','userMessageTags','databaseSummaryPreset','databaseSummaryAuto','databaseSummaryTokens','databaseSummaryTable','databaseSummaryRows'];
     const statusValues = value => Object.fromEntries(statusFields.map(key => [key, value[key]]));
     let savedStatus = statusValues(settings), statusDirty = false, statusVersion = 0;
     const overviewDraft = { pending: new Set() };
-    const blockedKeywordDrafts = new Map();
-    const hasDraft = () => dataDirty || settingsDirty || statusDirty || overviewDraft.pending.size > 0 || blockedKeywordDrafts.size > 0;
+    const hasDraft = () => settingsDirty || statusDirty || overviewDraft.pending.size > 0;
     const settingsValue = includeStatus => databaseSettings({ ...settings, ...(includeStatus ? {} : savedStatus) });
-    const undo = { data: [], template: [] }, pages = new Map();
+    const templateUndo = [];
     let saveTimer, editVersion=0, saveQueue=Promise.resolve(), disposed=false;
     body._dispose = () => { disposed=true; clearTimeout(saveTimer); for(const dispose of promptSizes.splice(0))dispose(); };
-    const dirty = kind => {
-        if (kind === 'data') dataDirty = true;
-        else if (tab === 'settings') { statusDirty = true; statusVersion++;const status=content.querySelector('.db-save-status');if(status)status.textContent='有未保存的修改'; }
+    const dirty = () => {
+        if (tab === 'settings') { statusDirty = true; statusVersion++;const status=content.querySelector('.db-save-status');if(status)status.textContent='有未保存的修改'; }
         else settingsDirty = true;
         context.dirty(hasDraft());
-        if(kind!=='data' && tab!=='settings') { const version=++editVersion;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{let value;try{value=settingsValue(false);}catch{return;}saveQueue=saveQueue.catch(()=>{}).then(async()=>{if(disposed)return;value=databaseSettings({...value,...savedStatus});await context.saveSettings(value);savedStatus=statusValues(value);}).then(()=>{if(!disposed){if(version===editVersion)settingsDirty=false;context.dirty(hasDraft());}}).catch(error=>notify(error.message,true));},500); }
+        if(tab!=='settings') { const version=++editVersion;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{let value;try{value=settingsValue(false);}catch{return;}saveQueue=saveQueue.catch(()=>{}).then(async()=>{if(disposed)return;value=databaseSettings({...value,...savedStatus});await context.saveSettings(value);savedStatus=statusValues(value);}).then(()=>{if(!disposed){if(version===editVersion)settingsDirty=false;context.dirty(hasDraft());}}).catch(error=>notify(error.message,true));},500); }
     };
     const download = (value, filename) => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
@@ -37,16 +35,14 @@ export function renderDatabasePanel(body, context) {
     const toolbarButton = (parent, label, glyph, callback, type = '') => {
         const control = action(label, callback, glyph, type); control.title = label; control.setAttribute('aria-label', label); parent.append(control); return control;
     };
-    const categories = context.preview ? [['data', '聊天数据'], ['template', '模板']] : [['settings', '状态与操作'], ['data', '聊天数据'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']];
+    const discloseTools = (bar, tools, label, groupLabel) => context.discloseProfileTools(
+        bar, tools, (text, callback, glyph) => toolbarButton(tools, text, glyph, callback), label, groupLabel,
+    );
+    const categories = [['settings', '状态与操作'], ['presets', 'AI 指令预设'], ['api', 'API 与连接'], ['world', '世界书参考'], ['overview', '数据概览'], ['template', '模板'], ['log', '更新日志']];
     const tabs = el('nav', 'db-tabs desktop-category'); tabs.setAttribute('aria-label', '数据库功能');
     const picker = categorySelect(el, '数据库功能', categories, tab, key => { tab = key; render(); });
     const categoryBar = el('div', 'db-category-bar');
-    const tablePickerSlot = el('div', 'db-category-table');
-    categoryBar.append(picker, tablePickerSlot);
-    const showTablePicker = tablePicker => {
-        if (tablePicker) tablePickerSlot.replaceChildren(tablePicker);
-        else tablePickerSlot.replaceChildren();
-    };
+    categoryBar.append(picker);
     const content = el('div', 'db-content');
     body.append(tabs, categoryBar, content);
     const render = () => {
@@ -57,21 +53,27 @@ export function renderDatabasePanel(body, context) {
         for (const [key, label] of categories) {
             const control = action(label, () => { tab = key; render(); }); control.setAttribute('aria-pressed', String(tab === key)); control.disabled = !!overviewDraft.saving; tabs.append(control);
         }
-        showTablePicker(null);
         content.replaceChildren();
         content.classList.toggle('preset-panel', tab === 'presets');
         if (tab === 'overview') renderDatabaseOverview(content, {
-            ...context, showTablePicker,
+            ...context,
             dirty: () => context.dirty(hasDraft()),
             refresh: () => { if (!disposed && tab === 'overview') render(); },
         }, overviewDraft);
         else if (tab === 'log') renderLog();
-        else if (tab === 'data' || tab === 'template') renderTables(tab);
+        else if (tab === 'template') renderTemplate();
         else if (tab === 'presets') renderPresets(); else if(tab==='api')renderAPI();else if(tab==='world')void renderWorld();else renderSettings();
     };
-    const note = text => { const node = el('p', 'note', text); content.append(node); return node; };
+    const note = (text, parent = content) => { const node = el('p', 'note', text); parent.append(node); return node; };
+    const featureCard = (title = '', description = '') => {
+        const card = el('section', 'dm-status-card db-feature-card');
+        if (title) card.append(el('h2', '', title));
+        if (description) note(description, card);
+        return card;
+    };
     function renderLog() {
-        note('记录本页面最近 50 次 AI 更新，刷新浏览器后清空。复制只包含摘要。导出会附带最近一次格式异常的完整原文，分享前请检查其中的私密内容。');
+        const card = featureCard(); content.append(card);
+        note('记录本页面最近 50 次 AI 更新，刷新浏览器后清空。复制只包含摘要。导出会附带最近一次格式异常的完整原文，分享前请检查其中的私密内容。', card);
         const toolbar = el('div', 'db-toolbar');
         const output = el('textarea', 'timing-copy');
         const empty = el('p', 'note', '暂无更新日志');
@@ -96,7 +98,7 @@ export function renderDatabasePanel(body, context) {
             downloadDiagnostics(JSON.stringify(databaseLogExport(), null, 2), content, { filename: 'database-update-log.json' });
         });
         const clear = toolbarButton(toolbar, '清空日志', 'trash', () => { clearDatabaseLog(); refresh(); });
-        content.append(toolbar, empty, output);
+        card.append(toolbar, empty, output);
         refresh();
     }
     const saveSettings = async () => {
@@ -110,303 +112,164 @@ export function renderDatabasePanel(body, context) {
         try{await task;if(includeStatus&&savedStatusVersion===statusVersion)statusDirty=false;if(version===editVersion)settingsDirty=false;context.dirty(hasDraft());if(status.isConnected)status.textContent='已保存';notify('数据库设置已保存');}
         catch(error){if(status.isConnected){status.textContent=`保存失败：${error.message}`;status.classList.add('error');}throw error;}
     };
-    const saveData = async () => { data = validateDatabase(data); await context.saveData(data); dataDirty = false; context.dirty(hasDraft()); notify('当前聊天数据库已保存'); render(); };
-    function renderTables(kind) {
-        const template = kind === 'template'; let book = template ? settings.template : data;
-        const label = template ? '模板' : '数据库';
-        const history = undo[kind];
+    function renderTemplate() {
+        const book = settings.template, history = templateUndo;
         const remember = () => { history.push(structuredClone(book)); if (history.length > 20) history.shift(); undoButton.disabled = false; };
-        const replace = value => { if (template) settings.template = value; else data = value; dirty(kind); render(); };
-        const change = callback => { remember(); callback(); dirty(kind); render(); };
-        const toolbar = el('div', 'db-toolbar'); content.append(toolbar);
-        if (!template) toolbar.classList.add('db-table-actions');
-        toolbarButton(toolbar, `导入${label}`, 'import', async () => {
+        const replace = value => { settings.template = value; dirty(); render(); };
+        const change = callback => { remember(); callback(); dirty(); render(); };
+        const toolbar = el('div', 'db-toolbar db-table-toolbar');
+        const fileActions = el('div', 'connection-profile-tools');
+        toolbarButton(fileActions, '导入模板', 'import', async () => {
             const file = await pickFile('.json'); if (!file) return; const value = parseDatabase(await file.text());
-            if (!confirm(`使用导入内容替换当前${label}草稿？保存后生效。`)) return; remember(); replace(value);
+            if (!confirm('使用导入内容替换当前模板草稿？保存后生效。')) return; remember(); replace(value);
         });
-        toolbarButton(toolbar, `导出${label}`, 'export', () => download(book, template ? 'database-template.json' : 'database.json'));
-        const undoButton = toolbarButton(toolbar, '撤销编辑', 'history', () => { replace(history.pop()); }); undoButton.disabled = !history.length;
-        const saveBar = el('div', template ? 'editor-footer' : 'db-template-save');
-        toolbarButton(saveBar, template ? '保存模板' : '保存数据', 'edit', template ? saveSettings : saveData, 'primary');
-        if (!template) content.prepend(saveBar);
-        if (template) {
-
-            toolbarButton(toolbar,'重置模板','refresh',()=>{if(!confirm('重置当前预设模板？'))return;remember();replace({mate:{type:'chatSheets'}});});
-            toolbarButton(toolbar, '应用模板到当前聊天', 'refresh', () => {
-                if (!confirm('用此模板替换当前聊天数据库草稿？原快照会保留，点击保存数据后生效。')) return;
-                undo.data.push(structuredClone(data)); data = validateDatabase(book); dataDirty = true; context.dirty(true); tab = 'data'; render();
-            });
-        } else {
-            const source = context.latest?.();
-            const sourceLabel = source?.index >= 0
-                ? `#${source.index}${source.archived ? ' · 覆盖前版本' : ''}`
-                : '模板 / 种子';
-            const summary = el('p', 'note db-source-summary', `${sourceLabel} · ${sheets(book).length} 张表 · ${sheets(book).reduce((sum, [, table]) => sum + table.content.length - 1, 0)} 行${context.legacy ? ' · 已读取旧插件快照' : ''}`);
-            toolbar.before(summary);
-            const fillBar = el('div', 'db-fill-bar');
-            const from = field(fillBar, '起始楼层', Math.max(0, context.chat.length - settings.batch), { type: 'number' }); from.min = 0;
-            const to = field(fillBar, '结束楼层', context.chat.length - 1, { type: 'number' }); to.min = 0;
-            toolbarButton(fillBar, 'AI 更新', 'refresh', async () => {
-                if (dataDirty || settingsDirty) throw new Error('请先保存数据库与设置，再调用 AI。');
-                context.dirty(hasDraft()); await context.fill(Number(from.value), Number(to.value));
-            }, 'primary');
-            content.append(fillBar);
-            const snapshots = context.chat.map((message, index) => ({ data: message.TavernDB_ACU_Data, label: `#${index} · ${message.extra?.independentDatabase?.stale ? '来源已修改' : message.name || '角色'}` })).filter(item => !!item.data);
-            for (const item of context.history()) snapshots.push({ data: item.data, label: `#${item.index} · 覆盖前版本 · ${item.updatedAt?.replace('T', ' ').slice(0, 19) || ''}` });
-            if (snapshots.length) {
-                const restore = el('details', 'advanced'); restore.append(el('summary', '', `历史快照 · ${snapshots.length}`));
-                const select = field(restore, '选择历史快照', snapshots.length - 1, { options: snapshots.map((item, index) => [index, item.label]).reverse() });
-                toolbarButton(restore, '恢复到数据草稿', 'history', () => {
-                    const value = validateDatabase(snapshots[Number(select.value)].data);
-                    if (!confirm('将此历史快照恢复到当前草稿？保存前可以撤销。')) return; remember(); replace(value);
-                }); content.append(restore);
-            }
-        }
-        if (template) {
-            const presetSelect = field(content, '所属 AI 指令预设', settings.activePreset, { options: settings.presets.map(preset => [preset.id, preset.name]) });
-            presetSelect.addEventListener('change', () => {
-                settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(book);
-                settings.activePreset = presetSelect.value;
-                settings.template = structuredClone(settings.presets.find(preset => preset.id === settings.activePreset).template);
-                history.length = 0; activeTable = ''; dirty(kind); render();
-            });
-            const workspace = el('div', 'db-template-workspace'), sidebar = el('section', 'db-template-tables reference-preview-fixed'), editor = el('section', 'db-sheet db-template-editor');
-            const listHeading = el('div', 'db-template-heading'); listHeading.append(el('h2', '', '模板表格'));
-            toolbarButton(listHeading, '新增表格', 'plus', () => change(() => {
-                let index = 0; while (Object.hasOwn(book, `sheet_${index}`)) index++;
-                activeTable = `sheet_${index}`; book[activeTable] = { name: '新表格', content: [[null, '名称', '内容']] };
-            }), 'icon-button'); sidebar.append(listHeading);
-            const tables = sheets(book);
-            if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
-            const navigation = el('div', 'reference-table-navigation db-template-navigation desktop-category');
-            const list = el('nav', 'db-table-tabs db-template-list'); list.setAttribute('aria-label', '模板表格');
-            list.id = 'database-template-tables'; list.dataset.expanded = String(templateTablesExpanded);
-            for (const [key, table] of tables) {
-                const button = action('', () => { activeTable = key; render(); });
-                button.replaceChildren(el('span', '', `${table.name || key}（${table.content[0].length - 1}）`));
-                button.setAttribute('aria-pressed', String(key === activeTable)); list.append(button);
-            }
-            list.addEventListener('scroll', () => { templateTabsLeft = list.scrollLeft; });
-            const expandTables = toolbarButton(navigation, templateTablesExpanded ? '收起表格' : '展开全部表格', 'chevron', () => {
-                templateTablesExpanded = !templateTablesExpanded;
-                list.dataset.expanded = String(templateTablesExpanded);
-                expandTables.setAttribute('aria-expanded', String(templateTablesExpanded));
-                const label = templateTablesExpanded ? '收起表格' : '展开全部表格';
-                expandTables.title = label; expandTables.setAttribute('aria-label', label);
-                if (!templateTablesExpanded) list.querySelector('[aria-pressed=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-            }, 'icon-button');
-            expandTables.setAttribute('aria-expanded', String(templateTablesExpanded));
-            expandTables.setAttribute('aria-controls', list.id); expandTables.disabled = tables.length < 2;
-            const tablePicker = categorySelect(el, '模板表格', tables.map(([key, table]) => [key, `${table.name || key}（${table.content[0].length - 1}）`]), activeTable, key => { activeTable = key; render(); });
-            navigation.append(list); sidebar.append(navigation);
-            if (tables.length) showTablePicker(tablePicker);
-            if (!tables.length) sidebar.append(el('p', 'note', '暂无表格，点击“新增表格”开始设计。'));
-            const entry = tables.find(([key]) => key === activeTable);
-            if (entry) {
-                const [key, table] = entry;
-                const heading = el('div', 'db-template-heading'); heading.append(el('h2', '', '表格设置'));
-                toolbarButton(heading, '删除表格', 'trash', () => { if (confirm(`删除表格「${table.name}」及其模板内容？可撤销此操作。`)) change(() => { delete book[key]; }); }, 'icon-button danger'); editor.append(heading);
-                const name = field(editor, '表格名称', table.name || key);
-                name.addEventListener('focus', remember, { once: true });
-                name.addEventListener('input', () => {
-                    table.name = name.value;
-                    const label = `${name.value || key}（${table.content[0].length - 1}）`;
-                    list.querySelector('[aria-pressed=true] > span').textContent = label;
-                    tablePicker.firstElementChild.selectedOptions[0].textContent = label;
-                    dirty(kind);
-                });
-                const recent = recentFillRows(table);
-                const fillRange = field(editor, '$0 填表范围', recent ? 'recent' : 'all', {
-                    options: [['all', '全表'], ['recent', '最近 N 条记录']], hint: '用于这份预设执行消息总结时。',
-                });
-                fillRange.addEventListener('change', () => change(() => { table.fillRecentRows = fillRange.value === 'recent' ? 10 : 0; }));
-                if (recent) {
-                    const rows = field(editor, '$0 保留最近记录数', recent, { type: 'number' });
-                    rows.min = 1; rows.step = 1;
-                    rows.addEventListener('change', () => {
-                        const value = rows.valueAsNumber;
-                        const limit = Number.isSafeInteger(value) && value > 0 ? value : recentFillRows(table);
-                        rows.value = limit;
-                        if (limit === recentFillRows(table)) return;
-                        remember(); table.fillRecentRows = limit; dirty(kind);
-                    });
-                }
-                const injection = databaseInjection(table);
-                const setInjection = patch => { table.injection = { ...table.injection, ...databaseInjection(table), ...patch }; };
-                const mode = field(editor, '触发方式', injection.mode, { options: [['constant', '常驻'], ['keyword', '关键词']] });
-                mode.addEventListener('change', () => change(() => setInjection({ mode: mode.value })));
-                if (injection.mode === 'keyword') {
-                    const depth = field(editor, '扫描深度（消息数）', injection.depth, {
-                        type: 'number', hint: '从最新一条消息往前计数，包含本轮输入。0 表示不扫描。',
-                    });
-                    depth.min = 0; depth.max = 1000; depth.step = 1;
-                    depth.addEventListener('change', () => {
-                        const value = Number.isNaN(depth.valueAsNumber) ? 2 : Math.max(0, Math.min(1000, Math.round(depth.valueAsNumber)));
-                        depth.value = value;
-                        if (value === databaseInjection(table).depth) return;
-                        remember(); setInjection({ depth: value }); dirty(kind);
-                    });
-                    const maxRows = field(editor, '最大注入行数', injection.maxRows || '', { type: 'number', hint: '留空或填 0 表示不限。' });
-                    maxRows.min = 0; maxRows.step = 1;
-                    maxRows.addEventListener('change', () => {
-                        const value = maxRows.valueAsNumber;
-                        const limit = Number.isSafeInteger(value) && value > 0 ? value : 0;
-                        maxRows.value = limit || '';
-                        if (limit === databaseInjection(table).maxRows) return;
-                        remember(); setInjection({ maxRows: limit }); dirty(kind);
-                    });
-                    const priority = field(editor, '注入优先级', injection.priority, {
-                        options: [['high', '高'], ['normal', '普通'], ['low', '低']], hint: '多张表共用 Token 上限时，按优先级分配。',
-                    });
-                    priority.addEventListener('change', () => { remember(); setInjection({ priority: priority.value }); dirty(kind); });
-                    const sources = el('section');
-                    const sourcesHeading = el('h2', '', '关键词来源列');
-                    sourcesHeading.id = 'database-keyword-columns';
-                    sources.setAttribute('aria-labelledby', sourcesHeading.id);
-                    sources.append(sourcesHeading, el('p', 'note', '支持多选，用顿号、逗号、分号或换行拆词。完整匹配或匹配到两个连续汉字即可命中；未选择来源列时不触发。'));
-                    const selections = [];
-                    for (let column = 1; column < table.content[0].length; column++) {
-                        const label = el('label', 'check-field'), check = el('input'), caption = el('span');
-                        check.type = 'checkbox'; check.checked = injection.columns.includes(column);
-                        caption.textContent = table.content[0][column] || `字段 ${column}`;
-                        label.append(check, caption); sources.append(label);
-                        selections.push({ column, check, caption });
-                        check.addEventListener('change', () => {
-                            remember(); setInjection({ columns: selections.filter(item => item.check.checked).map(item => item.column) }); dirty(kind);
-                        });
-                    }
-                    editor.append(sources);
-                    const linkLabel = el('label', 'check-field'), link = el('input');
-                    link.type = 'checkbox'; link.checked = injection.linkEnabled;
-                    linkLabel.append(link, el('span', '', '启用联动触发')); editor.append(linkLabel);
-                    link.addEventListener('change', () => change(() => setInjection({ linkEnabled: link.checked })));
-                    const linkSource = injection.linkEnabled ? field(editor, '联动来源列', injection.linkColumn, {
-                        options: [[0, '请选择字段'], ...table.content[0].slice(1).map((header, index) => [index + 1, header || `字段 ${index + 1}`])],
-                        hint: '聊天命中该行后，用此列的完整词查找其他关键词表，只联动一跳。',
-                    }) : null;
-                    linkSource?.addEventListener('change', () => { remember(); setInjection({ linkColumn: Number(linkSource.value) }); dirty(kind); });
-                    editor.addEventListener('input', event => {
-                        const selection = selections.find(item => item.column === Number(event.target.dataset.templateColumn));
-                        if (selection) {
-                            const label = event.target.value || `字段 ${selection.column}`;
-                            selection.caption.textContent = label;
-                            if (linkSource) linkSource.options[selection.column].textContent = label;
-                        }
-                    });
-                }
-                const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
-                toolbarButton(fieldsHeading, '新增字段', 'plus', () => change(() => {
-                    table.content[0].push('新字段'); for (const row of table.content.slice(1)) row.push('');
-                }), 'icon-button'); editor.append(fieldsHeading);
-                const fields = el('div', 'db-template-fields');
-                for (let column = 1; column < table.content[0].length; column++) {
-                    const row = el('div', 'db-template-field');
-                    const input = field(row, `字段 ${column}`, table.content[0][column] ?? '');
-                    input.dataset.templateColumn = column;
-                    input.addEventListener('focus', remember, { once: true });
-                    input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); });
-                    const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
-                        if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => {
-                            if (table.injection) {
-                                const current = databaseInjection(table);
-                                const shift = index => index === column ? 0 : index > column ? index - 1 : index;
-                                setInjection({ columns: current.columns.map(shift).filter(Boolean), linkColumn: shift(current.linkColumn) });
-                            }
-                            for (const dataRow of table.content) dataRow.splice(column, 1);
-                        });
-                    }, 'danger');
-                    remove.disabled = table.content[0].length <= 2; fields.append(row);
-                }
-                editor.append(fields, el('p', 'note', '至少保留一个字段。字段顺序即填表顺序。'));
-            } else editor.append(el('p', 'note', '新增表格后，即可编辑表名和字段。'));
-            workspace.append(sidebar, editor); content.append(workspace, saveBar); list.scrollLeft = templateTabsLeft; return;
-        }
-        const create = el('details', 'advanced'); create.append(el('summary', '', '新增数据表'));
-        const name = field(create, '表名', '新表'), columns = field(create, '列名（英文逗号分隔）', '名称,内容');
-        toolbarButton(create, '创建数据表', 'plus', () => {
-            const labels = columns.value.split(',').map(text => text.trim()).filter(Boolean); if (!labels.length) throw new Error('请填写列名。');
-            change(() => { let index = 0; while (Object.hasOwn(book, `sheet_${index}`)) index++; book[`sheet_${index}`] = { name: name.value.trim() || '新表', content: [[null, ...labels]] }; });
-        }); content.append(create);
-        const tableTabs = el('nav', 'db-table-tabs desktop-category'); content.append(tableTabs);
-        const tables = sheets(book); if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
-        const tableLabel = (key, table) => `${table.name || key} · ${Math.max(0, table.content.length - 1)}`;
-        const tableOptions = tables.map(([key, table]) => [key, tableLabel(key, table)]);
-        const selectTable = key => { activeTable = key; render(); };
-        for (const [key, label] of tableOptions) {
-            const button = action(label, () => selectTable(key));
-            button.setAttribute('aria-pressed', String(key === activeTable)); tableTabs.append(button);
-        }
-        const tablePicker = categorySelect(el, '聊天数据表格', tableOptions, activeTable, selectTable);
-        if (tables.length) showTablePicker(tablePicker);
-        for (const [key, table] of tables.filter(([key]) => key === activeTable)) {
-            const section = el('section', 'db-sheet'); section.setAttribute('aria-label', table.name || key);
-            const heading = el('div', 'db-sheet-heading');
-            const tableName = el('input'); tableName.value = table.name || key; tableName.setAttribute('aria-label', `表名 ${key}`); tableName.addEventListener('focus', remember, { once: true }); tableName.addEventListener('input', () => {
-                table.name = tableName.value;
-                const label = tableLabel(key, table);
+        toolbarButton(fileActions, '导出模板', 'export', () => download(book, 'database-template.json'));
+        const undoButton = toolbarButton(fileActions, '撤销编辑', 'history', () => { replace(history.pop()); }); undoButton.disabled = !history.length;
+        const saveBar = el('div', 'editor-footer');
+        toolbarButton(saveBar, '保存模板', 'edit', saveSettings, 'primary');
+        const presetCard = featureCard(); content.append(presetCard);
+        const presetSelect = field(presetCard, '所属 AI 指令预设', settings.activePreset, { options: settings.presets.map(preset => [preset.id, preset.name]) });
+        presetCard.append(toolbar);
+        presetSelect.addEventListener('change', () => {
+            settings.presets.find(preset => preset.id === settings.activePreset).template = structuredClone(book);
+            settings.activePreset = presetSelect.value;
+            settings.template = structuredClone(settings.presets.find(preset => preset.id === settings.activePreset).template);
+            history.length = 0; activeTable = ''; dirty(); render();
+        });
+        toolbarButton(fileActions,'重置模板','refresh',()=>{if(!confirm('重置当前预设模板？'))return;remember();replace({mate:{type:'chatSheets'}});});
+        toolbarButton(fileActions, '新增表格', 'plus', () => change(() => {
+            let index = 0; while (Object.hasOwn(book, `sheet_${index}`)) index++;
+            activeTable = `sheet_${index}`; book[activeTable] = { name: '新表格', content: [[null, '名称', '内容']] };
+        }));
+        const editor = el('section', 'db-sheet db-template-editor');
+        const tables = sheets(book);
+        if (!tables.some(([key]) => key === activeTable)) activeTable = tables[0]?.[0] || '';
+        const tableOptions = tables.length ? tables.map(([key, table]) => [key, `${table.name || key}（${table.content[0].length - 1}）`]) : [['', '暂无表格']];
+        const tablePicker = categorySelect(el, '模板表格', tableOptions, activeTable, key => { activeTable = key; render(); });
+        tablePicker.classList.add('db-template-picker');
+        toolbar.append(tablePicker, fileActions);
+        discloseTools(toolbar, fileActions, '更多模板操作', '模板管理');
+        const entry = tables.find(([key]) => key === activeTable);
+        if (entry) {
+            const [key, table] = entry;
+            const heading = el('div', 'db-template-heading'); heading.append(el('h2', '', '表格设置'));
+            toolbarButton(heading, '删除表格', 'trash', () => { if (confirm(`删除表格「${table.name}」及其模板内容？可撤销此操作。`)) change(() => { delete book[key]; }); }, 'icon-button danger'); editor.append(heading);
+            const name = field(editor, '表格名称', table.name || key);
+            name.addEventListener('focus', remember, { once: true });
+            name.addEventListener('input', () => {
+                table.name = name.value;
+                const label = `${name.value || key}（${table.content[0].length - 1}）`;
+                list.querySelector('[aria-pressed=true] > span').textContent = label;
                 tablePicker.firstElementChild.selectedOptions[0].textContent = label;
-                tableTabs.querySelector('[aria-pressed=true] > span').textContent = label;
-                dirty(kind);
+                dirty();
             });
-            heading.append(tableName, el('small', '', key));
-            const keywords = el('div');
-            const savedWords = () => context.blockedKeywords(key).join('\n');
-            const blocked = field(keywords, '屏蔽关键词', blockedKeywordDrafts.get(key) ?? savedWords(), {
-                multiline: true, rows: 3, hint: '仅用于当前聊天的这张表。支持顿号、逗号、分号或换行；清空后保存即可解除屏蔽。',
+            const recent = recentFillRows(table);
+            const fillRange = field(editor, '$0 填表范围', recent ? 'recent' : 'all', {
+                options: [['all', '全表'], ['recent', '最近 N 条记录']], hint: '用于这份预设执行消息总结时。',
             });
-            blocked.placeholder = '例如：周老师、赵月';
-            const saveBlocked = toolbarButton(keywords, '保存屏蔽关键词', 'edit', async () => {
-                const submitted = blocked.value;
-                saveBlocked.disabled = blocked.disabled = true;
-                try {
-                    await context.saveBlockedKeywords(key, splitDatabaseKeywords(submitted));
-                    if (blockedKeywordDrafts.get(key) === submitted) {
-                        blockedKeywordDrafts.delete(key);
-                        blocked.value = savedWords();
-                    }
-                    context.dirty(hasDraft());
-                    notify('屏蔽关键词已保存');
-                } finally {
-                    blocked.disabled = false;
-                    saveBlocked.disabled = !blockedKeywordDrafts.has(key);
-                }
-            });
-            saveBlocked.disabled = !blockedKeywordDrafts.has(key);
-            blocked.addEventListener('input', () => {
-                if (blocked.value === savedWords()) blockedKeywordDrafts.delete(key);
-                else blockedKeywordDrafts.set(key, blocked.value);
-                saveBlocked.disabled = !blockedKeywordDrafts.has(key);
-                context.dirty(hasDraft());
-            });
-            toolbarButton(heading, '新增行', 'plus', () => change(() => table.content.push([null, ...table.content[0].slice(1).map(() => '')])));
-            toolbarButton(heading, '新增列', 'plus', () => {
-                change(() => { table.content[0].push('新列'); for (const row of table.content.slice(1)) row.push(''); });
-            });
-            toolbarButton(heading, '删除表', 'trash', () => { if (confirm(`删除表「${table.name}」及其数据？保存后生效。`)) change(() => { blockedKeywordDrafts.delete(key); delete book[key]; }); }, 'danger'); section.append(heading, keywords);
-            const scroll = el('div', 'db-table-scroll'), grid = el('table'); const head = el('thead'), header = el('tr'); header.append(el('th', '', '行'));
-            for (let column = 1; column < table.content[0].length; column++) {
-                const cell = el('th'), input = el('input'); input.value = table.content[0][column] || ''; input.setAttribute('aria-label', `列名 ${table.name} ${column}`);
-                input.addEventListener('focus', remember, { once: true }); input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(kind); }); cell.append(input);
-                const removeColumn = toolbarButton(cell, `删除列 ${table.content[0][column]}`, 'trash', () => { if (!confirm('删除该列及其数据？保存前可撤销。')) return; change(() => { for (const row of table.content) row.splice(column, 1); }); }, 'danger'); removeColumn.disabled = table.content[0].length <= 2; header.append(cell);
+            fillRange.addEventListener('change', () => change(() => { table.fillRecentRows = fillRange.value === 'recent' ? 10 : 0; }));
+            if (recent) {
+                const rows = field(editor, '$0 保留最近记录数', recent, { type: 'number' });
+                rows.min = 1; rows.step = 1;
+                rows.addEventListener('change', () => {
+                    const value = rows.valueAsNumber;
+                    const limit = Number.isSafeInteger(value) && value > 0 ? value : recentFillRows(table);
+                    rows.value = limit;
+                    if (limit === recentFillRows(table)) return;
+                    remember(); table.fillRecentRows = limit; dirty();
+                });
             }
-            header.append(el('th', '', '操作')); head.append(header); grid.append(head);
-            const tbody = el('tbody'); const pageKey = `${kind}-${key}`, rowCount = table.content.length - 1, pageCount = Math.max(1, Math.ceil(rowCount / 25));
-            const page = Math.min(pages.get(pageKey) || 0, pageCount - 1); pages.set(pageKey, page);
-            for (let rowIndex = page * 25; rowIndex < Math.min(rowCount, (page + 1) * 25); rowIndex++) {
-                const row = el('tr'); row.append(el('td', 'db-row-number', String(rowIndex + 1)));
+            const injection = databaseInjection(table);
+            const setInjection = patch => { table.injection = { ...table.injection, ...databaseInjection(table), ...patch }; };
+            const mode = field(editor, '触发方式', injection.mode, { options: [['constant', '常驻'], ['keyword', '关键词']] });
+            mode.addEventListener('change', () => change(() => setInjection({ mode: mode.value })));
+            if (injection.mode === 'keyword') {
+                const depth = field(editor, '扫描深度（消息数）', injection.depth, {
+                    type: 'number', hint: '从最新一条消息往前计数，包含本轮输入。0 表示不扫描。',
+                });
+                depth.min = 0; depth.max = 1000; depth.step = 1;
+                depth.addEventListener('change', () => {
+                    const value = Number.isNaN(depth.valueAsNumber) ? 2 : Math.max(0, Math.min(1000, Math.round(depth.valueAsNumber)));
+                    depth.value = value;
+                    if (value === databaseInjection(table).depth) return;
+                    remember(); setInjection({ depth: value }); dirty();
+                });
+                const maxRows = field(editor, '最大注入行数', injection.maxRows || '', { type: 'number', hint: '留空或填 0 表示不限。' });
+                maxRows.min = 0; maxRows.step = 1;
+                maxRows.addEventListener('change', () => {
+                    const value = maxRows.valueAsNumber;
+                    const limit = Number.isSafeInteger(value) && value > 0 ? value : 0;
+                    maxRows.value = limit || '';
+                    if (limit === databaseInjection(table).maxRows) return;
+                    remember(); setInjection({ maxRows: limit }); dirty();
+                });
+                const priority = field(editor, '注入优先级', injection.priority, {
+                    options: [['high', '高'], ['normal', '普通'], ['low', '低']], hint: '多张表共用 Token 上限时，按优先级分配。',
+                });
+                priority.addEventListener('change', () => { remember(); setInjection({ priority: priority.value }); dirty(); });
+                const sources = el('section');
+                const sourcesHeading = el('h2', '', '关键词来源列');
+                sourcesHeading.id = 'database-keyword-columns';
+                sources.setAttribute('aria-labelledby', sourcesHeading.id);
+                sources.append(sourcesHeading, el('p', 'note', '支持多选，用顿号、逗号、分号或换行拆词。完整匹配或匹配到两个连续汉字即可命中；未选择来源列时不触发。'));
+                const choices = el('div', 'db-keyword-columns');
+                sources.append(choices);
+                const selections = [];
                 for (let column = 1; column < table.content[0].length; column++) {
-                    const cell = el('td'), input = el('textarea'); cell.dataset.label = table.content[0][column] || `字段 ${column}`; input.rows = 2; input.value = table.content[rowIndex + 1][column] ?? ''; input.setAttribute('aria-label', `${table.name} 第${rowIndex}行 ${table.content[0][column]}`);
-                    input.addEventListener('focus', remember, { once: true }); input.addEventListener('input', () => { table.content[rowIndex + 1][column] = input.value; dirty(kind); }); cell.append(input); row.append(cell);
+                    const label = el('label', 'check-field'), check = el('input'), caption = el('span');
+                    check.type = 'checkbox'; check.checked = injection.columns.includes(column);
+                    caption.textContent = table.content[0][column] || `字段 ${column}`;
+                    label.append(check, caption); choices.append(label);
+                    selections.push({ column, check, caption });
+                    check.addEventListener('change', () => {
+                        remember(); setInjection({ columns: selections.filter(item => item.check.checked).map(item => item.column) }); dirty();
+                    });
                 }
-                const tools = el('td'); toolbarButton(tools, '删除行', 'trash', () => { if (confirm(`删除第 ${rowIndex} 行？保存后生效。`)) change(() => table.content.splice(rowIndex + 1, 1)); }, 'danger'); row.append(tools); tbody.append(row);
+                editor.append(sources);
+                const linkLabel = el('label', 'check-field'), link = el('input');
+                link.type = 'checkbox'; link.checked = injection.linkEnabled;
+                linkLabel.append(link, el('span', '', '启用联动触发')); editor.append(linkLabel);
+                link.addEventListener('change', () => change(() => setInjection({ linkEnabled: link.checked })));
+                const linkSource = injection.linkEnabled ? field(editor, '联动来源列', injection.linkColumn, {
+                    options: [[0, '请选择字段'], ...table.content[0].slice(1).map((header, index) => [index + 1, header || `字段 ${index + 1}`])],
+                    hint: '聊天命中该行后，用此列的完整词查找其他关键词表，只联动一跳。',
+                }) : null;
+                linkSource?.addEventListener('change', () => { remember(); setInjection({ linkColumn: Number(linkSource.value) }); dirty(); });
+                editor.addEventListener('input', event => {
+                    const selection = selections.find(item => item.column === Number(event.target.dataset.templateColumn));
+                    if (selection) {
+                        const label = event.target.value || `字段 ${selection.column}`;
+                        selection.caption.textContent = label;
+                        if (linkSource) linkSource.options[selection.column].textContent = label;
+                    }
+                });
             }
-            grid.append(tbody); scroll.append(grid); section.append(scroll);
-            if (!rowCount) section.append(el('p', 'note', '暂无数据，可新增行或让 AI 填表。'));
-            const pager = el('div', 'db-pager');
-            const previous = toolbarButton(pager, '上一页', 'up', () => { pages.set(pageKey, page - 1); render(); }); previous.disabled = page === 0;
-            pager.append(el('small', '', `${page + 1} / ${pageCount} · ${rowCount} 行`));
-            const next = toolbarButton(pager, '下一页', 'down', () => { pages.set(pageKey, page + 1); render(); }); next.disabled = page >= pageCount - 1; section.append(pager); content.append(section);
-        }
+            const fieldsHeading = el('div', 'db-template-heading'); fieldsHeading.append(el('h2', '', '字段'));
+            toolbarButton(fieldsHeading, '新增字段', 'plus', () => change(() => {
+                table.content[0].push('新字段'); for (const row of table.content.slice(1)) row.push('');
+            }), 'icon-button'); editor.append(fieldsHeading);
+            const fields = el('div', 'db-template-fields');
+            for (let column = 1; column < table.content[0].length; column++) {
+                const row = el('div', 'db-template-field');
+                const input = field(row, `字段 ${column}`, table.content[0][column] ?? '');
+                input.dataset.templateColumn = column;
+                input.addEventListener('focus', remember, { once: true });
+                input.addEventListener('input', () => { table.content[0][column] = input.value; dirty(); });
+                const remove = toolbarButton(row, `删除字段 ${column}`, 'trash', () => {
+                    if (confirm(`删除字段「${table.content[0][column]}」及其模板内容？可撤销此操作。`)) change(() => {
+                        if (table.injection) {
+                            const current = databaseInjection(table);
+                            const shift = index => index === column ? 0 : index > column ? index - 1 : index;
+                            setInjection({ columns: current.columns.map(shift).filter(Boolean), linkColumn: shift(current.linkColumn) });
+                        }
+                        for (const dataRow of table.content) dataRow.splice(column, 1);
+                    });
+                }, 'danger');
+                remove.disabled = table.content[0].length <= 2; fields.append(row);
+            }
+            editor.append(fields, el('p', 'note', '至少保留一个字段。字段顺序即填表顺序。'));
+        } else editor.append(el('p', 'note', '新增表格后，即可编辑表名和字段。'));
+        content.append(editor, saveBar);
     }
     function renderPresets() {
         const toolbar = el('div', 'connection-profile-bar preset-profile-bar db-preset-bar'), presetTools = el('div', 'connection-profile-tools');
@@ -414,121 +277,178 @@ export function renderDatabasePanel(body, context) {
         select.dataset.searchable = 'true'; select.dataset.searchPlaceholder = '搜索预设…'; select.dataset.searchLabel = '搜索预设';
         for (const preset of settings.presets) { const option = el('option', '', preset.name); option.value = preset.id; select.append(option); }
         select.value = settings.activePreset; toolbar.append(select, presetTools); content.append(toolbar);
-        select.addEventListener('change', () => { settings.presets.find(item => item.id === settings.activePreset).template = structuredClone(settings.template); settings.activePreset = select.value; settings.template = structuredClone(settings.presets.find(item => item.id === select.value).template || defaultDatabase()); dirty('settings'); render(); });
+        select.addEventListener('change', () => { settings.presets.find(item => item.id === settings.activePreset).template = structuredClone(settings.template); settings.activePreset = select.value; settings.template = structuredClone(settings.presets.find(item => item.id === select.value).template || defaultDatabase()); dirty(); render(); });
         const preset = settings.presets.find(item => item.id === settings.activePreset);
-        toolbarButton(presetTools, '新增预设', 'plus', () => { preset.template = structuredClone(settings.template); const value = { id: uuid(), name: '新填表预设', messages: [{ role: 'system', content: defaultFillPrompt }], template: defaultDatabase() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template); dirty('settings'); render(); });
-        toolbarButton(presetTools, '复制预设', 'copy', () => { preset.template = structuredClone(settings.template); const value = { ...structuredClone(preset), id: uuid(), name: `${preset.name}（副本）` }; settings.presets.push(value); settings.activePreset = value.id; dirty('settings'); render(); });
-        toolbarButton(presetTools, '删除预设', 'trash', () => { if (settings.presets.length < 2) throw new Error('至少保留一个填表预设。'); if (!confirm('删除当前填表预设？保存后生效。')) return; settings.presets = settings.presets.filter(item => item !== preset); settings.activePreset = settings.presets[0].id; for(const key of ['messageSummaryPreset','databaseSummaryPreset'])if(settings[key]===preset.id)settings[key]=settings.activePreset; settings.template = structuredClone(settings.presets[0].template || defaultDatabase()); dirty('settings'); render(); }, 'danger');
+        toolbarButton(presetTools, '新增预设', 'plus', () => { preset.template = structuredClone(settings.template); const value = { id: uuid(), name: '新填表预设', messages: [{ role: 'system', content: defaultFillPrompt }], template: defaultDatabase() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template); dirty(); render(); });
+        toolbarButton(presetTools, '复制预设', 'copy', () => { preset.template = structuredClone(settings.template); const value = { ...structuredClone(preset), id: uuid(), name: `${preset.name}（副本）` }; settings.presets.push(value); settings.activePreset = value.id; dirty(); render(); });
+        toolbarButton(presetTools, '删除预设', 'trash', () => { if (settings.presets.length < 2) throw new Error('至少保留一个填表预设。'); if (!confirm('删除当前填表预设？保存后生效。')) return; settings.presets = settings.presets.filter(item => item !== preset); settings.activePreset = settings.presets[0].id; for(const key of ['messageSummaryPreset','databaseSummaryPreset'])if(settings[key]===preset.id)settings[key]=settings.activePreset; settings.template = structuredClone(settings.presets[0].template || defaultDatabase()); dirty(); render(); }, 'danger');
         toolbarButton(presetTools, '导出填表预设', 'export', () => download({ name: preset.name, prompt: preset.messages, overviewTemplate: JSON.stringify(settings.template), version: '2.0.0' }, 'database-preset.json'));
         toolbarButton(presetTools, '导入填表预设', 'import', async () => {
             const file = await pickFile('.json'); if (!file) return; const imported = JSON.parse(await file.text());
             const migrated = imported.prompt || imported.charCardPrompts ? migrateLegacySettings(imported.charCardPrompts ? imported : { charCardPrompts: [imported] }) : databaseSettings({ presets: [imported], template: imported.template || defaultDatabase() });
-            preset.template = structuredClone(settings.template); const value = { ...migrated.presets[0], id: uuid() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template || migrated.template); dirty('settings'); render(); notify('填表预设已载入，保存后生效');
+            preset.template = structuredClone(settings.template); const value = { ...migrated.presets[0], id: uuid() }; settings.presets.push(value); settings.activePreset = value.id; settings.template = structuredClone(value.template || migrated.template); dirty(); render(); notify('填表预设已载入，保存后生效');
         });
-        const name = field(content, '预设名称', preset.name); name.addEventListener('input', () => { preset.name = name.value; dirty('settings'); });
-        const heading = el('div', 'section-heading'), title = el('div');title.append(el('h2', '', '提示词条目'), el('span', 'item-count', `${preset.messages.length} 个条目`));heading.append(title);toolbarButton(heading, '添加条目', 'plus', () => { const message={role:'user',content:''};preset.messages.push(message);openedPrompts.add(message);dirty('settings');render();content.querySelector('.prompt-item:last-child')?.scrollIntoView({block:'nearest'}); });content.append(heading);
-        note('$0 按模板范围提供表格，$FULL_TABLES 读取完整资料库，$1 为选定楼层对话，$4 为可选世界书参考内容。');
-        const rows = el('div', 'prompt-list');content.append(rows);
+        const rename = toolbarButton(presetTools, '编辑名称', 'edit', () => context.editName({
+            title: '修改预设名称', label: '预设名称', value: preset.name,
+            returnFocus: presetTools.querySelector('[aria-expanded]'),
+            save: value => {
+                if (preset.name === value) return;
+                preset.name = value;
+                select.selectedOptions[0].textContent = value;
+                dirty();
+            },
+        }));
+        presetTools.prepend(rename);
+        discloseTools(toolbar, presetTools, '更多预设操作', '填表预设管理');
+
+        const promptCard = featureCard(); promptCard.classList.add('db-prompt-card'); content.append(promptCard);
+        const heading = el('div', 'section-heading preset-prompt-heading');
+        heading.append(el('h2', '', '提示词条目'));
+        toolbarButton(heading, '添加条目', 'plus', () => {
+            const message = { role: 'user', content: '' };
+            preset.messages.push(message); openedPrompts.add(message); dirty(); render();
+            content.querySelector('.prompt-item:last-child')?.scrollIntoView({ block: 'nearest' });
+        });
+        const stats = el('div', 'preset-prompt-stats item-count', `${preset.messages.length} 个条目`);
+        promptCard.append(heading, stats);
+        note('$0 按模板范围提供表格，$FULL_TABLES 读取完整资料库，$1 为选定楼层对话，$4 为可选世界书参考内容。', promptCard);
+        const rows = el('div', 'prompt-list');promptCard.append(rows);
         preset.messages.forEach((message, index) => {
             const section = el('details', 'prompt-item');section.open=openedPrompts.has(message);section.addEventListener('toggle',()=>{if(!section.isConnected)return;if(section.open)openedPrompts.add(message);else openedPrompts.delete(message);});
             const summary=el('summary','prompt-summary'),label=el('span','prompt-title'),kind=el('small','prompt-kind',({system:'系统',user:'用户',assistant:'助手'})[message.role]);label.append(el('span','',`提示词 ${index+1}`));label.append(kind);summary.append(label);
             const anchor=el('span','prompt-action-anchor'),tools=el('span','prompt-actions prompt-inline-actions inset-action-menu');tools.hidden=true;tools.id=`db-prompt-actions-${uuid()}`;tools.setAttribute('role','group');tools.setAttribute('aria-label','条目操作');tools.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
             const more=toolbarButton(anchor,`提示词 ${index+1} 的条目操作`,'more',()=>{const expand=tools.hidden;for(const menu of rows.querySelectorAll('.prompt-inline-actions'))menu.hidden=true;for(const toggle of rows.querySelectorAll('.prompt-actions-toggle'))toggle.setAttribute('aria-expanded','false');tools.hidden=!expand;more.setAttribute('aria-expanded',String(expand));},'prompt-actions-toggle');more.setAttribute('aria-expanded','false');more.setAttribute('aria-controls',tools.id);more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});anchor.prepend(tools);summary.append(anchor);
             summary.addEventListener('keydown',event=>{if(event.key==='Escape'&&!tools.hidden){event.preventDefault();event.stopPropagation();tools.hidden=true;more.setAttribute('aria-expanded','false');more.focus();}});
-            const form=el('div','prompt-form');section.append(summary,form);const role=field(form,'消息角色',message.role,{options:[['system','System · 系统'],['user','User · 用户'],['assistant','Assistant · 助手']]});role.addEventListener('change',()=>{message.role=role.value;kind.textContent=({system:'系统',user:'用户',assistant:'助手'})[message.role];dirty('settings');});
-            const text = field(form, '提示词内容', message.content, { multiline: true, rows: 7 }); text.addEventListener('input', () => { message.content = text.value; dirty('settings'); });
+            const form=el('div','prompt-form');section.append(summary,form);const role=field(form,'消息角色',message.role,{options:[['system','System · 系统'],['user','User · 用户'],['assistant','Assistant · 助手']]});role.addEventListener('change',()=>{message.role=role.value;kind.textContent=({system:'系统',user:'用户',assistant:'助手'})[message.role];dirty();});
+            const text = field(form, '提示词内容', message.content, { multiline: true, rows: 7 }); text.addEventListener('input', () => { message.content = text.value; dirty(); });
             promptSizes.push(autosizePrompt(text));
-            for (const [label, glyph, target] of [['上移', 'up', index - 1], ['下移', 'down', index + 1]]) { const button = toolbarButton(tools, label, glyph, () => { [preset.messages[index], preset.messages[target]] = [preset.messages[target], preset.messages[index]]; dirty('settings'); render(); }); button.disabled = target < 0 || target >= preset.messages.length; }
-            const remove = toolbarButton(tools, '删除提示词段', 'trash', () => { preset.messages.splice(index, 1); dirty('settings'); render(); }, 'danger'); remove.disabled = preset.messages.length <= 1; rows.append(section);
+            for (const [label, glyph, target] of [['上移', 'up', index - 1], ['下移', 'down', index + 1]]) { const button = toolbarButton(tools, label, glyph, () => { [preset.messages[index], preset.messages[target]] = [preset.messages[target], preset.messages[index]]; dirty(); render(); }); button.disabled = target < 0 || target >= preset.messages.length; }
+            const remove = toolbarButton(tools, '删除提示词段', 'trash', () => { preset.messages.splice(index, 1); dirty(); render(); }, 'danger'); remove.disabled = preset.messages.length <= 1; rows.append(section);
         });
         const footer=el('div','editor-footer');content.append(footer);toolbarButton(footer, '保存填表预设', 'edit', saveSettings, 'primary');
     }
     function renderAPI() {
-        const profileBar=el('div','connection-profile-bar'),mode=el('select');mode.setAttribute('aria-label','API 模式');for(const [value,label]of [['custom','自定义 API'],['tavern','酒馆连接预设']]){const option=el('option','',label);option.value=value;mode.append(option);}mode.value=settings.apiMode||'custom';profileBar.append(mode);content.append(profileBar);mode.addEventListener('change',()=>{settings.apiMode=mode.value;dirty('settings');render();});
+        const profileBar=el('div','connection-profile-bar'),mode=el('select');mode.setAttribute('aria-label','API 模式');for(const [value,label]of [['custom','自定义 API'],['tavern','主 API']]){const option=el('option','',label);option.value=value;mode.append(option);}mode.value=settings.apiMode||'custom';profileBar.append(mode);content.append(profileBar);mode.addEventListener('change',()=>{settings.apiMode=mode.value;dirty();render();});
         const status=el('p','db-api-status');status.setAttribute('role','status');
         const tools=el('div','db-api-actions');
+        const connectionCard = featureCard(settings.apiMode === 'tavern' ? '' : '地址与密钥');
+        const modelCard = featureCard(settings.apiMode === 'tavern' ? '模型参数' : '模型与参数');
+        content.append(connectionCard, modelCard);
+        const renderModels = ({ label, value, setValue, fetchModels, defaultLabel }) => {
+            const defaults = defaultLabel === undefined ? [] : [['', defaultLabel]];
+            const model = field(modelCard, label, value, { options: [
+                ...defaults, ...(value ? [[value, value]] : defaultLabel === undefined ? [['', '读取列表或输入模型 ID']] : []),
+            ] });
+            model.dataset.searchable = 'true'; model.dataset.allowCustom = 'true';
+            model.addEventListener('change', () => { setValue(model.value); dirty(); });
+            const modelRow = el('div', 'connection-model-row'); model.before(modelRow); modelRow.append(model);
+            const currentPage = () => !disposed && tab === 'api' && model.isConnected;
+            const load = toolbarButton(modelRow, '读取模型列表', 'refresh', async () => {
+                load.disabled = true; status.classList.remove('error'); status.textContent = '正在读取模型列表…';
+                try {
+                    const models = await fetchModels();
+                    if (!currentPage()) return;
+                    const selected = model.value;
+                    const options = [...defaults, ...models];
+                    if (selected && !models.some(([id]) => id === selected)) options.splice(defaults.length, 0, [selected, selected]);
+                    model.replaceChildren(...options.map(([id, name]) => {
+                        const option = el('option', '', name); option.value = id; return option;
+                    }));
+                    model.value = selected || (defaults.length ? '' : models[0][0]);
+                    if (model.value !== selected) { setValue(model.value); dirty(); }
+                    status.textContent = `已读取 ${models.length} 个模型，请在上方选择`;
+                } catch (error) {
+                    if (currentPage()) { status.classList.add('error'); status.textContent = `读取失败：${error.message}`; }
+                } finally { if (currentPage()) load.disabled = false; }
+            }, 'model-refresh');
+            load.querySelector('span')?.remove();
+        };
         if(settings.apiMode==='tavern') {
-            const options=[['','请选择连接预设'],...context.profiles.map(profile=>[profile.id,profile.name||profile.model])];
-            const profile=field(content,'酒馆连接预设',settings.tavernProfile||'',{options});profile.addEventListener('change',()=>{settings.tavernProfile=profile.value;settings.profileId=profile.value;dirty('settings');});
+            const selectedId = settings.tavernProfile || settings.profileId || '';
+            const profile = context.profiles.find(item => item.id === selectedId);
+            const options = [['', '请选择渠道'], ...context.profiles.map(item => [item.id, item.name || item.model])];
+            if (selectedId && !profile) options.push([selectedId, '原渠道已删除，请重新选择']);
+            const channel = field(connectionCard, 'API 渠道', selectedId, { options });
+            channel.addEventListener('change', () => { settings.tavernProfile = channel.value; settings.profileId = channel.value; dirty(); render(); });
+            if (profile) {
+                renderModels({
+                    label: '数据库模型', defaultLabel: profile.model ? `沿用渠道模型（${profile.model}）` : '沿用渠道模型',
+                    value: Object.hasOwn(settings.tavernModels, profile.id) ? settings.tavernModels[profile.id] : '',
+                    setValue: model => {
+                        if (model) settings.tavernModels = { ...settings.tavernModels, [profile.id]: model };
+                        else delete settings.tavernModels[profile.id];
+                    },
+                    fetchModels: () => context.profileModels(profile),
+                });
+            }
         } else {
             const config=settings.apiConfig ||= {};
             config.useMainApi=false;
-            content.append(el('h2', 'db-section-heading', '地址与密钥'));
-            const url=field(content,'API 基础地址',config.url||'',{type:'url'});url.addEventListener('input',()=>{config.url=url.value;dirty('settings');});
-            const key=apiKeyField(content,config.apiKey||'');key.addEventListener('input',()=>{config.apiKey=key.value;dirty('settings');});
+            const url=field(connectionCard,'API 基础地址',config.url||'',{type:'url'});url.addEventListener('input',()=>{config.url=url.value;dirty();});
+            const key=apiKeyField(connectionCard,config.apiKey||'');key.addEventListener('input',()=>{config.apiKey=key.value;dirty();});
             const keyWrap=el('div','key-input-wrap');key.before(keyWrap);keyWrap.append(key);
             const eye=toolbarButton(keyWrap,'显示密钥','eye',()=>{const visible=key.type==='password';key.type=visible?'text':'password';if(context.icon)eye.replaceChildren(context.icon(visible?'eyeOff':'eye'));eye.title=visible?'隐藏密钥':'显示密钥';eye.setAttribute('aria-label',eye.title);eye.setAttribute('aria-pressed',String(visible));},'key-toggle');if(context.icon)eye.replaceChildren(context.icon('eye'));else eye.querySelector('span')?.remove();eye.setAttribute('aria-pressed','false');
-            content.append(el('h2', 'db-section-heading', '模型与参数'));
-            const model=field(content,'模型',config.model||'',{options:config.model?[[config.model,config.model]]:[['','读取列表或输入模型 ID']]});model.dataset.searchable='true';model.dataset.allowCustom='true';model.addEventListener('change',()=>{config.model=model.value;dirty('settings');});
-            const modelRow=el('div','connection-model-row');model.before(modelRow);modelRow.append(model);
-            const currentPage=()=>!disposed&&tab==='api'&&model.isConnected;
-            const load=toolbarButton(modelRow,'读取模型列表','refresh',async()=>{
-                load.disabled=true;status.classList.remove('error');status.textContent='正在读取模型列表…';
-                try{const models=await context.models({...config});if(!currentPage())return;model.replaceChildren();if(config.model&&!models.some(([id])=>id===config.model))models.unshift([config.model,config.model]);for(const [id,label]of models){const option=el('option','',label);option.value=id;model.append(option);}model.value=config.model||models[0]?.[0]||'';config.model=model.value;dirty('settings');status.textContent=`已读取 ${models.length} 个模型，请在上方选择`;}
-                catch(error){if(currentPage()){status.classList.add('error');status.textContent=`读取失败：${error.message}`;}}
-                finally{if(currentPage())load.disabled=false;}
-            },'model-refresh');load.querySelector('span')?.remove();
+            renderModels({ label: '模型', value: config.model || '', setValue: model => { config.model = model; }, fetchModels: () => context.models({ ...config }) });
         }
-        if (settings.apiMode === 'tavern') content.append(el('h2', 'db-section-heading', '模型参数'));
-        const parameters=el('div','parameter-grid');content.append(parameters);
-        for(const [key,label,min,max,step] of [['maxTokens','最大回复 tokens',1,2000000,1],['temperature','Temperature',0,2,.05]]){const control=field(parameters,label,settings[key],{type:'number'});control.min=min;control.max=max;control.step=step;control.addEventListener('input',()=>{settings[key]=Number(control.value);dirty('settings');});}
-        toolbarButton(tools,'保存 API 配置','plug',saveSettings,'primary');content.append(tools,status);
+        const parameters=el('div','parameter-grid');modelCard.append(parameters, status);
+        for(const [key,label,min,max,step] of [['maxTokens','最大回复 tokens',1,2000000,1],['temperature','Temperature',0,2,.05]]){const control=field(parameters,label,settings[key],{type:'number'});control.min=min;control.max=max;control.step=step;control.addEventListener('input',()=>{settings[key]=Number(control.value);dirty();});}
+        toolbarButton(tools,'保存 API 配置','plug',saveSettings,'primary');content.append(tools);
     }
     async function renderWorld() {
         const config=settings.worldbookConfig ||= {source:'character',manualSelection:[],enabledEntries:{}};
-        const source=field(content,'世界书来源',config.source,{options:[['character','角色关联世界书'],['manual','手动选择世界书']]});source.addEventListener('change',()=>{config.source=source.value;dirty('settings');render();});
-        const target=content;const books=await context.worlds(config);if(tab!=='world'||target!==content)return;
-        if (!books.length) note(config.source === 'manual' ? '暂无可选的世界书。' : '当前角色没有关联世界书。');
+        const sourceCard = featureCard(); content.append(sourceCard);
+        const source=field(sourceCard,'世界书来源',config.source,{options:[['character','角色关联世界书'],['manual','手动选择世界书']]});source.addEventListener('change',()=>{config.source=source.value;dirty();render();});
+        const books=await context.worlds(config);if(disposed || tab!=='world' || sourceCard.parentElement!==content)return;
+        if (!books.length) note(config.source === 'manual' ? '暂无可选的世界书。' : '当前角色没有关联世界书。', sourceCard);
         for(const book of books){
             const section=el('details','dm-world-book'),summary=el('summary','dm-world-heading'),title=el('span','dm-world-title',book.name),tools=el('span','dm-world-tools');tools.setAttribute('role','group');tools.setAttribute('aria-label',`${book.name} 条目选择`);summary.append(title,tools);section.append(summary);
-            if(config.source==='manual'){const wrap=el('label','check-field dm-world-use'),check=el('input');check.type='checkbox';check.checked=(config.manualSelection||[]).includes(book.name);wrap.append(check,el('span','','使用此世界书'));section.append(wrap);check.addEventListener('change',()=>{const selected=new Set(config.manualSelection||[]);if(check.checked)selected.add(book.name);else selected.delete(book.name);config.manualSelection=[...selected];dirty('settings');});}
+            if(config.source==='manual'){const wrap=el('label','check-field dm-world-use'),check=el('input');check.type='checkbox';check.checked=(config.manualSelection||[]).includes(book.name);wrap.append(check,el('span','','使用此世界书'));section.append(wrap);check.addEventListener('change',()=>{const selected=new Set(config.manualSelection||[]);if(check.checked)selected.add(book.name);else selected.delete(book.name);config.manualSelection=[...selected];dirty();});}
             const entries=Object.entries(book.entries||{}),enabled=config.enabledEntries ||= {},list=el('div','dm-world-entries'),checks=[];
-            for(const [id,entry]of entries){const uid=String(entry.uid??id),wrap=el('label','dm-world-entry'),check=el('input');check.type='checkbox';check.checked=Array.isArray(enabled[book.name])?enabled[book.name].map(String).includes(uid):!entry.disable;wrap.append(check,el('span','',entry.comment||uid));list.append(wrap);checks.push([uid,check]);check.addEventListener('change',()=>{enabled[book.name]=checks.filter(([,check])=>check.checked).map(([uid])=>uid);dirty('settings');});}
-            for(const [label,selected]of [['全选',true],['全不选',false]]){const control=toolbarButton(tools,label,null,()=>{for(const [,check]of checks)check.checked=selected;enabled[book.name]=selected?checks.map(([uid])=>uid):[];dirty('settings');});control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});}
+            for(const [id,entry]of entries){const uid=String(entry.uid??id),wrap=el('label','dm-world-entry'),check=el('input');check.type='checkbox';check.checked=Array.isArray(enabled[book.name])?enabled[book.name].map(String).includes(uid):!entry.disable;wrap.append(check,el('span','',entry.comment||uid));list.append(wrap);checks.push([uid,check]);check.addEventListener('change',()=>{enabled[book.name]=checks.filter(([,check])=>check.checked).map(([uid])=>uid);dirty();});}
+            for(const [label,selected]of [['全选',true],['全不选',false]]){const control=toolbarButton(tools,label,null,()=>{for(const [,check]of checks)check.checked=selected;enabled[book.name]=selected?checks.map(([uid])=>uid):[];dirty();});control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});}
             section.append(list);content.append(section);
         }
         toolbarButton(content,'保存世界书配置','edit',saveSettings,'primary');
     }
     function renderSettings() {
         const revision=++statusRevision;
-        const current=context.latest?.();if(current)data=validateDatabase(current.data);
+        const current=context.latest?.(), data=validateDatabase(current?.data ?? context.data);
         const tables=sheets(data),latest=current?.index??context.chat.findLastIndex(message=>!message.is_user&&message.TavernDB_ACU_Data);
         const meta=current ? current.meta : context.chat[latest]?.extra?.independentDatabase;
         const recorded=meta?.kind==='database'?(meta.messageSummaryTo??latest):(meta?.to??latest);
-        const check=(parent,label,key)=>{const wrap=el('label','check-field'),control=el('input');control.type='checkbox';control.checked=!!settings[key];control.addEventListener('change',()=>{settings[key]=control.checked;dirty('settings');});wrap.append(control,el('span','',label));parent.append(wrap);};
+        const check=(parent,label,key)=>{const wrap=el('label','check-field'),control=el('input');control.type='checkbox';control.checked=!!settings[key];control.addEventListener('change',()=>{settings[key]=control.checked;dirty();});wrap.append(control,el('span','',label));parent.append(wrap);};
         const status=el('section','dm-status-card dm-summary-status');
         status.append(el('h2','','数据库状态'));
         const metrics=el('div','dm-summary-metrics');
         for(const [label,value]of [['数据表',tables.length],['记录',tables.reduce((sum,[,table])=>sum+table.content.length-1,0)],['待总结楼层',Math.max(0,context.chat.length-1-recorded)],['最新快照',latest<0?'模板 / 种子':`#${latest}${current?.archived?' · 覆盖前版本':''}`]]){const item=el('div','dm-summary-metric');item.append(el('span','note',label),el('strong','',String(value)));metrics.append(item);}
         status.append(metrics);content.append(status);
         const grid=el('div','dm-summary-grid');
-        const section=(title,description)=>{const group=el('section','dm-summary-card');group.append(el('h2','',title));if(description)group.append(el('p','note',description));return group;};
-        const bindPreset=(parent,label,key)=>{const control=field(parent,label,settings[key],{options:settings.presets.map(preset=>[preset.id,preset.name])});control.addEventListener('change',()=>{settings[key]=control.value;dirty('settings');});};
-        const setting=(parent,key,label,type='number',min=0)=>{const control=field(parent,label,settings[key]??'',{type});if(type==='number'){control.min=min;control.step=1;}control.addEventListener('input',()=>{settings[key]=type==='number'?Number(control.value):control.value;dirty('settings');});return control;};
-        const injection=section('提示词注入');
+        const bindPreset=(parent,label,key)=>{const control=field(parent,label,settings[key],{options:settings.presets.map(preset=>[preset.id,preset.name])});control.addEventListener('change',()=>{settings[key]=control.value;dirty();});};
+        const setting=(parent,key,label,type='number',min=0)=>{const control=field(parent,label,settings[key]??'',{type});if(type==='number'){control.min=min;control.step=1;}control.addEventListener('input',()=>{settings[key]=type==='number'?Number(control.value):control.value;dirty();});return control;};
+        const injection=featureCard('提示词注入');
         check(injection,'注入提示词','inject');
         setting(injection, 'keywordInjectionTokens', '资料库关键词注入 Token 上限（0 为不限）');
         content.append(injection,grid);
-        const run=async callback=>{if(dataDirty)throw Error('请先保存数据');if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
-        const message=section('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');grid.append(message);
+        const run=async callback=>{if(statusDirty||settingsDirty)throw Error('请先保存配置，再执行总结。');summaryWorking=true;render();try{await callback();}finally{summaryWorking=false;if(!disposed&&tab==='settings')render();}};
+        const message=featureCard('消息总结','将选定楼层的对话整理到数据库。楼层号从 0 开始。');grid.append(message);
         bindPreset(message,'消息总结预设','messageSummaryPreset');check(message,'自动总结消息','auto');
         check(message,'总结后向 AI 隐藏对应楼层','hideAfterMessageSummary');
         const messageConfig=el('div','dm-config-grid');message.append(messageConfig);
         setting(messageConfig,'autoUpdateFrequency','保留最新 N 层', 'number',0);
         setting(messageConfig,'updateBatchSize','每次总结楼层数','number',1);
         setting(message,'removeTags','删除标签（| 分隔）','text');setting(message,'userMessageTags','用户消息标签（| 分隔）','text');
-        const range=el('div','dm-config-grid');message.append(range);
+        const range=el('div','dm-config-grid dm-summary-range');message.append(range);
         const from=field(range,'起始楼层',Math.min(Math.max(0,recorded+1),Math.max(0,context.chat.length-1)),{type:'number'}),to=field(range,'结束楼层',Math.max(0,context.chat.length-1),{type:'number'});from.min=to.min=0;from.max=to.max=Math.max(0,context.chat.length-1);from.step=to.step=1;
         for(const control of [from,to])control.addEventListener('input',()=>context.dirty(hasDraft()));
         const messageRun=toolbarButton(message,'总结所选消息','refresh',()=>run(()=>context.fill(Number(from.value),Number(to.value))),'primary');
-        const database=section('数据库总结','整理最新快照中的已有记录，合并冗余信息。两个阈值满足任意一个即触发，0 表示关闭该条件。');grid.append(database);
+        const database=featureCard('数据库总结','整理最新快照中的已有记录，合并冗余信息。两个阈值满足任意一个即触发，0 表示关闭该条件。');grid.append(database);
         bindPreset(database,'数据库总结预设','databaseSummaryPreset');check(database,'自动总结数据库','databaseSummaryAuto');
         const tokenStatus=el('p','note','最新快照总 Token：统计中…');tokenStatus.setAttribute('role','status');database.append(tokenStatus);
         const refreshTokens=()=>{tokenStatus.textContent='最新快照总 Token：统计中…';Promise.resolve().then(()=>context.countDatabaseTokens?.()).then(count=>{if(!disposed&&tab==='settings'&&revision===statusRevision)tokenStatus.textContent=Number.isFinite(count)?`最新快照总 Token：${count}`:'最新快照总 Token：暂不可用';}).catch(error=>{if(!disposed&&tab==='settings'&&revision===statusRevision)tokenStatus.textContent=`Token 统计失败：${error.message}`;});};refreshTokens();
         setting(database,'databaseSummaryTokens','总 Token 达到');
         const tableOptions=[['','请选择数据表'],...tables.map(([key,table])=>[key,`${table.name||key} · ${table.content.length-1} 条`])];
         if(settings.databaseSummaryTable&&!tables.some(([key])=>key===settings.databaseSummaryTable))tableOptions.push([settings.databaseSummaryTable,`${settings.databaseSummaryTable}（当前不存在）`]);
-        const table=field(database,'监测数据表',settings.databaseSummaryTable,{options:tableOptions});table.addEventListener('change',()=>{settings.databaseSummaryTable=table.value;dirty('settings');});
+        const table=field(database,'监测数据表',settings.databaseSummaryTable,{options:tableOptions});table.addEventListener('change',()=>{settings.databaseSummaryTable=table.value;dirty();});
         setting(database,'databaseSummaryRows','该表记录数达到');
         database.append(el('p','note','自动检查在回复保存后执行；消息总结启用时，先完成消息总结，再检查数据库。相同快照总结完成后不重复自动触发。'));
         const databaseRun=toolbarButton(database,'总结最新数据库','refresh',()=>run(()=>context.summarize()),'primary');

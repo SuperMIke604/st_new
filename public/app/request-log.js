@@ -120,7 +120,7 @@ export function groupAdjacentMessages(messages) {
     return groups;
 }
 
-export function showRequestLog({ el, action, notify, returnFocus }) {
+export function showRequestLog({ el, action, notify, returnFocus, prepareNextPrompt }) {
     const existing = document.getElementById('request-log-dialog');
     if (existing?.open) return;
     const dialog = el('dialog', 'timing-panel request-log-panel');
@@ -143,6 +143,27 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
     const count = el('span', 'item-count');
     const clear = action('清空', () => requestLog.clear(), 'trash');
     toolbar.append(toggle, count, clear);
+    const preview = el('section', 'request-prompt-preview');
+    const previewState = el('p', 'note'); previewState.setAttribute('role', 'status');
+    const previewButton = action('预览下一次请求的提示词', async () => {
+        if (previewButton.disabled) return;
+        previewButton.disabled = true;
+        preview.replaceChildren(previewState);
+        previewState.textContent = '正在准备提示词…';
+        try {
+            const result = await prepareNextPrompt();
+            if (!dialog.open) return;
+            previewState.textContent = `${result.tokens} tokens · 裁剪 ${result.trimmed} 条历史 · 激活 ${result.activated.length} 条世界书条目`;
+            const messages = el('pre', 'prompt-preview', JSON.stringify(result.messages, null, 2));
+            messages.tabIndex = 0;
+            messages.setAttribute('aria-label', '下一次请求的提示词');
+            preview.append(messages);
+        } catch (error) {
+            previewState.textContent = '';
+            if (dialog.open) throw error;
+        } finally { previewButton.disabled = false; }
+    }, 'chat');
+    toolbar.append(previewButton);
     const filters = el('div', 'request-log-filters');
     const search = el('input'); search.type = 'search';
     search.placeholder = '搜索提示词、回复或模型';
@@ -155,7 +176,7 @@ export function showRequestLog({ el, action, notify, returnFocus }) {
     filters.append(search, source);
     const list = el('div', 'request-log-list');
     const empty = el('p', 'note');
-    body.append(toolbar, filters, list, empty);
+    body.append(toolbar, preview, filters, list, empty);
     dialog.append(header, body);
 
     const cards = new Map();

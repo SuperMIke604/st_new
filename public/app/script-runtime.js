@@ -99,15 +99,17 @@ export class ScriptRuntime {
         const close = document.createElement('button');
         close.type = 'button'; close.className = 'icon-button diagnostic-close'; close.title = '关闭';
         close.setAttribute('aria-label', '关闭'); close.append(icon('close')); close.onclick = () => dialog.close();
-        const retry = document.createElement('button'); retry.textContent = '重新启动'; retry.type = 'button'; retry.className = 'button'; retry.onclick = () => { this.dispose(); void Promise.resolve(this.onRetry?.()).catch(error => this.notify(error.message, true)); }; header.append(title, retry, close);
+        header.append(title, close);
+        const tools = document.createElement('div'); tools.className = 'script-runtime-actions';
+        const retry = document.createElement('button'); retry.textContent = '重新启动'; retry.type = 'button'; retry.className = 'button'; retry.onclick = () => { this.dispose(); void Promise.resolve(this.onRetry?.()).catch(error => this.notify(error.message, true)); }; tools.append(retry);
         if (snapshot.scriptMessageViews) {
             const view = document.createElement('button'); view.type = 'button'; view.className = 'button'; view.textContent = '角色界面';
-            view.onclick = () => { dialog.close(); this.frame?.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'button', event: 'script-chat-open' }, '*'); }; header.append(view);
+            view.onclick = () => { dialog.close(); this.frame?.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'button', event: 'script-chat-open' }, '*'); }; tools.append(view);
         }
         if (scripts.some(script => script.enabled !== false && scriptSupport(script).adapter === 'remote-module')) {
             const settings = document.createElement('button'); settings.type = 'button'; settings.className = 'button'; settings.textContent = '脚本设置';
             settings.onclick = () => { if (!this.helperReady) { this.notify('原始脚本尚未完成初始化，请查看脚本状态。', true); return; } dialog.close(); this.frame?.contentWindow?.postMessage({ channel: 'st-new-scripts', type: 'helper-settings' }, '*'); };
-            header.append(settings);
+            tools.append(settings);
         }
         const note = document.createElement('p'); note.className = 'note script-runtime-note'; note.textContent = preparation || '运行已启用的全局和角色脚本，统一提供酒馆伴侣接口。'; this.note = note;
         const statuses = document.createElement('details'); statuses.className = 'script-runtime-status';
@@ -121,7 +123,7 @@ export class ScriptRuntime {
         const frame = document.createElement('iframe'); frame.className = 'script-page-frame'; frame.title = '角色卡小手机与脚本'; frame.style.clipPath = scriptClip([]); frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-downloads'); frame.referrerPolicy = 'no-referrer';
         this.actions = actions; actions?.replaceChildren();
         this.dialog = dialog; this.frame = frame; this.identity = identity;
-        window.addEventListener('message', this.listener); dialog.append(header, note, statuses); document.body.append(dialog, frame); if (diagnostics) dialog.showModal();
+        window.addEventListener('message', this.listener); dialog.append(header, note, tools, statuses); document.body.append(dialog, frame); if (diagnostics) dialog.showModal();
         if (snapshot.scriptMessageViews) this.inlineView = new ScriptInlineView(frame, data => frame.contentWindow?.postMessage({ channel: 'st-new-scripts', ...data }, '*'));
         frame.srcdoc = scriptDocument(scripts, { ...snapshot, pageDisplay: true }, this.jquery);
         this.readyTimer = setTimeout(() => { if (this.frame === frame) { note.textContent = '未收到脚本启动确认。请查看脚本状态，或点击“重新启动”。'; statuses.open = true; } }, 8000);

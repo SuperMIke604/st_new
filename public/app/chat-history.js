@@ -1,23 +1,10 @@
-export function changeChatHistory(messages, operation, selected = [], options = {}) {
+export function changeChatHistory(messages, operation, selected = []) {
     const ids = [...new Set(selected)].sort((a, b) => a - b);
     if (ids.some(id => !Number.isInteger(id) || id < 0 || id >= messages.length)) throw Error('选中的消息楼层已失效。');
-    if (operation === 'insert') {
-        if (!Number.isInteger(options.target) || options.target < 0 || options.target > messages.length) throw Error('请输入有效的插入楼层。');
-        if (!options.message || typeof options.message.mes !== 'string' || !options.message.mes.trim()) throw Error('请输入消息内容。');
-        return { messages: [...messages.slice(0, options.target), structuredClone(options.message), ...messages.slice(options.target)], start: options.target };
-    }
     if (!ids.length) throw Error('请先选择消息。');
     const chosen = new Set(ids);
     if (operation === 'hide' || operation === 'show') return { messages: messages.map((message, index) => chosen.has(index) ? { ...message, is_system: operation === 'hide' } : message), start: ids[0] };
     if (operation === 'delete') return { messages: messages.filter((_, index) => !chosen.has(index)), start: ids[0] };
-    if (operation === 'move') {
-        const target = options.target;
-        if (!Number.isInteger(target) || target < 0 || target > messages.length || chosen.has(target)) throw Error('请输入选中消息以外的目标楼层，末尾可填消息总数。');
-        const rest = messages.filter((_, index) => !chosen.has(index));
-        const position = messages.slice(0, target).filter((_, index) => !chosen.has(index)).length;
-        rest.splice(position, 0, ...ids.map(id => messages[id]));
-        return { messages: rest, start: Math.min(ids[0], target) };
-    }
     throw Error('未知的聊天记录操作。');
 }
 
@@ -40,18 +27,18 @@ export async function persistChatHistory(api, { avatar, file, header, original, 
     return saved.slice(1);
 }
 
-export function renderChatHistoryManager(body, { chat, el, action, notify, dirty: onDirty, save, jump, makeMessage, confirm = globalThis.confirm }) {
-    const field = (parent, label, value, { type = 'text', multiline = false, rows = 5 } = {}) => {
-        const wrap = el('label', 'field'), input = el(multiline ? 'textarea' : 'input');
+export function renderChatHistoryManager(body, { chat, el, action, notify, dirty: onDirty, save, jump, confirm = globalThis.confirm }) {
+    const field = (parent, label, value, { type = 'text' } = {}) => {
+        const wrap = el('label', 'field'), input = el('input');
         wrap.append(el('span', '', label));
-        if (multiline) input.rows = rows; else input.type = type;
+        input.type = type;
         input.value = value; wrap.append(input); parent.append(wrap); return input;
     };
     let messages = structuredClone(chat), selected = new Set(), changed = false, start = Infinity, page = 0, saving = false;
     const controls = el('fieldset', 'history-controls'); body.append(controls);
     const query = field(controls, '搜索文字', '', { type: 'search' });
     const goToFloor = value => {
-        if (changed || text.value.trim()) throw Error('请先保存或处理未完成的修改再跳转。');
+        if (changed) throw Error('请先保存或处理未完成的修改再跳转。');
         const id = Number(value);
         if (String(value).trim() === '' || !Number.isInteger(id) || id < 0 || id >= messages.length) throw Error('请输入存在的楼层编号。');
         jump(id);
@@ -62,12 +49,6 @@ export function renderChatHistoryManager(body, { chat, el, action, notify, dirty
     floor.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); jumpButton.click(); } });
     const toolbar = el('div', 'regex-toolbar history-toolbar'), count = el('p', 'note'), rows = el('div', 'history-messages'), pager = el('div', 'regex-toolbar history-toolbar');
     controls.append(toolbar, count, rows, pager);
-    const target = field(controls, '目标楼层（填消息总数表示末尾）', '0', { type: 'number' }); target.min = '0'; target.step = '1';
-    const role = el('select'); role.setAttribute('aria-label', '插入消息的角色');
-    for (const [value, name] of [['user', '用户'], ['assistant', '角色']]) { const option = el('option', '', name); option.value = value; role.append(option); }
-    const insert = el('details', 'advanced'), insertTitle = el('summary', '', '插入消息'); insert.append(insertTitle, role);
-    const text = field(insert, '消息内容', '', { multiline: true, rows: 4 });
-    controls.append(insert);
     const footer = el('div', 'editor-footer'); body.append(footer);
     const filtered = () => {
         const value = query.value.trim().toLowerCase();
@@ -75,30 +56,29 @@ export function renderChatHistoryManager(body, { chat, el, action, notify, dirty
         for (let id = messages.length - 1; id >= 0; id--) if (!value || `${id} ${messages[id].name || ''} ${messages[id].mes || ''}`.toLowerCase().includes(value)) result.push(id);
         return result;
     };
-    const change = (operation, options) => {
-        const next = changeChatHistory(messages, operation, [...selected], options);
+    const change = operation => {
+        const next = changeChatHistory(messages, operation, [...selected]);
         messages = next.messages; start = Math.min(start, next.start); selected.clear(); changed = true; onDirty(true); render();
     };
     toolbar.append(action('全选结果', () => { selected = new Set(filtered()); render(); }), action('全不选', () => { selected.clear(); render(); }), action('反选', () => { for (const id of filtered()) selected.has(id) ? selected.delete(id) : selected.add(id); render(); }), action('连选', () => {
         const ids = [...selected].sort((a, b) => a - b); if (ids.length !== 2) throw Error('请先选择两条端点消息。');
         for (let id = ids[0]; id <= ids[1]; id++) selected.add(id); render();
     }));
-    const mutations = [action('显示', () => change('show')), action('隐藏', () => change('hide')), action('移动', () => change('move', { target: Number(target.value) })), action('删除', () => {
+    const mutations = [action('显示', () => change('show')), action('隐藏', () => change('hide')), action('删除', () => {
         if (!selected.size) throw Error('请先选择消息。');
         if (confirm(`删除选中的 ${selected.size} 条消息？点击保存后生效。`)) change('delete');
     }, 'trash', 'danger')]; toolbar.append(...mutations);
-    insert.append(action('插入到目标楼层', () => { change('insert', { target: Number(target.value), message: makeMessage(role.value, text.value, Number(target.value), messages.length) }); text.value = ''; }, 'plus'));
     const saveButton = action('保存聊天记录', async () => {
         if (!changed || saving) return;
         saving = true; controls.disabled = true; saveButton.disabled = true;
         try {
-            messages = structuredClone(await save(messages, start)); start = Infinity; changed = false; selected.clear(); onDirty(!!text.value.trim()); notify('聊天记录已保存');
+            messages = structuredClone(await save(messages, start)); start = Infinity; changed = false; selected.clear(); onDirty(false); notify('聊天记录已保存');
         } finally { saving = false; controls.disabled = false; render(); }
     }, 'edit', 'primary'); footer.append(saveButton);
     const render = () => {
         const ids = filtered(), pages = Math.max(1, Math.ceil(ids.length / 50)); page = Math.min(page, pages - 1);
         count.textContent = `${messages.length} 条消息 · 已选 ${selected.size} 条${changed ? ' · 有未保存修改' : ''}`;
-        target.max = String(messages.length); floor.max = String(messages.length - 1); rows.replaceChildren(); pager.replaceChildren();
+        floor.max = String(messages.length - 1); rows.replaceChildren(); pager.replaceChildren();
         for (const id of ids.slice(page * 50, page * 50 + 50)) {
             const message = messages[id], row = el('div', `history-message${message.is_system ? ' history-message-hidden' : ''}`), label = el('label', 'history-message-label');
             const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = selected.has(id); toggle.setAttribute('aria-label', `选择第 ${id} 楼`);
@@ -115,7 +95,6 @@ export function renderChatHistoryManager(body, { chat, el, action, notify, dirty
         for (const button of mutations) button.disabled = !selected.size;
         saveButton.disabled = !changed || saving;
     };
-    const syncDirty = () => onDirty(changed || !!text.value.trim());
-    query.addEventListener('input', () => { syncDirty(); page = 0; render(); });
-    target.addEventListener('input', syncDirty); text.addEventListener('input', syncDirty); render();
+    query.addEventListener('input', () => { page = 0; render(); });
+    render();
 }

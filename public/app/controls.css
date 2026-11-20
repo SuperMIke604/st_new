@@ -14,6 +14,7 @@
 #panel { width: min(850px, calc(100vw - 24px)); }
 #panel > .panel-header { gap: var(--control-gap); }
 #panel > .panel-header > div { min-width: 0; }
+dialog > .panel-header .icon-button { border: 0; }
 #panel-title, #panel-kicker { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #panel-title { margin: 0; }
 #panel-kicker { display: block; line-height: 12px; }
@@ -54,6 +55,7 @@ textarea { min-height: var(--control-size); }
 .button { max-width: 100%; }
 :is(.button.primary,.send-button) { border: 1px solid #e2dbd1; }
 .composer-tools .button { justify-content: flex-start; text-align: left; }
+.variable-actions .icon-button > span { display: none; }
 .button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-option { padding-block: 0; justify-content: space-between; }
 .select-option > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -165,14 +167,36 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     box-shadow: var(--control-focus-ring);
 }
 
-/* A collapsed preset row is one control high, including its visual boundary. */
+/* Use the message editor surface for editable textareas in the workspace. */
+:root body :is(#panel, .inline-editor) textarea:not([readonly], [disabled]) {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--control-size);
+    max-height: min(320px, calc(var(--viewport-height, 100vh) * .4));
+    field-sizing: content;
+    padding: max(0px, calc((var(--control-size) - var(--type-edit-line) - 2px) / 2)) 13px;
+    background: var(--text-editor-surface, var(--surface));
+    border: 1px solid var(--control-field-border);
+    border-radius: var(--control-radius);
+    font-family: var(--type-mono);
+    resize: none;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+:root body :is(#panel, .inline-editor) textarea:not([readonly], [disabled]):focus {
+    border-color: var(--card-field-border, var(--ui-tone-90a780, #90a780));
+    box-shadow: var(--control-focus-ring);
+}
+
+/* Editor entries share the same outline and collapsed control height. */
 :is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-item, .regex-panel .regex-list > .regex-rule {
     border: 0;
     border-radius: var(--control-radius);
     background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--editor-entry-border, var(--line));
-}
-.preset-panel .prompt-list > .prompt-item {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--editor-entry-border, var(--line)) 30%, transparent);
 }
 :is(.preset-panel,.regex-panel) :is(.prompt-list,.regex-list) > .prompt-disabled { background: var(--soft); opacity: 1; }
@@ -314,17 +338,17 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     padding-block-start: 0;
     scroll-padding-block-start: calc(2 * var(--control-size) + 32px);
 }
-.character-library-sticky {
-    --library-gutter: 25px;
+:is(.character-library-sticky, .world-book-toolbar) {
+    --toolbar-gutter: 25px;
     position: sticky;
     top: 0;
     z-index: 6;
-    margin-inline: calc(-1 * var(--library-gutter));
-    margin-block-end: var(--control-gap);
-    padding: 8px var(--library-gutter);
+    margin-inline: calc(-1 * var(--toolbar-gutter));
+    padding: var(--control-gap) var(--toolbar-gutter);
     background: var(--surface);
     box-shadow: 0 1px var(--line);
 }
+.character-library-sticky { margin-block-end: var(--control-gap); }
 .character-library-sticky > .library-toolbar,
 .character-library-tools, .character-library-category-row {
     display: flex;
@@ -347,7 +371,7 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     margin-block-start: var(--control-gap);
 }
 @media (max-width: 700px) {
-    .character-library-sticky { --library-gutter: 20px; }
+    :is(.character-library-sticky, .world-book-toolbar) { --toolbar-gutter: 20px; }
     .library-panel .library-toolbar > .library-search { flex-basis: 100%; }
     .library-panel .library-toolbar > .select-control { flex: 1 0 auto; }
 }
@@ -386,11 +410,6 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
     }
     .category-select > .select-control > .select-chevron { flex-shrink: 0; }
     .db-category-bar { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--control-gap); }
-    .db-category-table { min-width: 0; }
-    .db-category-table:empty { display: none; }
-    .db-category-bar:has(.db-category-table:not(:empty)) {
-        grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
-    }
     .db-category-bar .select-control {
         gap: 6px;
         padding-inline: 8px;
@@ -410,17 +429,8 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
         background: var(--paper);
         box-shadow: 0 1px var(--line);
     }
+    .regex-category { background: var(--surface); }
     #panel-body:has(.regex-category, .db-category-bar) { padding-block-start: 0; }
-    .db-template-save {
-        top: var(--category-bar-height, 0px);
-        margin-inline: calc(-1 * var(--category-gutter));
-        padding: var(--category-padding) var(--category-gutter);
-        box-shadow: 0 1px var(--line);
-    }
-    #panel-body:has(.db-template-save) {
-        scroll-padding-block-start: calc(2 * var(--category-bar-height));
-    }
-    .db-table-actions { position: static; }
     .db-overview-navigation { display: none; }
 }
 @media (max-width: 700px) {

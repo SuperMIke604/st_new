@@ -44,7 +44,6 @@ import { worldSettingsFields, validateWorldSettings } from './world-settings.js'
 import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
-import { databaseBlockedKeywords } from './database-injection.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
 import { libraryState, addFolder, renameFolder, deleteFolder, moveCards, filterCards } from './library.js';
 import { installSelects } from './select.js';
@@ -104,7 +103,6 @@ const panelLoads = new WeakMap();
 let panelDirty = false;
 let variablesSaving = false;
 let panelRevision = 0;
-let preview = null;
 let streamFrame = 0;
 let inlineEdit = null;
 let resolvingMessageEdit = false;
@@ -183,6 +181,82 @@ function action(label, callback, glyph, className = '') {
     button.append(el('span', '', label));
     button.addEventListener('click', () => run(callback));
     return button;
+}
+function discloseProfileTools(bar, tools, button, label, groupLabel) {
+    const extra = el('div', 'profile-extra-tools');
+    extra.id = `profile-tools-${uuid()}`;
+    extra.setAttribute('role', 'group');
+    extra.setAttribute('aria-label', groupLabel);
+    extra.append(...tools.children);
+    const more = button(label, () => setExpanded(extra.hidden), 'more');
+    more.setAttribute('aria-controls', extra.id);
+    const setExpanded = expanded => {
+        extra.hidden = !expanded;
+        more.setAttribute('aria-expanded', String(expanded));
+    };
+    setExpanded(false);
+    extra.addEventListener('click', event => {
+        if (!event.target.closest('button')) return;
+        setExpanded(false);
+        more.focus();
+    });
+    const closeOnEscape = event => {
+        if (event.key !== 'Escape' || extra.hidden) return;
+        event.stopPropagation(); event.preventDefault();
+        setExpanded(false); more.focus();
+    };
+    extra.addEventListener('keydown', closeOnEscape);
+    more.addEventListener('keydown', closeOnEscape);
+    bar.after(extra);
+}
+function editName({ title, label, value = '', maxLength, returnFocus, save }) {
+    const panel = $('panel');
+    const revision = panelRevision;
+    const dialog = el('dialog', 'compact-dialog name-dialog');
+    const heading = el('h2', '', title); heading.id = 'name-dialog-title';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    const form = el('form');
+    const field = el('div', 'field');
+    const input = el('input'); input.type = 'text'; input.value = value; input.autofocus = true;
+    if (maxLength) input.maxLength = maxLength;
+    input.setAttribute('aria-label', label);
+    const error = el('p', 'note warning'); error.id = 'name-dialog-error'; error.hidden = true;
+    error.setAttribute('role', 'alert'); input.setAttribute('aria-describedby', error.id);
+    field.append(input);
+    const actions = el('div', 'compact-dialog-actions');
+    const cancel = action('取消', () => dialog.close());
+    const submit = el('button', 'button primary', '确定'); submit.type = 'submit';
+    actions.append(cancel, submit);
+    form.append(heading, field, error, actions); dialog.append(form);
+    const showError = message => {
+        error.textContent = message; error.hidden = false;
+        input.setAttribute('aria-invalid', 'true'); input.focus();
+    };
+    input.addEventListener('input', () => { error.hidden = true; input.removeAttribute('aria-invalid'); });
+    let saving = false;
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (saving) return;
+        const next = input.value.trim();
+        if (!next) { showError(`请输入${label}`); return; }
+        saving = input.disabled = submit.disabled = cancel.disabled = true;
+        try { await save(next); dialog.close(); }
+        catch (failure) {
+            saving = input.disabled = submit.disabled = cancel.disabled = false;
+            showError(failure.message);
+        }
+    });
+    dialog.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || event.isComposing) return;
+        event.preventDefault();
+        if (!saving) dialog.close();
+    });
+    dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
+    dialog.addEventListener('close', () => {
+        dialog.remove();
+        if (panel.open && revision === panelRevision) returnFocus?.focus({ preventScroll: true });
+    });
+    panel.append(dialog); dialog.showModal(); input.select();
 }
 function inlineEntryActions(summary, buttons, label) {
     const menu = el('span', 'prompt-actions prompt-inline-actions inset-action-menu'); menu.hidden = true;
@@ -601,9 +675,9 @@ function clearWelcome() { $('message-list').querySelector('.welcome')?.remove();
 function applyPalette(palette, persist = false) {
     document.documentElement.dataset.palette = palette;
     const themeColor = palette === 'lavender-paper' ? '#eee9f5'
-        : ['ivory-cards', 'ivory-cards-am'].includes(palette) ? '#efe7da'
+        : palette === 'ivory-cards-am' ? '#efe7da'
         : palette === 'claude-day' ? '#f8f8f6'
-        : ['paper', 'mist', 'ivory'].includes(palette) ? '#f3eee4' : '#f7f8f4';
+        : ['paper', 'mist', 'ivory', 'ivory-cards'].includes(palette) ? '#f3eee4' : '#f7f8f4';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
     if (persist) {
         try { localStorage.setItem('independent-palette', palette); } catch { /* Server preferences remain available. */ }
@@ -698,6 +772,7 @@ async function initializeConnections(connectionsRequest) {
 }
 
 function disposePanelWork() {
+    $('panel').querySelector(':scope > .name-dialog[open]')?.close();
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function showPanel(title, kicker = '工作空间', className = '') {
@@ -736,7 +811,7 @@ function timingPanel() {
     if (existing) { existing.querySelector('button')?.focus(); return; }
     const dialog = el('dialog', 'timing-panel'); dialog.id = 'timing-dialog'; dialog.setAttribute('aria-labelledby', 'timing-title');
     const heading = el('div'), title = el('h1', '', '加载日志'); title.id = 'timing-title';
-    heading.append(el('small', '', '最近 200 条 · 耗时记录'), title);
+    heading.append(title);
     const header = el('header', 'panel-header'), close = iconAction('关闭日志', () => dialog.close(), 'close');
     close.autofocus = true;
     header.append(heading, close);
@@ -938,15 +1013,32 @@ function saveChat({ incremental = false, signal, tailBase } = {}) {
     });
     state.saves = task; return task;
 }
-async function chatsPanel() {
+async function chatsPanel(initialPage = 0) {
     if (!state.character) return navigation();
-    const body = showPanel('历史聊天', state.character.name); if (!body) return;
-    const revision = panelRevision;
-    const chats = await api.post('/api/characters/chats', { avatar_url: state.character.avatar });
+    const body = showPanel('历史聊天', ''); if (!body) return;
+    const revision = panelRevision, avatar = state.character.avatar;
+    const chats = await api.post('/api/characters/chats', { avatar_url: avatar });
     if (revision !== panelRevision) return;
     if (!Array.isArray(chats) || !chats.length) { note(body, '还没有已保存的对话。'); return; }
+    chats.sort((a, b) => (Number(b.last_mes) || Date.parse(b.last_mes) || 0) - (Number(a.last_mes) || Date.parse(a.last_mes) || 0));
     const items = el('div', 'resource-list chat-history-list'); body.append(items);
-    for (const chat of chats.sort((a, b) => (Number(b.last_mes) || Date.parse(b.last_mes) || 0) - (Number(a.last_mes) || Date.parse(a.last_mes) || 0))) {
+    const pageSize = 20, pageCount = Math.ceil(chats.length / pageSize);
+    let page = Math.min(initialPage, pageCount - 1);
+    const pager = el('div', 'library-pager');
+    const indicator = el('span', 'note'); indicator.setAttribute('aria-live', 'polite');
+    const go = index => { page = index; render(); body.scrollTop = 0; };
+    const previous = action('上一页', () => go(page - 1));
+    const next = action('下一页', () => go(page + 1));
+    if (pageCount > 1) { pager.append(previous, indicator, next); body.append(pager); }
+    function render() {
+        items.replaceChildren();
+        for (const chat of chats.slice(page * pageSize, (page + 1) * pageSize)) renderChat(chat);
+        indicator.textContent = `${page + 1} / ${pageCount}`;
+        previous.disabled = page === 0;
+        next.disabled = page === pageCount - 1;
+    }
+
+    function renderChat(chat) {
         const row = action(chat.file_name.replace(/\.jsonl$/, ''), async () => { assertSaved(); if (closePanel()) await loadChat(chat.file_name.replace(/\.jsonl$/, '')); }, 'chat', 'resource-row');
         const preview = String(chat.mes || '')
             .replace(/(?:```|~~~)[\s\S]*?(?:```|~~~|$)/g, ' ')
@@ -957,9 +1049,23 @@ async function chatsPanel() {
             .replace(/\s+/g, ' ').trim().slice(0, 100);
         row.append(el('small', '', [`${chat.chat_items || 0} 楼`, preview].filter(Boolean).join(' · ')));
         const wrapper = el('div','chat-history-row'), tools = el('div','chat-history-tools'); wrapper.append(row,tools); items.append(wrapper);
-        const file = chat.file_name.replace(/\.jsonl$/, ''), avatar=state.character.avatar;
-        const read = () => api.post('/api/chats/get',{avatar_url:avatar,file_name:file});
-        tools.append(action('导出聊天',async()=>{const data=await read();const url=URL.createObjectURL(new Blob([data.map(item=>JSON.stringify(item)).join('\n')],{type:'application/jsonl'}));const link=el('a');link.href=url;link.download=`${file}.jsonl`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);},'export'),action('复制聊天',async()=>{assertSaved();const data=await read();const next=`${file}-副本-${Date.now()}`;await api.post('/api/chats/save',{avatar_url:avatar,file_name:next,chat:data});panelDirty=false;await chatsPanel();},'copy'),action('删除聊天',async()=>{assertSaved();if(!confirm(`删除聊天「${file}」？`))return;await api.post('/api/chats/delete',{avatar_url:avatar,chatfile:file});if(state.file===file)await loadChat(null);panelDirty=false;await chatsPanel();},'trash','danger'));
+        const file = chat.file_name.replace(/\.jsonl$/, '');
+        const read = () => api.post('/api/chats/get', { avatar_url: avatar, file_name: file });
+        tools.append(action('导出聊天', async () => {
+            const data = await read();
+            const url = URL.createObjectURL(new Blob([data.map(item => JSON.stringify(item)).join('\n')], { type: 'application/jsonl' }));
+            const link = el('a'); link.href = url; link.download = `${file}.jsonl`; link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, 'export'), action('复制聊天', async () => {
+            assertSaved(); const data = await read();
+            await api.post('/api/chats/save', { avatar_url: avatar, file_name: `${file}-副本-${Date.now()}`, chat: data });
+            if (revision === panelRevision) { panelDirty = false; await chatsPanel(); }
+        }, 'copy'), action('删除聊天', async () => {
+            assertSaved(); if (!confirm(`删除聊天「${file}」？`)) return;
+            await api.post('/api/chats/delete', { avatar_url: avatar, chatfile: file });
+            if (state.character?.avatar === avatar && state.file === file) await loadChat(null);
+            if (revision === panelRevision) { panelDirty = false; await chatsPanel(page); }
+        }, 'trash', 'danger'));
         const label = `${file}的聊天操作`;
         const menu = action(label, () => {
             const open = menu.getAttribute('aria-expanded') === 'true';
@@ -987,6 +1093,7 @@ async function chatsPanel() {
         });
 
     }
+    render();
 }
 
 async function persistProfiles(next) {
@@ -1000,6 +1107,8 @@ async function connectionPanel(profileId = '', draft = null) {
     let current = draft || profileStore.profiles.find(item => item.id === profileId) || connection();
     const picker = el('select'); picker.setAttribute('aria-label', '选择 API 连接');
     for (const profile of profileStore.profiles) { const option = el('option', '', profile.name || profile.url); option.value = profile.id; picker.append(option); }
+    let profileName = current.name || '默认连接';
+    if (draft) { const option = el('option', '', `${profileName}（未保存）`); option.value = current.id; picker.append(option); }
     if (draft) { const option = el('option', '', '新连接（未保存）'); option.value = draft.id; picker.append(option); }
     const profileBar = el('div', 'connection-profile-bar connection-settings-bar');
     picker.value = current.id; profileBar.append(picker); body.append(profileBar);
@@ -1008,9 +1117,6 @@ async function connectionPanel(profileId = '', draft = null) {
         if (panelDirty && !confirm('放弃未保存的连接修改并切换？')) { picker.value = current.id; return; }
         const updated = { ...profileStore, activeId: next }; await persistProfiles(updated); panelDirty = false; await connectionPanel(next);
     }));
-    const profileName = field(body, '连接名称', current.name || '默认连接');
-    const profileNameField = profileName.closest('.field');
-    profileNameField.hidden = true;
     const profileTools = el('div', 'connection-profile-tools');
     const profileActions = el('div', 'profile-extra-tools');
     profileActions.id = 'connection-profile-actions'; profileActions.hidden = true;
@@ -1023,9 +1129,11 @@ async function connectionPanel(profileId = '', draft = null) {
         profileActions.hidden = !open;
         more.setAttribute('aria-expanded', String(open));
     };
-    profileActions.append(action('修改名称', () => {
-        profileNameField.hidden = false; profileName.focus(); profileName.select();
-    }, 'edit'), action('新建连接', () => connectionPanel('', { id: uuid(), name: '新连接', source: 'custom', url: '', model: '', stream: true, postProcessing: 'merge' }), 'plus'),
+    profileActions.append(action('修改名称', () => editName({ title: '修改连接名称', label: '连接名称', value: profileName, returnFocus: more, save: next => {
+        if (next === profileName) return;
+        profileName = next; panelDirty = true;
+        picker.selectedOptions[0].textContent = `${next}（未保存）`;
+    } }), 'edit'), action('新建连接', () => connectionPanel('', { id: uuid(), name: '新连接', source: 'custom', url: '', model: '', stream: true, postProcessing: 'merge' }), 'plus'),
         action('复制连接', () => connectionPanel('', { ...copy(current), id: uuid(), name: `${current.name || '连接'}（副本）` }), 'copy'),
         action('删除连接', async () => {
             assertIdle(); if (profileStore.profiles.length <= 1) throw new Error('至少保留一个连接。');
@@ -1089,11 +1197,11 @@ async function connectionPanel(profileId = '', draft = null) {
     const hasStoredReference = current.secretId && !current.secretId.startsWith('no-key-');
     if (!savedKey && !key.value && hasStoredReference) { masked = true; key.value = '********'; }
     postProcessing.closest('label').after(model.closest('label'));
-    const getConnection = () => normalizeConnection({ id: current.id, name: profileName.value.trim(), source: 'custom', url: url.value.trim(), model: model.value.trim(), stream: stream.value === 'stream', postProcessing: postProcessing.value, secretId: current.source === 'custom' ? current.secretId : undefined,
+    const getConnection = () => normalizeConnection({ id: current.id, name: profileName.trim(), source: 'custom', url: url.value.trim(), model: model.value.trim(), stream: stream.value === 'stream', postProcessing: postProcessing.value, secretId: current.source === 'custom' ? current.secretId : undefined,
         ...((enteredKey() || current.proxyPassword) ? { proxyPassword: enteredKey() || current.proxyPassword } : {}) });
     const save = async (showNotice = true) => {
         assertIdle(); const value = getConnection();
-        if (!value.name) { profileNameField.hidden = false; profileName.focus(); throw new Error('请输入连接名称。'); }
+        if (!value.name) throw new Error('请输入连接名称。');
         if (value.source === 'custom' && current.source === 'openai' && !enteredKey() && current.secretId && !secretState?.api_key_custom) {
             throw new Error('此反代需要切换到兼容模式。旧密钥保存在官方接口下，请在 API Key 中重新填写反代密钥，再读取模型。');
         }
@@ -1113,8 +1221,7 @@ async function connectionPanel(profileId = '', draft = null) {
     const readModels = action('读取模型列表', async () => {
         await save(false);
         const config = getConnection();
-        const result = await api.post('/api/backends/chat-completions/status', { chat_completion_source: config.source, custom_url: config.url, secret_id: config.secretId });
-        const models = modelOptions(result);
+        const models = await readConnectionModels(config);
         const previous = model.value; model.replaceChildren();
         if (previous && !models.some(([id]) => id === previous)) models.unshift([previous, previous]);
         for (const [id, label] of models) { const option = el('option', '', label); option.value = id; model.append(option); }
@@ -1154,18 +1261,20 @@ async function renderPresetPanel(body, revision) {
     if (state.presetMissing) { const missing = el('option', '', '保存的预设不存在，请重新选择'); missing.value = ''; missing.disabled = true; select.prepend(missing); }
     select.value = state.presetMissing ? '' : state.own.preset;
     const presetTools = el('div', 'connection-profile-tools'); presetBar.append(select, presetTools); body.append(presetBar);
-    const name = field(body, '预设名称', select.value);
-    name.setAttribute('aria-label', '预设名称');
+    let name = select.value;
+    const renamePreset = returnFocus => editName({ title: '修改预设名称', label: '预设名称', value: name, returnFocus, save: next => {
+        if (next === name) return;
+        name = next; panelDirty = true;
+        if (select.selectedOptions[0]) select.selectedOptions[0].textContent = `${next}（未保存）`;
+    } });
     const parameters = el('div', 'parameter-grid preset-parameters');
     parameters.id = `preset-parameters-${uuid()}`;
-    const nameField = name.parentElement;
     const rememberParameters = value => {
         collapsed = value;
         if (!ivory) presetParametersCollapsed = collapsed;
         try { sessionStorage.setItem(preferenceKey, String(collapsed)); } catch { /* Use the in-memory state. */ }
     };
     if (ivory) {
-        nameField.hidden = true;
         const group = el('details', 'advanced world-global-settings');
         group.open = !collapsed;
         group.append(el('summary', 'preset-parameters-toggle', '生成参数'), parameters);
@@ -1187,8 +1296,8 @@ async function renderPresetPanel(body, revision) {
         parameterToggle.setAttribute('aria-controls', parameters.id);
         updateParameterToggle();
         const nameRow = el('div', 'preset-name-row');
-        nameField.append(nameRow); nameRow.append(name, parameterToggle);
-        body.append(parameters);
+        const rename = action('编辑名称', () => renamePreset(rename), 'edit');
+        nameRow.append(rename, parameterToggle); body.append(nameRow, parameters);
     }
     const controls = new Map();
     let refreshPresetTokens = () => {};
@@ -1408,15 +1517,20 @@ async function renderPresetPanel(body, revision) {
     body.append(heading, stats, rows);
 
     const loadDraft = (value, title) => {
-        draft = presetDraft(value); name.value = title; opened.clear();
-        if (ivory) nameField.hidden = !draftOnly;
+        draft = presetDraft(value); name = title; opened.clear();
         for (const [key, { input, fallback }] of controls) { draft[key] ??= fallback; input.value = draft[key]; }
         renderRows();
     };
     let previousPreset = select.value;
     let draftOnly = false;
+    const restorePresetLabel = () => {
+        if (!available.some(item => item.name === previousPreset)) return;
+        const option = [...select.options].find(item => item.value === previousPreset);
+        if (option) option.textContent = previousPreset;
+    };
     const beginDraft = (data, title) => {
         const next = presetDraft(data);
+        restorePresetLabel();
         for (const option of [...select.options]) if (option.dataset.draft) option.remove();
         const option = el('option', '', `${title}（未保存）`); option.value = `draft-${uuid()}`; option.dataset.draft = 'true'; select.append(option); select.value = option.value;
         previousPreset = option.value; draftOnly = true; deletePreset.disabled = true;
@@ -1436,14 +1550,14 @@ async function renderPresetPanel(body, revision) {
     }, 'import');
     toolbarButton('导出预设', () => {
         const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob); const link = el('a'); link.href = url; link.download = `${safeName(name.value.trim() || '预设')}.json`;
+        const url = URL.createObjectURL(blob); const link = el('a'); link.href = url; link.download = `${safeName(name.trim() || '预设')}.json`;
         document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, 'export');
     toolbarButton('新增预设', () => {
         if (panelDirty && !confirm('放弃未保存的修改并新建预设？')) return;
         beginDraft(createPreset(), uniquePresetName('新预设', available.map(preset => preset.name)));
     }, 'plus');
-    toolbarButton('复制预设', () => beginDraft(copy(draft), uniquePresetName(`${name.value.trim() || '预设'}（副本）`, available.map(preset => preset.name))), 'copy');
+    toolbarButton('复制预设', () => beginDraft(copy(draft), uniquePresetName(`${name.trim() || '预设'}（副本）`, available.map(preset => preset.name))), 'copy');
     const deletePreset = toolbarButton('删除预设', async () => {
         assertIdle(); if (draftOnly) throw new Error('请先保存新预设。');
         if (available.length <= 1) throw new Error('至少保留一个预设，请先新增其他预设。');
@@ -1454,37 +1568,9 @@ async function renderPresetPanel(body, revision) {
         await saveOwn({ preset: next }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已删除'); await presetPanel();
     }, 'trash', 'danger');
     if (ivory) {
-        const extra = el('div', 'profile-extra-tools');
-        extra.id = 'preset-extra-' + uuid();
-        extra.hidden = true;
-        extra.setAttribute('role', 'group');
-        extra.setAttribute('aria-label', '预设管理');
-        const rename = toolbarButton('编辑名称', () => {
-            nameField.hidden = false;
-            name.focus(); name.select();
-        }, 'edit');
+        const rename = toolbarButton('编辑名称', () => renamePreset(presetTools.querySelector('[aria-expanded]')), 'edit');
         presetTools.prepend(rename);
-        extra.append(...presetTools.children);
-        const more = toolbarButton('更多预设操作', () => setExpanded(extra.hidden), 'more');
-        more.setAttribute('aria-controls', extra.id);
-        const setExpanded = expanded => {
-            extra.hidden = !expanded;
-            more.setAttribute('aria-expanded', String(expanded));
-        };
-        setExpanded(false);
-        extra.addEventListener('click', event => {
-            if (event.target.closest('button')) {
-                setExpanded(false);
-                if (nameField.hidden || document.activeElement !== name) more.focus();
-            }
-        });
-        extra.addEventListener('keydown', event => {
-            if (event.key === 'Escape') {
-                event.stopPropagation(); event.preventDefault();
-                setExpanded(false); more.focus();
-            }
-        });
-        presetBar.after(extra);
+        discloseProfileTools(presetBar, presetTools, toolbarButton, '更多预设操作', '预设管理');
     }
     select.addEventListener('change', () => run(async () => {
         assertIdle();
@@ -1496,7 +1582,7 @@ async function renderPresetPanel(body, revision) {
             presetDraft(selected.data);
             await saveOwn({ preset: target });
         } catch (error) { select.value = previousPreset; throw error; }
-        selectPreset(); list.setMessages(state.chat, { reset: true });
+        restorePresetLabel(); selectPreset(); list.setMessages(state.chat, { reset: true });
         draftOnly = false; loadDraft(state.preset, target); previousPreset = target; deletePreset.disabled = false; panelDirty = false;
         for (const option of [...select.options]) if (option.dataset.draft) option.remove();
         notify('预设已切换');
@@ -1504,8 +1590,8 @@ async function renderPresetPanel(body, revision) {
     const footer = el('div', 'editor-footer');
     footer.append(action('保存并使用', async () => {
         assertIdle(); const data = validatePreset(draft);
-        if (!name.value.trim()) throw new Error('请输入预设名称。');
-        const targetName = safeName(name.value.trim());
+        if (!name.trim()) throw new Error('请输入预设名称。');
+        const targetName = safeName(name.trim());
         if (available.some(p => p.name === targetName) && !confirm('覆盖同名预设？')) return;
         const result = await api.post('/api/presets/save', { apiId: 'openai', name: targetName, preset: data });
         await saveOwn({ preset: result.name }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已保存'); await presetPanel();
@@ -1821,7 +1907,7 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
 function variableManagerPanel() {
     assertSaved();
     if (!state.character || !state.header || !state.chat.length) throw Error('请先打开有消息的聊天。');
-    const identity = scriptIdentity(), body = showPanel('变量管理器', '角色状态与聊天数据', 'variable-panel'); if (!body) return;
+    const identity = scriptIdentity(), body = showPanel('变量管理器', '', 'variable-panel'); if (!body) return;
     const revision = panelRevision, avatar = state.character.avatar, file = state.file, targets = new Map();
     const current = () => { if (identity !== scriptIdentity() || revision !== panelRevision) throw Error('聊天或面板已切换，请重新打开变量管理器。'); };
     const read = (scope,index) => {
@@ -2017,6 +2103,13 @@ async function prepareRoleMvu(generation = false, rawReply = null) {
         return { changed: seeded || prepared.count > 0, message: prepared.data ? 'MVU 变量已就绪：支持初始化、JSONPatch 更新及已启用的 Zod 结构校验。' : '未找到 InitVar 初始变量或已有 MVU 快照，请检查角色关联的世界书。' };
     });
 }
+function downloadJson(value, name) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
+    const link = el('a'); link.href = url; link.download = `${safeName(name)}.json`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function renderScriptManager(body, revision, scope, target, timing) {
     const kind = scope === 'global-script' ? 'global' : scope === 'preset-script' ? 'preset' : 'character';
     let entity = null, selected = target;
@@ -2053,7 +2146,10 @@ async function renderScriptManager(body, revision, scope, target, timing) {
             const toggle = el('input'); toggle.type = 'checkbox'; toggle.checked = script.enabled !== false; toggle.setAttribute('aria-label', `启用脚本 ${script.name || '未命名'}`);
             toggle.addEventListener('click', event => event.stopPropagation()); toggle.addEventListener('change', () => { script.enabled = toggle.checked; details.classList.toggle('prompt-disabled', !toggle.checked); dirty(); });
             const title = el('span', 'prompt-title', script.name || '未命名脚本'); summary.append(toggle, title, el('small', '', support.supported ? '兼容运行' : '暂不支持')); details.append(summary);
-            inlineEntryActions(summary, [action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash', 'danger')], script.name || '未命名脚本');
+            inlineEntryActions(summary, [
+                action('导出此脚本', () => downloadJson([script], String(script.name || '').trim() || '未命名脚本'), 'export'),
+                action('删除脚本', () => { row.parent.splice(row.index, 1); dirty(); render(); }, 'trash', 'danger'),
+            ], script.name || '未命名脚本');
             let built = false;
             details.addEventListener('toggle', () => {
                 if (!details.open || built) return; built = true;
@@ -2073,9 +2169,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.extensions?.tavern_helper?.scripts ?? value.data?.extensions?.tavern_helper?.scripts;
         validateScriptTree(imported);
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
-    }, 'folder'), action('导出脚本', () => {
-        const url = URL.createObjectURL(new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'export'));
+    }, 'folder'), action('导出脚本', () => downloadJson(tree, `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本`), 'export'));
     const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
         assertIdle();
         validateScriptTree(tree);
@@ -2108,7 +2202,9 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
             toolbar.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
             summary.append(enabled, title); row.append(summary);
             const render = () => { onDirty(); renderRegexEditor(parent, rules, onDirty, opened); };
-            toolbar.append(action('复制规则', () => { rules.splice(index + 1, 0, { ...copy(rule), id: uuid(), scriptName: `${rule.scriptName || '正则'}（副本）` }); render(); }, 'copy'), action('删除规则', () => {
+            toolbar.append(action('复制规则', () => { rules.splice(index + 1, 0, { ...copy(rule), id: uuid(), scriptName: `${rule.scriptName || '正则'}（副本）` }); render(); }, 'copy'), action('导出规则', () => {
+                downloadJson(rule.findRegex === undefined ? [rule] : rule, String(rule.scriptName || '').trim() || '未命名正则');
+            }, 'export'), action('删除规则', () => {
                 if (!confirm('从当前范围删除此规则？保存后生效。')) return; rules.splice(index, 1); render();
             }, 'trash', 'danger'));
             for (const button of toolbar.children) { button.title = button.textContent.trim(); button.setAttribute('aria-label', `${button.textContent.trim()} ${rule.scriptName || index + 1}`); }
@@ -2175,7 +2271,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', tools.id);
     const create = action('新建角色', () => { setToolsOpen(false); return characterEditor(null); }, 'plus', 'icon-button');
     const importButton = action('导入角色', () => { setToolsOpen(false); more.focus(); return importCharacter(library.folders.some(item => item.id === folder) ? folder : ''); }, 'import', 'icon-button');
-    const createFolder = action('新建分类', () => { setToolsOpen(false); folderForm(); }, 'folderPlus', 'icon-button');
+    const createFolder = action('新建分类', () => { setToolsOpen(false); editFolder(null, more); }, 'folderPlus', 'icon-button');
     for (const button of [more, create, importButton, createFolder]) {
         button.title = button.textContent.trim();
         button.setAttribute('aria-label', button.title);
@@ -2223,19 +2319,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     const cards = el('div', 'character-files');
     const pager = el('div', 'library-pager');
     content.append(breadcrumb, cards, pager);
-    const form = el('section', 'folder-form'); form.hidden = true;
-    const formTitle = el('h3'); form.append(formTitle);
-    const folderName = field(form, '分类名称', '', { hint: '最多 40 个字符。分类只整理列表，不移动或删除角色文件。' }); folderName.maxLength = 40;
-    let editingFolder = null;
-    form.append(action('保存', async () => {
-        const text = folderName.value;
-        const existing = library.folders.find(item => item.name.trim().toLocaleLowerCase() === text.trim().toLocaleLowerCase());
-        const id = editingFolder || existing?.id || uuid();
-        const renaming = !!editingFolder;
-        await persist(raw => renaming ? renameFolder(raw, id, text) : libraryState(raw).folders.some(item => item.id === id) ? libraryState(raw) : addFolder(raw, id, text));
-        folder = id; form.hidden = true; panelDirty = false; renderFolders(); renderCards(); notify('分类已保存');
-    }, null, 'primary'), action('取消', () => { form.hidden = true; panelDirty = false; }));
-    body.append(form, content);
+    body.append(content);
     async function persist(transform) {
         state.settings = await api.patchSettings(settings => {
             const own = settingsOwn(settings); own.characterLibrary = transform(own.characterLibrary);
@@ -2244,10 +2328,20 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
         if (revision !== panelRevision) return;
         library = libraryState(state.own.characterLibrary); if (!['all', 'unfiled'].includes(folder) && !library.folders.some(item => item.id === folder)) folder = 'unfiled'; renderFolders(); renderCards();
     }
-    function folderForm(id = null) {
-        editingFolder = id; formTitle.textContent = id ? '重命名分类' : '新建分类';
-        folderName.value = id ? library.folders.find(item => item.id === id).name : '';
-        form.hidden = false; form.scrollIntoView({ block: 'nearest' }); folderName.focus({ preventScroll: true });
+    function editFolder(id, returnFocus) {
+        const value = library.folders.find(item => item.id === id)?.name || '';
+        editName({ title: id ? '修改分类名称' : '新建分类', label: '分类名称', value, maxLength: 40, returnFocus, save: async text => {
+            if (id && text === value) return;
+            const existing = library.folders.find(item => item.name.trim().toLocaleLowerCase() === text.toLocaleLowerCase());
+            const target = id || existing?.id || uuid();
+            await persist(raw => {
+                if (id) return renameFolder(raw, target, text);
+                const next = libraryState(raw);
+                return next.folders.some(item => item.id === target) ? next : addFolder(raw, target, text);
+            });
+            if (revision !== panelRevision) return;
+            chooseFolder(target); notify('分类已保存');
+        } });
     }
     function chooseFolder(id) { folder = id; page = 0; selected.clear(); renderFolders(); renderCards(); }
     function renderFolders() {
@@ -2269,7 +2363,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
             button.classList.toggle('active', folder === id); button.setAttribute('aria-pressed', String(folder === id));
             const count = el('small', 'folder-count', String(filterCards(state.characters, library, id).length));
             button.append(count); row.append(button);
-            const rename = action(`重命名 ${label}`, () => { folderTabs.hidden = true; folderToggle.setAttribute('aria-expanded', 'false'); folderForm(id); }, 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
+            const rename = action(`重命名 ${label}`, () => { folderTabs.hidden = true; folderToggle.setAttribute('aria-expanded', 'false'); editFolder(id, folderToggle); }, 'edit', 'folder-edit'); rename.title = '重命名分类'; rename.setAttribute('aria-label', `重命名分类 ${label}`);
             const remove = action(`删除 ${label}`, async () => { if (!confirm(`删除分类「${label}」？角色卡将保留并回到未分类。`)) return; await persist(raw => deleteFolder(raw, id)); if (folder === id) chooseFolder('unfiled'); }, 'trash', 'folder-edit danger'); remove.title = '删除分类'; remove.setAttribute('aria-label', `删除分类 ${label}`);
             const menu = el('span', 'folder-inline-menu inset-action-menu'); menu.hidden = true; menu.append(rename, remove);
             menu.id = `folder-actions-${uuid()}`; menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', '分类操作');
@@ -2620,8 +2714,12 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
         state.own = state.settings.independent_frontend;
     };
     globalSettings.append(action('保存全局设置', async () => { assertIdle(); await saveGlobals(); panelDirty = bookDirty; notify('世界书全局设置已保存'); }, 'book'));
-    body.append(globalSection);
-    const bar = el('div', 'connection-profile-bar'); body.append(bar);
+    const ivory = document.documentElement.dataset.palette === 'ivory-cards';
+    const bar = el('div', 'connection-profile-bar');
+    if (ivory) {
+        const toolbar = el('div', 'world-book-toolbar');
+        toolbar.append(bar); body.append(toolbar);
+    } else body.append(bar);
     const select = el('select'); select.setAttribute('aria-label', '当前世界书'); select.dataset.searchable = 'true'; select.dataset.searchPlaceholder = '搜索世界书…'; select.dataset.searchLabel = '搜索世界书';
     for (const world of worlds) { const option = el('option', '', world.name); option.value = world.file_id; select.append(option); }
     if (target && worlds.some(world => world.file_id === target)) select.value = target;
@@ -2638,33 +2736,33 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
         const build = () => renderWorldEntries(target, draft, { el, field, action, dirty, icon, countTokens: async text => { const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(connection().model)}`, [{ role: 'system', content: text }]); return result.token_count; } });
         return trace ? trace.measureSync('世界书 · 构建条目列表', 'data', build, () => ({ metrics: { entryCount: Object.keys(draft.entries || {}).length } })) : build();
     };
-    const button = (label, glyph, callback, className = '') => { const control = action(label, callback, glyph, className); control.title = label; control.setAttribute('aria-label', label); tools.append(control); return control; };
-    button('修改世界书名称', 'edit', () => {
-        const value = prompt('世界书名称', name.value);
-        if (value === null) return;
-        if (!value.trim()) { notify('请输入世界书名称', 'warning'); return; }
-        name.value = value.trim(); dirty();
-        select.options[select.selectedIndex].textContent = `${name.value}（未保存）`;
-    });
-    button('新增世界书', 'plus', async () => {
+    const button = (label, callback, glyph, className = '') => { const control = action(label, callback, glyph, className); control.title = label; control.setAttribute('aria-label', label); tools.append(control); return control; };
+    const rename = button('修改世界书名称', () => editName({ title: '修改世界书名称', label: '世界书名称', value: name.value,
+        returnFocus: tools.querySelector('[aria-expanded]') || rename, save: value => {
+            if (value === name.value) return;
+            name.value = value; dirty();
+            select.options[select.selectedIndex].textContent = `${value}（未保存）`;
+        } }), 'edit');
+    button('新增世界书', async () => {
         if (panelDirty && !confirm('放弃未保存的修改并新建世界书？')) return;
         panelDirty = false; await worldsPanel(uniquePresetName('新世界书', worlds.map(book => book.file_id)), { entries: {} }, character);
-    });
-    button('导入世界书', 'import', async () => {
+    }, 'plus');
+    button('导入世界书', async () => {
         if (panelDirty && !confirm('放弃未保存的修改并导入世界书？')) return;
         const file = await pickFile('.json'); if (!file) return;
         const value = worldDraft(JSON.parse(await file.text())); panelDirty = false; await worldsPanel(file.name.replace(/\.json$/i, ''), value, character);
-    });
-    button('导出世界书', 'export', () => {
+    }, 'import');
+    button('导出世界书', () => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' }));
         const link = el('a'); link.href = url; link.download = `${safeName(name.value.trim() || '世界书')}.json`; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    });
-    const remove = button('删除世界书', 'trash', async () => {
+    }, 'export');
+    const remove = button('删除世界书', async () => {
         assertIdle(); if (!original) return;
         if (!confirm(`删除世界书「${original}」？关联它的角色或用户设定需要重新选择世界书。`)) return;
         await api.post('/api/worldinfo/delete', { name: original }); globals.delete(original); await saveGlobals();
         panelDirty = false; notify('世界书已删除'); await worldsPanel('', null, character);
-    }, 'danger'); remove.disabled = !original;
+    }, 'trash', 'danger'); remove.disabled = !original;
+    if (ivory) discloseProfileTools(bar, tools, button, '更多世界书操作', '世界书管理');
     if (initial || !worlds.length) {
         const option = el('option', '', `${target || '新世界书'}（未保存）`); option.value = '__draft__'; select.append(option); select.value = '__draft__'; panelDirty = true;
     }
@@ -2722,14 +2820,23 @@ async function databaseWorlds(config) {
  return Promise.all(selected.map(async book=>({...(await api.post('/api/worldinfo/get',{name:book.file_id})),name:book.file_id})));
 }
 function databaseConnection(settings) {
- if(settings.apiMode==='tavern'){const profile=profileStore.profiles.find(profile=>profile.id===(settings.tavernProfile||settings.profileId));if(!profile)throw Error('请选择酒馆连接预设');return {...profile};}
+    if (settings.apiMode === 'tavern') {
+        const profile = profileStore?.profiles.find(item => item.id === (settings.tavernProfile || settings.profileId));
+        if (!profile) throw Error('请选择主 API 渠道');
+        const model = Object.hasOwn(settings.tavernModels || {}, profile.id) ? settings.tavernModels[profile.id] : profile.model;
+        return { ...profile, model };
+    }
  const config=settings.apiConfig;return {source:'custom',url:config.url||'',model:config.model||'',proxyPassword:config.apiKey||'',secretId:'no-key-database',stream:false};
+}
+async function readConnectionModels(config) {
+    const result = await api.post('/api/backends/chat-completions/status', { chat_completion_source: config.source, custom_url: config.url, secret_id: config.secretId });
+    return modelOptions(result);
 }
 async function databaseModels(config) {
  if(!config.url?.trim())throw new Error('请填写 API 基础地址');
  const normalized=normalizeConnection({source:'custom',url:config.url,model:config.model||'model-list',proxyPassword:config.apiKey||''});
  let secretId='no-key-database';if(config.apiKey){const secret=await api.post('/api/secrets/write',{key:'api_key_custom',value:config.apiKey,label:'数据管理'});secretId=secret.id;}
- const result=await api.post('/api/backends/chat-completions/status',{chat_completion_source:'custom',custom_url:normalized.url,secret_id:secretId});return modelOptions(result);
+ return readConnectionModels({ ...normalized, secretId });
 }
 function assertDatabaseWritable() {
     if (state.historySaving) throw new DatabaseWriteError('正在保存聊天记录，请稍候。');
@@ -2788,48 +2895,21 @@ function databaseWriteGuard(index, { allowReload = false } = {}) {
         saved() { original = snapshot(); },
     };
 }
-async function databasePanel(preview = false) {
+async function databasePanel() {
     assertViewable(); if (!state.character) throw new Error('请先打开一个角色的聊天。');
     const current = currentDatabase();
-    const body = showPanel(preview ? '数据预览' : '数据管理', `${state.character.name} · 当前聊天`, 'database-panel'); if (!body) return;
+    const body = showPanel('数据管理', '', 'database-panel'); if (!body) return;
     const identity = `${state.character.avatar}/${state.file}`;
     const chat = state.chat, header = state.header;
     const revision = panelRevision;
-    const target = state.chat.findLastIndex(message => !message.is_user && message !== state.generation?.reply);
-    const write = databaseWriteGuard(target);
     const sameChat = () => { if (state.chat !== chat || state.header !== header || `${state.character?.avatar}/${state.file}` !== identity) throw new Error('聊天已切换，请重新打开数据库。'); };
     const content = el('div', 'panel-content'); body.append(content);
     renderDatabasePanel(content, {
-        worlds: databaseWorlds, models: databaseModels, preview, el, field, apiKeyField, action, icon, notify, pickFile, characterName: state.character.name, chatName: state.file, chat, seed: header.chat_metadata?.independentDatabase?.seed,
-        settings: current.settings, data: current.data, legacy: current.legacy, profiles: profileStore?.profiles || [], legacySettings: state.settings.extension_settings?.dataManage,
+        worlds: databaseWorlds, models: databaseModels, profileModels: profile => readConnectionModels(profile), el, field, apiKeyField, action, icon, notify, pickFile, editName, discloseProfileTools,
+        chat, seed: header.chat_metadata?.independentDatabase?.seed,
+        settings: current.settings, data: current.data, profiles: profileStore?.profiles || [],
         history: () => header.chat_metadata?.independentDatabase?.history || [],
         getSeed: () => header.chat_metadata?.independentDatabase?.seed,
-        blockedKeywords: key => databaseBlockedKeywords(header, key),
-        saveBlockedKeywords: async (key, words) => {
-            sameChat(); assertSaved();
-            if (state.databaseController) throw new Error('请等待数据库更新完成后再保存屏蔽关键词。');
-            const metadata = header.chat_metadata.independentDatabase;
-            const previous = metadata.blockedKeywords;
-            const next = { ...previous };
-            if (words.length) next[key] = words;
-            else delete next[key];
-            if (Object.keys(next).length) metadata.blockedKeywords = next;
-            else delete metadata.blockedKeywords;
-            state.historySaving = true;
-            try {
-                await saveChat({ incremental: true });
-            } catch (error) {
-                if (previous === undefined) delete metadata.blockedKeywords;
-                else metadata.blockedKeywords = previous;
-                generationPreload.invalidate();
-                state.dirty = false;
-                status(state.chatConflict || '屏蔽关键词未保存', true);
-                throw error;
-            } finally {
-                state.historySaving = false;
-                synchronize();
-            }
-        },
         deleteHistory: async (ids, expected) => {
             sameChat(); assertDatabaseWritable();
             if (state.databaseController || state.busy) throw new Error('请等待生成或数据库更新完成后再删除历史总结。');
@@ -2859,7 +2939,6 @@ async function databasePanel(preview = false) {
             sameChat();
             if (enabling) { ((state.header.chat_metadata ||= {}).independentDatabase ||= {}).autoStart = state.chat.length; await saveChat(); }
         },
-        saveData: async value => { write.check(); sameChat(); storeDatabase(state.chat, state.header, value, target); write.saved(); await saveChat(); await rememberChat(); },
         fill: async (from, to) => { sameChat(); await updateDatabase(from, to); },
         summarize: async () => { sameChat(); await updateDatabase(0, 0, false, 'database'); },
         countDatabaseTokens: async () => { sameChat(); const latest=currentDatabase(); return databaseTokenCount(latest.data, latest.settings); },
@@ -3293,7 +3372,6 @@ async function generate(mode = false, recovery = null) {
         replyIndex = state.chat.length - 1;
         state.generation.reply = reply;
         state.hiddenReply = reply;
-        if (prepared) preview = prepared;
         const controller = state.controller;
         const fetchReply = async (request, signal) => {
             const base = api.chatBase;
@@ -3516,14 +3594,13 @@ async function deleteEditedMessage(message) {
 
 function chatHistoryPanel() {
     assertSaved(); if (!state.character) throw Error('请先打开聊天。');
-    const body = showPanel('聊天记录管理', '当前聊天', 'chat-history-panel'); if (!body) return;
+    const body = showPanel('聊天记录管理', '', 'chat-history-panel'); if (!body) return;
     const revision = panelRevision, identity = scriptIdentity(), source = state.chat;
     let original = copy(source), header = copy(state.header);
     renderChatHistoryManager(body, {
         chat: original, el, action, notify,
         dirty: value => { if (revision === panelRevision) { const previous = panelDirty; panelDirty = value; if (previous && !value) synchronize(); } },
         jump: id => { assertSaved(); if (identity !== scriptIdentity()) throw Error('聊天已切换。'); if (closePanel()) list.jump(id); },
-        makeMessage: (role, text) => ({ name: role === 'user' ? persona().name : state.character.name, is_user: role === 'user', is_system: false, send_date: new Date().toISOString(), mes: text, extra: {} }),
         save: async (messages, start) => {
             assertSaved();
             if (state.databaseController) throw Error('请等待数据库更新完成后再保存聊天记录。');
@@ -3544,26 +3621,17 @@ function chatHistoryPanel() {
     });
 }
 function databasePreviewPanel() {
- assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览',`楼层 ${current.index}${current.archived?' · 覆盖前版本':''}`,'database-panel');if(!body)return;
+ assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览','','database-panel');if(!body)return;
  const revision=panelRevision,write=databaseWriteGuard(current.index);
  const previousData = findDatabaseSnapshot(state.chat, state.header, { through: current.index - 1, structuredOnly: true })?.data ?? null;
- renderDatabasePreview(body,{el,field,action,dirty:value=>{if(revision===panelRevision)panelDirty=value;},data:current.data,index:current.index,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
+ renderDatabasePreview(body,{el,field,action,dirty:value=>{if(revision===panelRevision)panelDirty=value;},data:current.data,index:current.index,archived:current.archived,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
  saveData:async value=>{write.check();storeDatabase(state.chat,state.header,value,current.index,current.archived?current.meta:undefined);write.saved();await saveChat();},
  send:text=>{if(closePanel()){$('message-input').value=text;resizeInput();$('message-input').focus();}}
  });
 }
+const readingSettingsTitle = '阅读设置';
 function toolsPanel() {
-    const body = showPanel('对话工具', state.character?.name || '连接、预设与阅读', 'reading-tools-panel'); if (!body) return;
-    const grid = el('div', 'nav-grid');
-
-    body.append(action('预览下一次请求的提示词', async () => {
-        assertIdle(); const prepared = await preparePrompt();
-        const target = showPanel('提示词预览', `${prepared.tokens} tokens · 裁剪 ${prepared.trimmed} 条历史`); if (!target) return;
-        note(target, `激活世界书条目 ${prepared.activated.length} 条。上下文统计沿用酒馆 tokenizer；自定义模型应核对 tokenizer 与模型是否一致。`);
-        const content = el('pre', 'prompt-preview', JSON.stringify(prepared.messages, null, 2)); target.append(content);
-        preview = prepared;
-    }, 'chat'));
-    if (preview) note(body, `最近一次提示词：${preview.tokens} tokens，${preview.activated.length} 条世界书内容。`);
+    const body = showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
     if (state.dirty) body.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
@@ -3628,7 +3696,6 @@ function toolsPanel() {
         applyPalette(selectedPalette, true);
         panelDirty = false; notify('阅读设置已保存');
     }, 'tools', 'primary')); body.append(footer);
-    note(body, '手机输入框默认回车换行，用发送按钮发送。此页面独立运行，不加载原生前端或第三方扩展。');
     const native = el('a', 'native-link', '打开原生页面'); native.href = '/'; native.target = '_blank'; native.rel = 'noopener'; body.append(native);
 }
 
@@ -3665,6 +3732,26 @@ function positionComposerMenu(menu, toggle) {
     menu.style.bottom = `${Math.max(8, innerHeight - rect.top + 8)}px`;
     menu.style.maxHeight = `${Math.max(60, rect.top - 16)}px`;
 }
+function confirmFrontendUpdate(question) {
+    if (document.documentElement.dataset.palette !== 'ivory-cards') return confirm(question);
+    const dialog = el('dialog', 'compact-dialog');
+    const heading = el('h2', '', '检查更新'); heading.id = 'frontend-update-confirm-title';
+    const description = el('p', '', question); description.id = 'frontend-update-confirm-description';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    dialog.setAttribute('aria-describedby', description.id);
+    const form = el('form'); form.method = 'dialog';
+    const actions = el('div', 'compact-dialog-actions');
+    const cancel = el('button', 'button', '取消'); cancel.value = 'cancel'; cancel.autofocus = true;
+    const install = el('button', 'button primary', '更新'); install.value = 'install';
+    actions.append(cancel, install); form.append(heading, description, actions); dialog.append(form);
+    return new Promise(resolve => {
+        dialog.addEventListener('close', () => {
+            dialog.remove(); $('tools-toggle').focus({ preventScroll: true });
+            resolve(dialog.returnValue === 'install');
+        }, { once: true });
+        document.body.append(dialog); dialog.showModal();
+    });
+}
 const closeQuickReplies = () => { quickReplies.hidden = true; quickRepliesToggle.setAttribute('aria-expanded', 'false'); };
 quickRepliesToggle.addEventListener('click', () => {
     composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false');
@@ -3677,17 +3764,19 @@ document.addEventListener('click', event => { if (!quickReplies.contains(event.t
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickReplies(); });
 for (const [label, glyph, callback] of [
     ['刷新页面', 'refresh', () => { assertIdle(); window.location.reload(); }],
-    ['最近请求记录', 'requestFlow', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle') })],
+    ['最近请求记录', 'requestFlow', () => showRequestLog({ el, action, notify, returnFocus: $('tools-toggle'), prepareNextPrompt: () => {
+        assertIdle(); return preparePrompt();
+    } })],
     ['变量管理器', 'tools', variableManagerPanel],
     ['加载日志', 'activity', timingPanel],
-    ['检查更新', 'updateDownload', () => manualUpdate({ api, notify, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })],
+    ['检查更新', 'updateDownload', () => manualUpdate({ api, notify, confirmUpdate: confirmFrontendUpdate, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })],
     ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }],
     ['聊天记录管理', 'message', chatHistoryPanel],
     ['历史聊天', 'history', chatsPanel],
     ['开启新聊天', 'plus', async () => { assertSaved(); if (!state.character) throw new Error('请先选择角色。'); await loadChat(null); }],
     ['数据预览', 'eye', databasePreviewPanel],
     ['数据管理', 'database', () => databasePanel()],
-    ['更多工具', 'more', toolsPanel],
+    [readingSettingsTitle, 'more', toolsPanel],
 ]) {
     composerTools.append(action(label, () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return callback(); }, glyph));
 }
@@ -3701,7 +3790,6 @@ $('panel').addEventListener('cancel', event => { event.preventDefault(); closePa
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
 $('composer').addEventListener('submit', event => { event.preventDefault(); void afterMessageEdit(() => generate(false)); });
-composerTools.append(action('酒馆伴侣', () => { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); return openScriptWorkspace(); }, 'components'));
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('scroll', raiseNotification);
@@ -3725,15 +3813,21 @@ window.visualViewport?.addEventListener('scroll', resizeViewport);
 window.addEventListener('resize', resizeViewport); resizeViewport(); synchronize();
 startupPromise = start();
 void run(() => startupPromise);
-const androidShellObserver = new MutationObserver(() => {
-    if (!usesBackgroundGeneration()) return;
+const handleAndroidShell = () => {
+    const updateButton = $('android-apk-update');
+    if (!updateButton) return;
     androidShellObserver.disconnect();
+    if (!updateButton.querySelector('svg')) {
+        updateButton.replaceChildren(icon('apkUpdate'), el('span', '', updateButton.textContent.trim()));
+    }
     void run(async () => {
         await startupPromise;
         await resumeBackgroundChat({ discover: true });
     });
-});
+};
+const androidShellObserver = new MutationObserver(handleAndroidShell);
 androidShellObserver.observe(composerTools, { childList: true });
+handleAndroidShell();
 
 
 
