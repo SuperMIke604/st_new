@@ -66,42 +66,38 @@ export class VirtualChat {
                 const card = node.getBoundingClientRect();
                 if (card.top >= bottom) break;
                 if (card.bottom <= top) continue;
-                const clipTop = Math.max(0, top - card.top);
-                const clipBottom = Math.max(0, card.bottom - bottom);
-                if (clipTop <= .5 && clipBottom <= .5) continue;
-                const visibleHeight = card.height - clipTop - clipBottom;
-                const hidden = visibleHeight <= (clipTop > 0 ? 8 : 2);
-                clipped.set(node, { clipTop, clipBottom, visibleHeight, hidden });
-                if (!hidden) {
-                    const edge = clipTop > .5 ? 'top' : 'bottom';
+                const cutsTop = card.top < top - .5;
+                const cutsBottom = card.bottom > bottom + .5;
+                if (!cutsTop && !cutsBottom) continue;
+                const visibleHeight = Math.min(card.bottom, bottom) - Math.max(card.top, top);
+                const edge = cutsTop ? 'top' : 'bottom';
+                const full = cutsTop && cutsBottom;
+                clipped.set(node, { edge: full ? 'full' : edge, visibleHeight });
+                if (visibleHeight > (cutsTop ? 8 : 2)) {
                     const color = getComputedStyle(node).getPropertyValue('--message-outline').trim();
-                    outlines[edge] = { visibleHeight, color };
+                    outlines[edge] = { visibleHeight, color, full };
                 }
             }
         }
         for (const node of this.clippedCards) {
             if (!clipped.has(node)) {
                 node.removeAttribute('data-card-clip');
-                node.style.removeProperty('--card-clip-top');
-                node.style.removeProperty('--card-clip-bottom');
                 node.style.removeProperty('--card-visible-height');
             }
         }
-        for (const [node, { clipTop, clipBottom, visibleHeight, hidden }] of clipped) {
-            node.dataset.cardClip = hidden ? 'hidden' : 'rounded';
-            node.style.setProperty('--card-clip-top', `${clipTop}px`);
-            node.style.setProperty('--card-clip-bottom', `${clipBottom}px`);
+        for (const [node, { edge, visibleHeight }] of clipped) {
+            node.dataset.cardClip = edge;
             node.style.setProperty('--card-visible-height', `${visibleHeight}px`);
         }
         this.clippedCards = new Set(clipped.keys());
         // Keep strokes fixed to the viewport while the cards move underneath.
         for (const edge of ['top', 'bottom']) {
             const outline = outlines[edge];
-            frame.toggleAttribute(`data-outline-${edge}`, !!outline);
             if (outline) {
+                frame.setAttribute(`data-outline-${edge}`, outline.full ? 'full' : '');
                 frame.style.setProperty(`--outline-${edge}-height`, `${outline.visibleHeight}px`);
                 frame.style.setProperty(`--outline-${edge}-color`, outline.color);
-            }
+            } else frame.removeAttribute(`data-outline-${edge}`);
         }
     }
     locate(offset) {

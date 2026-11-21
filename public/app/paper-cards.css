@@ -267,20 +267,28 @@
     margin-block-end: 0;
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="hidden"] {
-    visibility: hidden;
-}
-
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) .message.from-user {
     background-color: var(--card-user-message, var(--soft));
     --message-outline: var(--card-user-border);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip="rounded"] {
+/* Let the scroll container clip the text as it moves, including between paints. */
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #message-list > .message[data-card-clip] {
     --visible-card-radius: min(var(--card-radius), calc(var(--card-visible-height) / 2));
     border-color: transparent;
-    border-radius: 0;
-    clip-path: inset(var(--card-clip-top) 0 var(--card-clip-bottom) round var(--visible-card-radius));
+    border-radius: var(--natural-top-radius, 0px) var(--natural-top-radius, 0px)
+                   var(--natural-bottom-radius, 0px) var(--natural-bottom-radius, 0px);
+}
+
+#message-list > .message[data-card-clip="top"] { --natural-bottom-radius: var(--visible-card-radius); }
+#message-list > .message[data-card-clip="bottom"] { --natural-top-radius: var(--visible-card-radius); }
+
+.message-list-frame[data-outline-top] { --frame-top-radius: min(var(--card-radius), calc(var(--outline-top-height) / 2)); }
+.message-list-frame[data-outline-bottom] { --frame-bottom-radius: min(var(--card-radius), calc(var(--outline-bottom-height) / 2)); }
+.message-list-frame[data-outline-top="full"] { --frame-bottom-radius: var(--frame-top-radius); }
+.message-list-frame > #message-list {
+    border-radius: var(--frame-top-radius, 0px) var(--frame-top-radius, 0px)
+                   var(--frame-bottom-radius, 0px) var(--frame-bottom-radius, 0px);
 }
 
 .message-list-frame[data-outline-top]::before,
