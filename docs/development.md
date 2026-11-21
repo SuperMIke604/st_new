@@ -69,6 +69,8 @@ node --test public/app/tests/*.test.mjs server/st-new-updater/updater.test.mjs
 
 `main` 是正式更新器的下载源。推送涉及更新分发文件的改动时，须先运行 `python scripts/refresh-version.py`，再运行 `node --test server/st-new-updater/version-manifest.test.mjs`，将生成的两个版本文件与源码一起提交。只推送源码而保留旧清单会导致文件校验失败。
 
+本轮包含 APK 改动时，用户要求推送到 GitHub 即包含发布 APK。推送前按根 README 更新 APK 版本号，使用原签名密钥构建并校验安装包。推送后以该提交创建 `apk-v<versionCode>` 的 GitHub Release，上传 `st-new.apk`，核对附件可下载并告知发布版本。
+
 在线更新下载固定仓库 main 上的清单和文件，校验后暂存替换，有异常回滚；插件更新可能需要重启。Termux 安装脚本直接复制并启用服务端插件，具有配置和部署副作用，不能作为一般验证命令。官方后端不由此更新。流程细节见根 README 与 `server/st-new-updater/index.mjs`。
 
 当前不需要记忆插件、定时总结或自动改写文档。重复验收流程稳定后再考虑 Skill/CI；发布清单与共享文档由集成任务统一维护。
