@@ -77,7 +77,7 @@ export function htmlCardContext(snapshot) {
         }
         if (event.source === parent && event.data?.type === 'tavern-html-variables' && (snapshot.helper || snapshot.mvuReparse)) {
             snapshot.variables = event.data.variables || {};
-            for (const fn of events.get('mvu_update') || []) window.errorCatched(fn)();
+            for (const fn of events.get('mvu_update') || []) window.errorCatched(fn)(clone(snapshot.variables));
             return;
         }
         if (event.source === parent && event.data?.type === 'tavern-html-helper' && snapshot.helper && !helperLoaded) {

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "9df9cf1df60c11aaee77c2f11b8dfb9f4d5dbe82a8890e583ea06aa0b92b2260",
-  "publishedAt": "2026-11-21T06:19:46.750424+00:00",
+  "revision": "091f821b9889bccea4b55d0ec507bfa56b16674662f471999ceccaa7d37ba44b",
+  "publishedAt": "2026-11-21T12:39:45.823585+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -12,7 +12,7 @@
     "public/app/chat-history.js": "81a83b4a67924004a6ad3523b71d0442955bd2bd39213f3067c84cc5b96b4249",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
     "public/app/claude-day.css": "ef615efa89408d25460fb7e7e031bc324bb4c7df1b4416e10e029d79ade9edf6",
-    "public/app/code-blocks.js": "b68e9a896f238e07dab576d37c0d83de62ca8ee74656466d7bf05c3bdd1ec16d",
+    "public/app/code-blocks.js": "deb1c5b9193358f30996c84648f7e43c725f0765b558f9faa57ef80206e85fef",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
     "public/app/controls.css": "6a5a35aec00dc9675f6a832d560f638e9949c13e6b332fab2902fe8c04298bed",
     "public/app/database-defaults.js": "1cfe7da47489f42512d6892fc325e5cd5bfbfe7a8ad65a11426545408c7c6f21",
@@ -32,7 +32,7 @@
     "public/app/helper-state.js": "a4a6ed59c38755ab209cf70c07b78daf5fd37f9c2d8d69f7ccb43bcea6c2df8e",
     "public/app/history-regex-cache.js": "a04a7021ef0f2229e1b45b89da3148a8e6a1319b25ff0372c357e626657fd7ec",
     "public/app/home-data.js": "c722789eac2f70d6e05505133af9fb028950e6811eafc6ec0aa49f1984fff081",
-    "public/app/html-card-context.js": "3af18018fc50eee4ef8b682a6e24277c1f90549bde2d4c97d16238ff4a698a87",
+    "public/app/html-card-context.js": "440b58bae80776cf1c17ac3d09eb43649323073eb193c68d1e33a69fa73c99b2",
     "public/app/html-card-loader.js": "7ed9a89135acd88a8a704af094a9b58b5d32238cc160b70e500514ea81f63898",
     "public/app/html-mvu-reparse.js": "d0f9b929797a670be067bc6e37ce7c015a622591fc0e173c05173f4a2819e5b0",
     "public/app/html-opening.js": "28e6140889543a01fe6ee41445f07f2974de8a13efbd0feb22d630ecde737717",
@@ -41,7 +41,7 @@
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "b15df8380aebf99778475aea58cf53944d4379a93215bfc719616f362ad7d7fc",
-    "public/app/main.js": "9e3fc9bac194ee8ad2b0e9cbb08f73cf5173811da9cea437002e6b39b8a82a69",
+    "public/app/main.js": "1d33034420fb8feb50cf6b53a2a34ca340c9776dfb618616c561d0fc9d044fd5",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -63,7 +63,7 @@
     "public/app/role-worldbook.js": "66feaaf5db3a6126bcb32bd4821b8d35f0a5908f97f5d70e9b013fcf3ae731ac",
     "public/app/script-bridge.js": "2e8c2fad4355a974ad572e3ead820b9793e1897e4427c405c85fd36a7949fbef",
     "public/app/script-chat.js": "281af946679f62205246e687c77e0446ad306f554dd4625ce4d43c9346c8ba59",
-    "public/app/script-commands.js": "0803903b49940d2d381f91ee7cd79d59615edba5a7dd6b67e66790bce8d549a7",
+    "public/app/script-commands.js": "7fbd4828da57ed96aab5c5ffb25084036e5840fe147c6c0b9e28d6d131bfc56d",
     "public/app/script-helper.js": "8f9bc85a275d84609446d7b01b52621ce5cf2d168ae64b471b0fc527540d375d",
     "public/app/script-inline.js": "2207ddc70361c2b0f4139f5a12963bd82ef4c144ffd149fd6b1604d26038b075",
     "public/app/script-layout.js": "68044b5f2ca95eadd923044eb80558ae35d1fff7ce16d18381ff6c04d3a4d30f",
@@ -95,7 +95,7 @@
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "2dfa3ebabb1c72d2ecddbfbf42ea7231a4f08725a9765a0d7c9c001e358bc906"
+    "public/app/version.js": "2d53460ea91530b04fb244079bf5979ec5a6cedad39193c93da15bea1b459099"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

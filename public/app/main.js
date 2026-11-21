@@ -2127,6 +2127,7 @@ async function roleScriptAction(action, payload, identity, externalCheck = null)
     check();
     if (action === 'slash' && !/^\/(?:trigger(?:\s+await=true)?|hide\s+\d+)$/.test(payload?.command?.trim() || '')) {
         const commands = parseScriptCommands(payload?.command), macro = text => String(text).replace(/\{\{\s*(user|char)\s*\}\}/gi, (_, key) => key.toLowerCase() === 'user' ? persona().name : state.character.name);
+        if (commands[0].type === 'setinput') return helperHostAction('set-draft', { scriptId: payload.scriptId, text: macro(commands[0].text) }, identity, externalCheck);
         if (['getvar', 'setvar'].includes(commands[0].type)) {
             const command = commands[0], base = copy(state.header?.chat_metadata?.variables || {});
             if (command.type === 'getvar') return { value: typeof base[command.key] === 'string' ? base[command.key] : JSON.stringify(base[command.key] ?? '') };

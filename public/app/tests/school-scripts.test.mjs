@@ -33,6 +33,8 @@ test('send pipelines cannot smuggle extra generation, preserve escaped macros an
     assert.equal(parseScriptCommands('/setvar type=chat key=phone_history [{"text":"a\\|b"}]')[0].value, '[{"text":"a|b"}]');
     assert.equal(parseScriptCommands('/getvar type=chat phone_history')[0].type, 'getvar');
     assert.throws(() => parseScriptCommands('/setvar type=chat key=__proto__ bad'));
+    assert.deepEqual(parseScriptCommands('/setinput 查看当前状态'), [{ type: 'setinput', text: '查看当前状态' }]);
+    assert.throws(() => parseScriptCommands('/setinput 查看当前状态 | /trigger'));
 });
 test('opening selection hydrates only a matching greeting and preserves every branch and unknown field', () => {
     const message = { mes: 'home', variables: { 0: { score: 1 } }, extra: { preserve: true }, custom: 42 }, records = [{ chat_metadata: { integrity: 'keep' } }, message];
@@ -75,6 +77,21 @@ test('message HTML authenticates RPC replies and reads its own opening alternati
     const failed = window.triggerSlash('/setentryfield file=Other uid=0 field=disable true'), call = sent.at(-1);
     handlers.forEach(fn => fn({ source: parent, data: { type: 'tavern-html-response', id: call.id, error: 'worldbook not associated' } })); await assert.rejects(failed, /not associated/);
 });
+test('HTML MVU listeners receive the current floor variables without sharing mutable state', () => {
+    const window = {}, parent = {}, handlers = [];
+    const context = vm.createContext({ window, parent, document: { readyState: 'loading', addEventListener() {} }, addEventListener: (_name, fn) => handlers.push(fn) });
+    vm.runInContext(`(${htmlCardContext.toString()})({helper:true})`, context);
+    let observed;
+    window.eventOn(window.Mvu.events.VARIABLE_UPDATE_ENDED, payload => { payload.stat_data.角色.audit.姓名 = 'modified'; });
+    window.eventOn(window.Mvu.events.VARIABLE_UPDATE_ENDED, payload => { observed = payload.stat_data.角色.audit.姓名; });
+    const data = { type: 'tavern-html-variables', variables: { stat_data: { 角色: { audit: { 姓名: 'Audit' } } } } };
+    handlers[0]({ source: {}, data });
+    assert.equal(observed, undefined);
+    handlers[0]({ source: parent, data });
+    assert.equal(observed, 'Audit');
+    assert.equal(window.Mvu.getMvuData().stat_data.角色.audit.姓名, 'Audit');
+});
+
 test('zero-size shadow hosts expose only visible interactive controls to iframe clipping', () => {
     const element = (width, height, style = {}) => ({ tagName: 'DIV', children: [], style: { display: 'block', pointerEvents: 'auto', ...style }, getBoundingClientRect: () => ({ width, height }) });
     const host = element(0, 0, { pointerEvents: 'none' }), ball = element(48, 48), hiddenPanel = element(400, 600, { display: 'none' });

@@ -167,6 +167,9 @@ function installPreviewEdgeStyles() {
 }
 
 export function previewDocument(source, context = {}, remote = false) {
+    if (context.scriptActions && source.includes("document.querySelectorAll('.sys-btn')") && source.includes("triggerSlash('/setinput ' + command)")) {
+        source = source.replace(/\}\.catch\(function \(\) \{\s*triggerSlash\('\/echo severity=info 已填入命令：' \+ command\);/, "}.catch(function (error) { window.alert(error.message || String(error));");
+    }
     const cdn = remote ? ' https://testingcf.jsdelivr.net https://cdn.jsdelivr.net' : '';
     const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob:${cdn}; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
     const bridge = `<script>(()=>{

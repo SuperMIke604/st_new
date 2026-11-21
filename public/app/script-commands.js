@@ -35,6 +35,8 @@ export function parseScriptCommands(source) {
         }
         const send = /^\/send\s+([\s\S]+)$/.exec(part);
         if (send) return { type: 'send', text: unescape(send[1]) };
+        const draft = /^\/setinput\s+([\s\S]+)$/.exec(part);
+        if (draft) return { type: 'setinput', text: unescape(draft[1]) };
         const variable = /^\/(getvar|setvar)\s+type=chat\s+(?:key=)?([\p{L}\p{N}_-]{1,200})(?:\s+([\s\S]*))?$/u.exec(part);
         if (variable) {
             if (['__proto__', 'prototype', 'constructor'].includes(variable[2]) || variable[1] === 'getvar' && variable[3] !== undefined) throw Error('聊天变量指令无效。');
@@ -51,7 +53,7 @@ export function parseScriptCommands(source) {
     if (world.length && (world.length !== commands.length || new Set(world.map(command => command.name)).size !== 1)) throw Error('世界书指令必须单独操作同一本世界书。');
     if (!world.length) {
         const effects = commands.filter(command => command.type !== 'echo');
-        if (commands.length === 1 && ['getvar', 'setvar'].includes(effects[0]?.type)) return commands;
+        if (commands.length === 1 && ['getvar', 'setvar', 'setinput'].includes(effects[0]?.type)) return commands;
         if (!effects.length || effects.length === 1 && effects[0].type === 'sendas' || effects.length === 2 && effects[0].type === 'send' && effects[1].type === 'trigger') return commands;
         throw Error('暂只支持发送一条用户指令后生成，或添加一条角色显示消息。');
     }
