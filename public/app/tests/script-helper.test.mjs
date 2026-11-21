@@ -43,6 +43,19 @@ test('native-style host saves variables and exposes only the compatibility paren
     assert.equal(f.records()[1].variables[1].score, 7);
 });
 
+test('legacy chat saves preserve array-backed swipe variables and reject stale revisions', () => {
+    const original = { mes: 'third', swipes: ['first', 'second', 'third'], swipe_id: 2, variables: [{ score: 1 }, null, { score: 3 }] };
+    const records = [{ chat_metadata: { integrity: 'keep' } }, original];
+    const change = { type: 'message', message_id: 0, revision: helperMessageRevision(original), base: original.variables, value: [{ score: 1 }, null, { score: 4 }] };
+    const saved = patchHelperVariables(records, [change]);
+    assert.deepEqual(saved[1].variables, [{ score: 1 }, null, { score: 4 }]);
+    assert.equal(original.variables[2].score, 3);
+    assert.throws(() => patchHelperVariables(saved, [{ ...change, value: [{ score: 1 }, null, { score: 5 }] }]), /其他页面或脚本修改/);
+    const patched = patchHelperMessages(saved, [{ message_id: 0, revision: change.revision, base: saved[1].variables, data: { score: 5 } }]);
+    assert.deepEqual(patched[1].variables, [{ score: 1 }, null, { score: 5 }]);
+    assert.throws(() => patchHelperVariables(records, [{ type: 'chat', base: {}, value: [] }]), /JSON 对象/);
+});
+
 test('ordinary helper scripts wait for a real namespace and merge variables without exposing references', async () => {
     const f = fixture();
     f.context.Mvu = { original: true };

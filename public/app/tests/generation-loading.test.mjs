@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { LoadTimings, requestFailure } from '../load-timings.js';
 import { RequestLog } from '../request-log.js';
+import { sealedOpeningVariables } from '../html-opening.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
@@ -40,7 +41,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, setTimeout, clearTimeout, streamFrame: 0,
+    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables,
         $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
@@ -233,6 +234,20 @@ test('native helper receives raw model text before output regex and its saved va
     assert.ok(f.saved.some(chat => chat.at(-1).mes.includes('<UpdateVariable>')), 'raw reply must exist in persistent chat before helper writes');
     assert.equal(f.saved.at(-1).at(-1).variables[0].stat_data.score, 5);
     assert.deepEqual(f.saveOptions.map(options => options.incremental), [true, true, true]);
+});
+
+test('sending the sealed opening saves its MVU seed on the first user message', async () => {
+    const f = fixture({ native: true });
+    const data = { stat_data: { _开局已创建: true }, schema: { type: 'object' }, _赤孽开局命牒: f.input.value };
+    f.state.chat[0].variables = { 0: data };
+    const running = f.run(false);
+    f.prepared.resolve({ messages: [] }); await tick();
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: 'reply<UpdateVariable>commands</UpdateVariable>' } }] }) });
+    await running;
+    const user = f.saved[0].at(-1);
+    assert.equal(user.is_user, true);
+    assert.equal(user.mes, data._赤孽开局命牒);
+    assert.deepEqual(user.variables[0], data);
 });
 
 test('a reply callback timeout does not overwrite an unconfirmed script write', async () => {

@@ -26,8 +26,11 @@ export function scriptDocument(scripts, snapshot, jquery) {
     const remoteId = defaultScript ? `${defaultScript.scope || 'script'}-${defaultScript.id || scripts.indexOf(defaultScript)}` : '';
     // The requested bundle imports its npm dependencies from this same CDN.
     // Module fetching uses script-src; no arbitrary fetch/model endpoints are opened.
-    const fallback = scripts.some(script => script.enabled !== false && (scriptModuleUrls(script.content)?.some(url => url.startsWith('https://cdn.jsdelivr.net/')) || scriptSupport(script).adapter === 'remote-schema'));
-    const policy = `default-src 'none'; script-src 'unsafe-inline'${remote ? ' https://testingcf.jsdelivr.net' + (fallback ? ' https://cdn.jsdelivr.net' : '') : ''}; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'`;
+    const moduleUrls = scripts.flatMap(script => script.enabled === false ? [] : scriptModuleUrls(script.content) || []);
+    const origins = new Set(remote ? ['https://testingcf.jsdelivr.net'] : []);
+    if (scripts.some(script => script.enabled !== false && scriptSupport(script).adapter === 'remote-schema')) origins.add('https://cdn.jsdelivr.net');
+    for (const url of moduleUrls) origins.add(new URL(url).origin);
+    const policy = `default-src 'none'; script-src ${["'unsafe-inline'", ...origins].join(' ')}; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'`;
     const tag = code => `<script>${code.replace(/<\/script/gi, '<\\/script')}<\/script>`;
     const runs = scripts.flatMap((script, index) => {
         const support = scriptSupport(script);

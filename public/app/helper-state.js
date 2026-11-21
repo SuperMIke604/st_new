@@ -1,6 +1,9 @@
 import { validateVariables } from './variable-manager.js';
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const revisions = new WeakMap();
+function swipeVariableMap(value) {
+    return Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([, slot]) => slot != null)) : value;
+}
 export function helperMessageRevision(message) {
     const swipes = message.swipes || [], cached = revisions.get(message);
     if (cached && cached.mes === message.mes && cached.swipe === (message.swipe_id || 0) && cached.user === !!message.is_user && cached.swipes.length === swipes.length && cached.swipes.every((text, index) => text === swipes[index])) return cached.revision;
@@ -24,7 +27,9 @@ function applyHelperVariables(next, changes) {
         if (!change || !['chat', 'message'].includes(change.type)) throw Error('不支持此脚本变量范围。');
         const key = change.type === 'chat' ? 'chat' : `message:${change.message_id}`;
         if (seen.has(key)) throw Error('脚本保存包含重复目标。'); seen.add(key);
-        const value = validateVariables(change.value), base = validateVariables(change.base);
+        const messageScope = change.type === 'message';
+        const value = validateVariables(messageScope ? swipeVariableMap(change.value) : change.value);
+        const base = validateVariables(messageScope ? swipeVariableMap(change.base) : change.base);
         let current;
         if (change.type === 'chat') current = next[0].chat_metadata?.variables || {};
         else {
@@ -35,9 +40,13 @@ function applyHelperVariables(next, changes) {
             for (const index of Object.keys(value)) if (!/^(0|[1-9]\d*)$/.test(index) || Number(index) >= count || !value[index] || typeof value[index] !== 'object' || Array.isArray(value[index])) throw Error('回复分支变量格式无效。');
             current = message.variables || {};
         }
-        if (!equal(current, base) && !equal(current, value)) throw Error('变量已被其他页面或脚本修改，请重新读取。');
+        const comparable = messageScope ? swipeVariableMap(current) : current;
+        if (!equal(comparable, base) && !equal(comparable, value)) throw Error('变量已被其他页面或脚本修改，请重新读取。');
         if (change.type === 'chat') next[0] = { ...next[0], chat_metadata: { ...next[0].chat_metadata, variables: value } };
-        else next[change.message_id + 1] = { ...next[change.message_id + 1], variables: value };
+        else {
+            const variables = Array.isArray(current) ? Object.assign(Array(current.length).fill(null), value) : value;
+            next[change.message_id + 1] = { ...next[change.message_id + 1], variables };
+        }
     }
 }
 export function patchHelperMessages(records, patches, { greetings = [], changes = [] } = {}) {

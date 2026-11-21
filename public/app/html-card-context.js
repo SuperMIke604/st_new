@@ -12,13 +12,14 @@ export function htmlCardContext(snapshot) {
     const clone = value => JSON.parse(JSON.stringify(value));
     let requestId = 0; const pendingRequests = new Map();
     const request = (operation, payload) => new Promise((resolve, reject) => {
-        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : 20000);
+        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : operation.startsWith('opening-') ? 90000 : 20000);
         pendingRequests.set(id, { resolve, reject, timer }); parent.postMessage({ type: 'tavern-html-request', id, operation, payload }, '*');
     });
     if (snapshot.scriptActions) {
         window.triggerSlash = command => request('slash', { command });
         window.setChatMessages = messages => request('set-messages', { messages });
     }
+    if (snapshot.opening) window.__companionOpening = (operation, payload) => request('opening-' + operation, payload);
     const helperReady = [];
     let helperLoaded = !snapshot.helper;
     const ready = callback => {

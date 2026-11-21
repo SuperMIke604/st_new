@@ -9,6 +9,7 @@ import { roleScriptContent } from '../role-script-adapters.js';
 import { scriptDocument } from '../script-runtime.js';
 import { SCHEMA_MODULE_REVISION, MVU_MODULE_URL } from '../script-modules.js';
 import { htmlCardContext } from '../html-card-context.js';
+import { adaptHtmlOpening, adaptMvuSealOpening, openingVariableData, openingWorldCommands, sealedOpeningVariables } from '../html-opening.js';
 import { scriptLayoutNodes } from '../script-layout.js';
 import { scriptHelper } from '../script-helper.js';
 
@@ -83,7 +84,7 @@ test('zero-size shadow hosts expose only visible interactive controls to iframe 
 
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 test('world field commands verify readback, reject a stale base and do not invoke generation', async () => {
-    const source = main.slice(main.indexOf('async function roleScriptAction('), main.indexOf('async function normalizeRoleMvu('));
+    const source = main.slice(main.indexOf('function queueScriptWorldFields('), main.indexOf('async function normalizeRoleMvu('));
     let book = { entries: { 7: { uid: 7, content: 'old', custom: 1 }, 20: { uid: 20, disable: true } } }, writes = 0, reads = 0, conflict = false;
     const context = vm.createContext({ state: { character: { name: 'Card' }, chat: [] }, panelDirty: false, parseScriptCommands, patchScriptWorldFields, assertSaved() {}, scriptIdentity: () => 'chat',
         roleWorldbook: async name => { if (name !== 'School') throw Error('unrelated'); reads++; if(conflict&&reads===2)book.entries[7].custom++; return structuredClone(book); },
@@ -98,4 +99,61 @@ test('world field commands verify readback, reject a stale base and do not invok
     assert.equal(book.entries[7].comment, 'title'); assert.equal(book.entries[20].constant, true); assert.equal(writes, 3);
     await assert.rejects(context.roleScriptAction('slash', { command: '/getentryfield file=Other field=content 7' }, 'chat'), /unrelated/);
     conflict = true; reads = 0; await assert.rejects(context.roleScriptAction('slash', { command: '/setentryfield file=School uid=7 field=content overwrite' }, 'chat'), /其他操作/); assert.equal(writes, 3);
+});
+
+test('opening updates only selected world switches and preserves existing nested variables', () => {
+    const base = { 环境与剧情: { 当前时间: 'old' }, custom: 42 };
+    const value = openingVariableData(base, [['环境与剧情.剧情阶段', 2], ['待赎者状态.启用', true], ['施堕者列表', { Test: { 基础属性: {} } }]]);
+    assert.deepEqual(value, { 环境与剧情: { 当前时间: 'old', 剧情阶段: 2 }, custom: 42, 待赎者状态: { 启用: true }, 施堕者列表: { Test: { 基础属性: {} } } });
+    assert.throws(() => openingVariableData(base, [['环境与剧情.__proto__.x', true]]));
+    assert.throws(() => openingVariableData(base, [['环境与剧情.当前时间.x', true]]));
+    const book = { entries: { 0: { comment: 'selected', disable: true, data: 1 }, 1: { comment: 'keep', disable: true }, 2: { comment: 'already enabled', disable: false } } };
+    const commands = openingWorldCommands(book, ['selected', 'already enabled']);
+    assert.equal(commands.length, 1);
+    assert.deepEqual(patchScriptWorldFields(book, commands).entries, { ...book.entries, 0: { ...book.entries[0], disable: false } });
+    assert.throws(() => openingWorldCommands(book, ['selected', 'missing']), /缺少开局条目/);
+    assert.equal(adaptHtmlOpening("<button>确认参数 · 开始降临</button>"), null);
+});
+
+test('sealed openings preserve initial MVU data only for the matching first user draft', () => {
+    const text = 'Opening draft';
+    const data = { stat_data: { _开局已创建: true }, schema: { type: 'object' }, _赤孽开局命牒: text };
+    const greeting = { is_user: false, swipe_id: 1, variables: [null, data] };
+    assert.deepEqual(sealedOpeningVariables([greeting], text), data);
+    assert.notEqual(sealedOpeningVariables([greeting], text), data);
+    assert.equal(sealedOpeningVariables([greeting], text + ' edited'), null);
+    assert.equal(sealedOpeningVariables([greeting, { is_user: true }], text), null);
+    assert.equal(adaptMvuSealOpening('<button id="finish-copy">Copy</button>'), null);
+});
+
+test('seal RPC rejects stale opening variables, preserves drafts and never requests generation', async () => {
+    const source = main.slice(main.indexOf('async function htmlOpeningAction('), main.indexOf('async function scriptWorldbook('));
+    const message = { mes: 'intro', variables: [{ keep: 1 }] }, input = { value: '' }, calls = [];
+    const context = vm.createContext({ state: { chat: [message] }, panelDirty: false, assertSaved() {}, assertMessageEditClosed() {}, copy: structuredClone,
+        helperMessageRevision, validateVariables: structuredClone, scriptRuntime: { refresh() {} }, scriptSnapshot() {}, $: () => input,
+        async helperHostAction(action, args, _identity, check) {
+            check();
+            calls.push(action);
+            if (action === 'save-variables') message.variables = args.changes[0].value;
+            if (action === 'set-draft') input.value = args.text;
+            return { value: true };
+        },
+    });
+    vm.runInContext(source, context);
+    const run = (operation, payload) => context.htmlOpeningAction(operation, payload, message, 'thread', () => {});
+    const text = 'Opening draft', base = await run('opening-seal-state');
+    const data = { ...base, stat_data: { _开局已创建: true }, schema: { type: 'object' }, _赤孽开局命牒: text };
+    await assert.rejects(run('opening-seal', { text, data, base: {} }), /变量刚刚更新/);
+    input.value = 'Existing draft';
+    await assert.rejects(run('opening-seal', { text, data, base }), /已有草稿/);
+    assert.deepEqual(calls, []);
+    input.value = '';
+    await run('opening-seal', { text, data, base });
+    assert.deepEqual(calls, ['save-variables', 'set-draft']);
+    assert.equal(input.value, text);
+    input.value = '';
+    await run('opening-seal', { text });
+    assert.deepEqual(calls, ['save-variables', 'set-draft', 'set-draft']);
+    input.value = '';
+    await assert.rejects(run('opening-seal', { text: 'Other draft' }), /已经落契/);
 });

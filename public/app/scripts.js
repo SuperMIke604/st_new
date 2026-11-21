@@ -85,14 +85,19 @@ export function scriptSupport(script) {
     if (text.includes('mmDicePool') && text.includes('function 发骰池()') && text.includes('function 解析本楼(')) return { supported: true, adapter: 'role-engine', reason: '通过酒馆伴侣运行原引擎、变量记账、世界书开关和提示注入；二次解析使用当前连接。' };
     if (isGenerationFetchScript(text)) return { supported: true, adapter: 'generation-fetch', reason: '通过隔离的生成处理器运行原始请求改写及响应还原逻辑；不访问宿主页面或连接密钥。' };
     if (scriptModuleUrls(text)) return { supported: true, adapter: 'remote-module', reason: '加载原始 MVU 模块，通过酒馆伴侣接口提供变量更新和脚本设置。' };
-    if ((staticSchemaModule(text) || fallbackModuleUrls(text, true)) && text.includes('export const Schema = z.object(') && text.includes('registerMvuSchema(Schema)')) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
+    if (text.includes('export const Schema = z.object(')) {
+        const schema = staticSchemaModule(text);
+        const register = (schema?.alias || 'registerMvuSchema').replaceAll('$', '\\$');
+        const registersSchema = new RegExp(`(?:^|[^\\w$])${register}\\s*\\(\\s*Schema\\s*\\)`).test(text);
+        if (registersSchema && (schema || fallbackModuleUrls(text, true))) return { supported: true, adapter: 'remote-schema', reason: '加载锁定版本的原始结构注册模块及角色变量结构。' };
+    }
     if (/^\s*import\s*\{\s*registerMvuSchema\s*\}\s*from\s*['"]https:\/\/[^'"]+\/mvu_zod\.js['"]/m.test(text) && text.includes('export const Schema = z.object(')) return { supported: true, adapter: 'mvu-schema', reason: '使用本地 Zod 校验变量结构、默认值和转换，不加载远程模块。' };
     if (text.includes('逐梦演艺圈_头像库') && text.includes('  function 开库() {') && text.includes('  function 规范名(')) return { supported: true, adapter: 'role-avatar', reason: '头像库使用按角色隔离的本地持久存储，支持本地图片与导入导出。' };
     if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('updateVariablesWith')) return { supported: true, adapter: 'mvu-status', reason: '支持角色状态栏及变量编辑器。' };
     if (text.includes('世界书名前缀') && text.includes('createChatMessages') && text.includes('triggerSlash') && /条目名前缀:\s*['"](?:Char_|Script_|Summary_)/.test(text)) return { supported: true, adapter: 'role-archive', reason: '支持当前角色的人设、剧本和总结生成，以及关联世界书归档。' };
     if (text.includes('世界书名前缀') && text.includes('切换场景') && /\bgetWorldbook\b/.test(text)) return { supported: true, adapter: 'world-switch', reason: '支持切换此角色关联世界书的条目启用状态。' };
     if (text.includes('fate-phone-container') && text.includes('getMvuDataSafe') && text.includes('initFatePhone')) return { supported: true, adapter: 'mvu-status', reason: '已适配此状态栏在独立面板读取当前聊天的 MVU 变量。' };
-    if (/^\s*import\s|\bimport\s*\(/m.test(text)) return { supported: false, reason: '依赖外部模块导入，当前兼容环境暂不支持。' };
+    if (/^\s*import(?=\s|['"{*]|\/\*|\/\/)|\bimport\s*\(/m.test(text)) return { supported: false, reason: '依赖外部模块导入，当前兼容环境暂不支持。' };
     if (/\bindexedDB\b/.test(text)) return { supported: false, reason: '依赖本地数据库（IndexedDB），当前隔离环境暂不支持。' };
     const nativeParent = /\b(?:parent|top)\s*\.\s*(?:document|jQuery)\b/.test(text) || [...text.matchAll(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*window\.(?:parent|top)\b/g)].some(match => text.includes(match[1] + '.document') || text.includes(match[1] + '.jQuery'));
     if (nativeParent) return { supported: false, reason: '需要访问酒馆原生页面，此接口暂未接入。' };

@@ -15,7 +15,7 @@ test('global and character scripts remain separate and disabled folders suppress
     assert.deepEqual(cardScript.data, { keep: 42 });
 });
 test('external MVU modules, schema imports and IndexedDB are explicitly unsupported', () => {
-    for (const content of ["import 'https://example.com/mvu.js'", "import { x } from 'https://example.com/schema.js'", 'window.indexedDB.open("avatars")']) assert.equal(scriptSupport({ content }).supported, false);
+    for (const content of ["import 'https://example.com/mvu.js'", "import'https://example.com/mvu.js'", "import { x } from 'https://example.com/schema.js'", 'window.indexedDB.open("avatars")']) assert.equal(scriptSupport({ content }).supported, false);
     for (const content of ['getWorldbook("book")', 'createChatMessages([])']) assert.equal(scriptSupport({ content }).supported, true);
     assert.equal(scriptSupport({ content: 'const data=Mvu.getMvuData({message_id:"latest"}); $("body").append("Status");' }).supported, true);
 });
@@ -29,7 +29,7 @@ test('MVU snapshots retain swipe-specific data and omit unrelated private config
     assert.ok(!JSON.stringify(snapshot).includes('secret'));
 });
 test('runtime escapes snapshot delimiters, keeps CSP restrictions and does not execute unsupported imports', () => {
-    const html = scriptDocument([{ id: 'a', content: 'window.statusReady=true;' }, { id: 'b', content: "import 'https://bad.invalid/runtime.js'" }], { chat: [], characterName: '</script><script>bad()</script>' }, 'window.jqueryReady=true;');
+    const html = scriptDocument([{ id: 'a', content: 'window.statusReady=true;' }, { id: 'b', content: "import'https://bad.invalid/runtime.js'" }], { chat: [], characterName: '</script><script>bad()</script>' }, 'window.jqueryReady=true;');
     assert.ok(html.includes("connect-src 'none'")); assert.ok(html.includes("media-src 'none'"));
     assert.ok(html.includes('window.statusReady=true;')); assert.ok(!html.includes('https://bad.invalid'));
     assert.ok(!html.includes('</script><script>bad()'));

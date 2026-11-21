@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { MVU_MODULE_URL, scriptModuleUrls, fallbackModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from '../script-modules.js';
+import { MVU_MODULE_URL, SCHEMA_MODULE_REVISION, scriptModuleUrls, fallbackModuleUrls, loadScriptModules, loadMvuLibraries, requireMvuHost } from '../script-modules.js';
 import { scriptSupport } from '../scripts.js';
 import { scriptDocument, ScriptRuntime } from '../script-runtime.js';
 import { scriptBridge } from '../script-bridge.js';
@@ -12,6 +12,29 @@ test('requested side-effect import accepts ordinary comments, quotes and semicol
         assert.equal(scriptSupport({ content: source }).adapter, 'remote-module');
     }
     for (const source of ['', '/* import missing */', `import '${MVU_MODULE_URL}'; alert(1)`, `import '${MVU_MODULE_URL}?next=other'`, `import '${MVU_MODULE_URL.replace('testingcf.', 'evil.')}'`, `import '${MVU_MODULE_URL.replace('https:', 'http:')}'`, `import '${MVU_MODULE_URL.replace('https://', 'https://user:pass@')}'`, `import '${MVU_MODULE_URL}'; import 'https://other.invalid/a.js'`]) assert.equal(scriptModuleUrls(source), null, source);
+});
+
+test('unversioned MVU side-effect imports use the supported beta runtime', () => {
+    for (const entry of [MVU_MODULE_URL, MVU_MODULE_URL.replace('testingcf.', 'cdn.')]) {
+        const content = `import'${entry.replace('@beta', '')}';`;
+        assert.deepEqual(scriptModuleUrls(content), [entry]);
+        assert.equal(scriptSupport({ content }).adapter, 'remote-module');
+        const html = scriptDocument([{ scope: 'character', content }], { chat: [] }, '');
+        assert.ok(html.includes(entry));
+        assert.ok(!html.includes(content));
+        for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(code));
+    }
+});
+
+test('aliased schema registration keeps its binding when paired with the unversioned MVU entry', () => {
+    const schema = "import { registerMvuSchema as r } from 'https://testingcf.jsdelivr.net/gh/StageDog/tavern_resource/dist/util/mvu_zod.js';\nexport const Schema = z.object({});\n$(() => { r(Schema) });";
+    const mvu = `import'${MVU_MODULE_URL.replace('@beta', '')}';`;
+    assert.equal(scriptSupport({ content: schema }).adapter, 'remote-schema');
+    assert.equal(scriptSupport({ content: schema.replace('r(Schema)', 'other(Schema)') }).supported, false);
+    const html = scriptDocument([{ content: schema }, { content: mvu }], { chat: [] }, '');
+    assert.ok(html.includes(`const {registerMvuSchema: r} = await import("https://testingcf.jsdelivr.net/gh/StageDog/tavern_resource@${SCHEMA_MODULE_REVISION}/dist/util/mvu_zod.js");`));
+    assert.ok(html.includes('$(() => { r(Schema) });'));
+    for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(code));
 });
 
 test('pinned two-source modules fall back only after failure and keep the same revision', async () => {
@@ -35,6 +58,34 @@ test('pinned two-source modules fall back only after failure and keep the same r
     assert.match(html, /https:\/\/cdn\.jsdelivr\.net/);
     assert.match(html, /await Promise.all\(window.__helperSchemas/);
     for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(code));
+});
+
+test('three unversioned CDN fallbacks load a single MVU revision and keep schema templates local', async () => {
+    const sources = ['testingcf', 'cdn', 'fastly'].map(host => MVU_MODULE_URL.replace('testingcf.', host + '.').replace('@beta', ''));
+    const [primary, secondary, tertiary] = sources;
+    const content = `try { await import('${primary}'); } catch (e1) {
+        try { await import('${secondary}'); } catch (e2) {
+            try { await import('${tertiary}'); } catch (e3) { console.error('[MVU] Bundle CDN 加载失败:', e3); }
+        }
+    }`;
+    const urls = scriptModuleUrls(content);
+    assert.deepEqual(urls, sources.map(url => url.replace('/MagVarUpdate/', '/MagVarUpdate@beta/')));
+    assert.equal(scriptSupport({ content }).adapter, 'remote-module');
+    for (const source of [content.replace(tertiary, tertiary.replace('fastly.', 'unapproved.')), content.replace(tertiary, primary), content.replace(tertiary, urls[2]), content.replace('console.error', 'alert')]) {
+        assert.equal(scriptModuleUrls(source), null);
+    }
+    const calls = [];
+    await loadScriptModules(urls, async url => { calls.push(url); if (url !== urls[2]) throw Error('offline'); }, true);
+    assert.deepEqual(calls, urls);
+    const schema = `import {registerMvuSchema} from 'https://testingcf.jsdelivr.net/gh/StageDog/tavern_resource/dist/util/mvu_zod.js';
+export const 功法演化模板 = z.object({});
+export const Schema = z.object({ 模板: 功法演化模板 });
+$(() => registerMvuSchema(Schema));`;
+    const html = scriptDocument([{ content }, { content: schema }], { chat: [] }, '');
+    assert.match(html, /script-src 'unsafe-inline' https:\/\/testingcf\.jsdelivr\.net https:\/\/cdn\.jsdelivr\.net https:\/\/fastly\.jsdelivr\.net;/);
+    assert.match(html, /const 功法演化模板 = z\.object/);
+    for (const [, code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(code));
+    assert.ok(!scriptDocument([{ content, enabled: false }, { content: schema }], { chat: [] }, '').includes('https://fastly.jsdelivr.net'));
 });
 
 test('enabled character and global modules share the loader while disabled modules cannot open CDN access', () => {

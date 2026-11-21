@@ -9,6 +9,7 @@ import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScri
 import { ScriptRuntime } from './script-runtime.js';
 import { validateExtensionPrompt } from './script-prompts.js';
 import { parseScriptCommands, patchScriptWorldFields } from './script-commands.js';
+import { openingVariableData, openingWorldCommands, sealedOpeningVariables } from './html-opening.js';
 import { helperMessageRevision, patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
 import { ScriptSchema } from './script-schema.js';
@@ -569,6 +570,7 @@ function renderMessage(message, index, existing) {
             swipes: index === 0 && message.mes === (state.character?.data || state.character)?.first_mes && !message.swipes?.length ? [(state.character?.data || state.character).first_mes, ...((state.character?.data || state.character).alternate_greetings || [])] : message.swipes,
             scriptAction: async (operation, payload) => {
                 previewCheck();
+                if (operation.startsWith('opening-') && index === 0 && !message.is_user) return htmlOpeningAction(operation, payload, message, previewIdentity, previewCheck);
                 if (operation === 'slash') return (await roleScriptAction('slash', payload, previewIdentity, previewCheck))?.value;
                 if (operation !== 'set-messages' || !Array.isArray(payload?.messages) || payload.messages.length !== 1 || payload.messages[0].message_id !== index) throw Error('消息界面只能修改所属楼层。');
                 const patches = payload.messages.map(patch => ({ ...patch, revision: previewRevision, base: copy(message.variables || {}) }));
@@ -1831,7 +1833,12 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
             }
             if (!verified) {
                 const saveNative = async () => {
-                    const fresh = await api.post('/api/chats/get', { avatar_url: avatar, file_name: file }, { signal, timing }); check();
+                    const readChat = () => api.post('/api/chats/get', { avatar_url: avatar, file_name: file }, { signal, timing });
+                    let fresh = await readChat(); check();
+                    // The native endpoint can create a missing character chat directory on its first read.
+                    if (state.chatUnpersisted && fresh && !Array.isArray(fresh) && typeof fresh === 'object' && !Object.keys(fresh).length) {
+                        fresh = await readChat(); check();
+                    }
                     // Only the first write of a new session may seed an absent file.
                     const records = state.chatUnpersisted && Array.isArray(fresh) && !fresh.length ? [state.header, ...state.chat] : fresh;
                     const next = applyPatch(records);
@@ -1985,6 +1992,82 @@ async function roleWorldbook(name, identity) {
     if (!current()) throw Error('聊天或关联世界书已切换。');
     return book;
 }
+function queueScriptWorldFields(run) {
+    const pending = (roleScriptAction.worldFields || Promise.resolve()).catch(() => {}).then(run);
+    roleScriptAction.worldFields = pending;
+    return pending;
+}
+async function saveScriptWorldFields(name, book, updated, identity, check) {
+    const latest = await roleWorldbook(name, identity); check();
+    if (JSON.stringify(latest) !== JSON.stringify(book)) throw Error('世界书已被其他操作修改，请重新读取。');
+    await api.post('/api/worldinfo/edit', { name, data: updated }); check();
+    const verified = await roleWorldbook(name, identity); check();
+    if (JSON.stringify(verified.entries) !== JSON.stringify(updated.entries)) throw Error('世界书字段保存核验失败。');
+    api.readCache.clear(); generationPreload.invalidate();
+}
+async function htmlOpeningAction(operation, payload, message, identity, previewCheck) {
+    const check = (savingVariables = false) => {
+        previewCheck();
+        if (savingVariables) assertMessageEditClosed();
+        else assertSaved();
+        if (panelDirty || state.chat.length !== 1) throw Error('请在只有开场白的新聊天中确认开局。');
+    };
+    const { text, entries, variables } = payload || {};
+    if (operation === 'opening-seal-state') {
+        check();
+        return copy(message.variables?.[message.swipe_id || 0] || {});
+    }
+    if (operation === 'opening-draft') return (await helperHostAction('set-draft', { text }, identity, check)).value;
+    const checkDraft = () => {
+        check();
+        if ($('message-input').value.trim() && $('message-input').value !== text) throw Error('聊天输入框已有草稿，请先发送或清空。');
+    };
+    const saveOpening = async (base, value) => {
+        checkDraft();
+        await helperHostAction('save-variables', { changes: [{ type: 'message', message_id: 0, revision: helperMessageRevision(message), base, value }] }, identity, () => check(true));
+        scriptRuntime.refresh(scriptSnapshot(state), identity);
+    };
+    if (operation === 'opening-seal') {
+        checkDraft();
+        if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Error('开局命牒为空或过大。');
+        const base = copy(message.variables || {}), swipe = message.swipe_id || 0, current = base[swipe] || {};
+        if (current.stat_data?._开局已创建 === true) {
+            if (current._赤孽开局命牒 !== text) throw Error('当前开场白已经落契，请使用已保存的命牒。');
+        } else {
+            const data = validateVariables(payload.data);
+            if (data.stat_data?._开局已创建 !== true || data.schema?.type !== 'object' || data._赤孽开局命牒 !== text) throw Error('开局变量或命牒格式无效。');
+            if (JSON.stringify(current) !== JSON.stringify(payload.base)) throw Error('开局变量刚刚更新，请重新确认命盘。');
+            const value = copy(base); value[swipe] = data;
+            await saveOpening(base, value);
+        }
+        return (await helperHostAction('set-draft', { text }, identity, checkDraft)).value;
+    }
+    if (operation !== 'opening-confirm' && operation !== 'opening-worldbook') throw Error('不支持此开局操作。');
+    const confirm = operation === 'opening-confirm';
+    return queueScriptWorldFields(async () => {
+        check();
+        if (confirm) {
+            checkDraft();
+            if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Error('开场指令为空或过大。');
+            if (!Array.isArray(variables) || !variables.length) throw Error('开局变量格式无效。');
+        }
+        const name = (state.character.data || state.character).extensions?.world;
+        const book = await roleWorldbook(name, identity); check();
+        const commands = openingWorldCommands(book, entries);
+        if (confirm) {
+            const base = copy(message.variables || {}), swipe = message.swipe_id || 0;
+            const value = copy(base), current = value[swipe] || {};
+            const prefix = entries.join('|') + '#', previous = current.stat_data?.环境与剧情?.开局激活;
+            const marker = ['环境与剧情.开局激活', typeof previous === 'string' && previous.startsWith(prefix) ? previous : prefix + Date.now()];
+            value[swipe] = { ...current, stat_data: openingVariableData(current.stat_data || {}, [...variables, marker]) };
+            if (JSON.stringify(base) !== JSON.stringify(value)) await saveOpening(base, value);
+        }
+        if (commands.length) await saveScriptWorldFields(name, book, patchScriptWorldFields(book, commands), identity, check);
+        if (!confirm) return commands.length;
+        await helperHostAction('set-draft', { text }, identity, checkDraft);
+        return { variables: variables.length, turned: commands.length };
+    });
+}
 async function scriptWorldbook(action, payload, identity) {
     const name = payload?.name;
     if (action === 'toggle-worldbook') { assertSaved(); if (panelDirty) throw Error('请先保存或取消当前修改。'); }
@@ -2015,19 +2098,12 @@ async function roleScriptAction(action, payload, identity, externalCheck = null)
                 const name = commands[0].name, book = await roleWorldbook(name, identity); check();
                 const updated = patchScriptWorldFields(book, commands);
                 if (commands.some(command => command.type === 'setentryfield')) {
-                    const latest = await roleWorldbook(name, identity); check();
-                    if (JSON.stringify(latest) !== JSON.stringify(book)) throw Error('世界书已被其他操作修改，请重新读取。');
-                    await api.post('/api/worldinfo/edit', { name, data: updated }); check();
-                    const verified = await roleWorldbook(name, identity); check();
-                    if (JSON.stringify(verified.entries) !== JSON.stringify(updated.entries)) throw Error('世界书字段保存核验失败。');
-                    api.readCache.clear(); generationPreload.invalidate();
+                    await saveScriptWorldFields(name, book, updated, identity, check);
                 }
                 const last = commands.at(-1), entry = Object.entries(updated.entries).find(([key, entry]) => String(entry.uid ?? key) === String(last.uid))?.[1];
                 return { value: last.type === 'getentryfield' ? (Array.isArray(entry[last.field]) ? JSON.stringify(entry[last.field]) : String(entry[last.field] ?? '')) : '', worldbook: { name, entries: updated.entries } };
             };
-            const pending = (roleScriptAction.worldFields || Promise.resolve()).catch(() => {}).then(run);
-            roleScriptAction.worldFields = pending;
-            return pending;
+            return queueScriptWorldFields(run);
         }
         let result = { value: '' };
         for (const command of commands) {
@@ -3307,6 +3383,8 @@ async function generate(mode = false, recovery = null) {
     // Fail local validation before fetching books or running tokenizer requests.
     if (!recovery) generationBody(connection(), state.preset, []);
     const user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
+    const openingVariables = !regenerate && !retry ? sealedOpeningVariables(state.chat, text) : null;
+    if (user && openingVariables) user.variables = { 0: openingVariables };
     const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
     const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
