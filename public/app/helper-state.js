@@ -42,6 +42,7 @@ function applyHelperVariables(next, changes) {
         }
         const comparable = messageScope ? swipeVariableMap(current) : current;
         if (!equal(comparable, base) && !equal(comparable, value)) throw Error('变量已被其他页面或脚本修改，请重新读取。');
+        if (equal(comparable, value)) continue;
         if (change.type === 'chat') next[0] = { ...next[0], chat_metadata: { ...next[0].chat_metadata, variables: value } };
         else {
             const variables = Array.isArray(current) ? Object.assign(Array(current.length).fill(null), value) : value;

@@ -1,6 +1,7 @@
 import { cardContextScript } from './html-card-context.js';
 import { remoteHtmlUrl, fetchRemoteHtml, remoteHtmlDocument } from './html-card-loader.js';
 import { adaptHtmlOpening, adaptMvuSealOpening } from './html-opening.js';
+import { adaptHtmlMvuReparse } from './html-mvu-reparse.js';
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
 export function isHtmlPreview(source, language = '') {
@@ -32,7 +33,7 @@ let previewListenerInstalled = false;
 let previewJquery;
 export function refreshHtmlVariables(container, variables = {}) {
     for (const frame of container.querySelectorAll('iframe.html-message')) {
-        if (!frame._helper || frame._variables === variables) continue;
+        if ((!frame._helper && !frame._mvuReparse) || frame._variables === variables) continue;
         frame._variables = variables;
         frame.contentWindow?.postMessage({ type: 'tavern-html-variables', variables }, '*');
     }
@@ -196,13 +197,16 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const canOpen = messageId === 0 && role === 'assistant' && scriptAction;
             const seal = canOpen ? adaptMvuSealOpening(source) : null;
             const opening = seal || (canOpen ? adaptHtmlOpening(source) : null);
+            const reparse = Number.isSafeInteger(messageId) && messageId > 0 && role === 'assistant' && scriptAction ? adaptHtmlMvuReparse(source) : null;
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify; frame._edit = edit;
             frame._scriptAction = (operation, payload) => {
                 if (operation.startsWith('opening-') && (!opening || operation.startsWith('opening-seal') !== !!seal)) throw Error('此消息不支持该开局操作。');
+                if (operation.startsWith('mvu-') && !reparse) throw Error('此消息不支持重填 MVU 变量。');
                 return scriptAction?.(operation, payload);
             };
+            frame._mvuReparse = !!reparse;
             frame._helper = /\b(?:errorCatched|waitGlobalInitialized|getAllVariables)\b/.test(source);
             frame._variables = variables;
             frame._avatars = source.includes('头像库') ? getAvatars : null;
@@ -213,7 +217,8 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const blockIndices = /data-fate-marker\s*=/.test(source) ? { fate_ui: fateIndex++ } : {};
             const context = { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices, variables, helper: frame._helper, scriptActions: !!scriptAction, opening: !!opening, swipes: Array.isArray(swipes) && JSON.stringify(swipes).length <= 500000 ? swipes : undefined };
             const remote = remoteHtmlUrl(source);
-            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? source, context);
+            context.mvuReparse = !!reparse;
+            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? reparse ?? source, context);
             pre.replaceWith(frame); registerPreview(frame);
             if (remote) void fetchRemoteHtml(remote).then(html => {
                 if (frame.isConnected) frame.srcdoc = previewDocument(remoteHtmlDocument(html), context, true);

@@ -10,8 +10,9 @@ import { ScriptRuntime } from './script-runtime.js';
 import { validateExtensionPrompt } from './script-prompts.js';
 import { parseScriptCommands, patchScriptWorldFields } from './script-commands.js';
 import { openingVariableData, openingWorldCommands, sealedOpeningVariables } from './html-opening.js';
+import { isReparseMvuData, previousMvuSource, reparseMvuBase } from './html-mvu-reparse.js';
 import { helperMessageRevision, patchHelperVariables, patchHelperMessages } from './helper-state.js';
-import { initialVariablesFromBook, prepareValidatedMvuSnapshots } from './mvu-compat.js';
+import { initialVariablesFromBook, messageMvuPatch, prepareValidatedMvuSnapshots } from './mvu-compat.js';
 import { ScriptSchema } from './script-schema.js';
 import { RoleAvatarStore } from './role-avatar-store.js';
 import { renderVariableManager, validateVariables, defaultVariableMessage, chatVariableValue, patchChatVariables } from './variable-manager.js';
@@ -571,6 +572,7 @@ function renderMessage(message, index, existing) {
             scriptAction: async (operation, payload) => {
                 previewCheck();
                 if (operation.startsWith('opening-') && index === 0 && !message.is_user) return htmlOpeningAction(operation, payload, message, previewIdentity, previewCheck);
+                if (operation.startsWith('mvu-') && index > 0 && !message.is_user) return htmlMvuAction(operation, payload, index, message, previewIdentity, previewCheck);
                 if (operation === 'slash') return (await roleScriptAction('slash', payload, previewIdentity, previewCheck))?.value;
                 if (operation !== 'set-messages' || !Array.isArray(payload?.messages) || payload.messages.length !== 1 || payload.messages[0].message_id !== index) throw Error('消息界面只能修改所属楼层。');
                 const patches = payload.messages.map(patch => ({ ...patch, revision: previewRevision, base: copy(message.variables || {}) }));
@@ -2067,6 +2069,44 @@ async function htmlOpeningAction(operation, payload, message, identity, previewC
         await helperHostAction('set-draft', { text }, identity, checkDraft);
         return { variables: variables.length, turned: commands.length };
     });
+}
+async function htmlMvuAction(operation, payload, index, message, identity, previewCheck) {
+    previewCheck();
+    const previous = previousMvuSource(state.chat, index);
+    if (operation === 'mvu-previous') return previous ? validateVariables(reparseMvuBase(previous.data)) : null;
+    if (operation !== 'mvu-reparse') throw Error('不支持此 MVU 操作。');
+    assertSaved();
+    if (panelDirty) throw Error('请先保存或取消当前修改。');
+    const text = payload?.text;
+    if (typeof text !== 'string' || text.length > 500000 || !/<UpdateVariable\b[^>]*>[\s\S]*?<\/UpdateVariable\s*>/i.test(text)) throw Error('本层缺少完整的变量更新指令，或指令过大。');
+    if (!/<UpdateVariable\b[^>]*>(?:(?!<\/UpdateVariable>).)*<JSONPatch\b/is.test(text)) throw Error('变量更新指令缺少 JSONPatch。');
+    let operations;
+    try { operations = messageMvuPatch(text); }
+    catch (error) { throw Error('JSONPatch 格式无效：' + error.message); }
+    if (operations.length > 500 || operations.some(op => !op || typeof op.op !== 'string' || typeof op.path !== 'string' || (op.path !== '' && !op.path.startsWith('/')))) throw Error('JSONPatch 操作或路径格式无效。');
+    if (!previous) throw Error('未找到可承接的前层变量快照。');
+    const base = validateVariables(reparseMvuBase(previous.data));
+    if (JSON.stringify(base) !== JSON.stringify(payload.base)) throw Error('前层变量已更新，请重新重填。');
+    const previousVariables = copy(previous.message.variables), previousRevision = helperMessageRevision(previous.message);
+    const currentVariables = copy(message.variables || {}), swipe = message.swipe_id || 0;
+    const check = () => {
+        previewCheck();
+        if (state.chat[previous.id] !== previous.message || helperMessageRevision(previous.message) !== previousRevision ||
+            JSON.stringify(previous.message.variables) !== JSON.stringify(previousVariables) ||
+            JSON.stringify(message.variables || {}) !== JSON.stringify(currentVariables)) throw Error('变量或回复分支已变化，请重新重填。');
+    };
+    const parsed = await scriptRuntime.parseMvu(text, base, identity);
+    check();
+    if (!isReparseMvuData(parsed)) throw Error('MVU 未返回有效的变量结果，请检查更新指令。');
+    const data = validateVariables({ ...currentVariables[swipe], ...parsed });
+    if (JSON.stringify(data) === JSON.stringify(currentVariables[swipe])) return { data, changed: false };
+    const value = copy(currentVariables); value[swipe] = data;
+    await helperHostAction('save-variables', { changes: [
+        { type: 'message', message_id: previous.id, revision: previousRevision, base: previousVariables, value: previousVariables },
+        { type: 'message', message_id: index, revision: helperMessageRevision(message), base: currentVariables, value },
+    ] }, identity, check);
+    scriptRuntime.refresh(scriptSnapshot(state), identity);
+    return { data, changed: true };
 }
 async function scriptWorldbook(action, payload, identity) {
     const name = payload?.name;

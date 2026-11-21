@@ -64,6 +64,17 @@ export class ScriptRuntime {
     async dispatch(event, args, snapshot, identity) {
         if (!this.frame || identity !== this.identity) return false;
         if (![...this.statusRows.values()].some(row => row.dataset?.active === 'true')) return false;
+        await this.requestHelper({ type: 'helper-event', event, args, snapshot }, identity);
+        return true;
+    }
+    async parseMvu(text, base, identity) {
+        if (![...this.statusRows.values()].some(row => row.dataset?.adapter === 'remote-module' && row.dataset.active === 'true')) {
+            throw Error(this.helperError || '当前聊天未启动原始 MVU 模块。');
+        }
+        return this.requestHelper({ type: 'mvu-parse', text, base }, identity);
+    }
+    async requestHelper(request, identity) {
+        if (!this.frame || identity !== this.identity) throw Error('脚本环境或聊天已切换。');
         if (this.processing) throw Error('角色脚本正在处理上一项操作，请稍候。');
         const epoch = this.epoch;
         this.processing = true;
@@ -76,16 +87,15 @@ export class ScriptRuntime {
             });
             if (!this.frame || identity !== this.identity) throw Error('脚本环境或聊天已切换。');
             const id = ++this.eventSequence;
-            await new Promise((resolve, reject) => {
+            return await new Promise((resolve, reject) => {
                 const timer = setTimeout(() => {
                     this.pendingEvents.delete(id);
                     if (epoch === this.epoch) this.dispose();
                     reject(new DOMException('角色脚本事件处理超时，脚本环境已停止。', 'TimeoutError'));
                 }, 30000);
                 this.pendingEvents.set(id, { resolve, reject, timer });
-                this.frame.contentWindow.postMessage({ channel: 'st-new-scripts', type: 'helper-event', id, event, args, snapshot }, '*');
+                this.frame.contentWindow.postMessage({ channel: 'st-new-scripts', ...request, id }, '*');
             });
-            return true;
         } finally { if (epoch === this.epoch) this.processing = false; }
     }
     async show({ scripts, snapshot, identity, preparation = '', diagnostics = true, actions }) {
@@ -150,7 +160,7 @@ export class ScriptRuntime {
         if (data.type === 'helper-event-result') {
             const pending = this.pendingEvents.get(data.id); if (!pending) return;
             clearTimeout(pending.timer); this.pendingEvents.delete(data.id);
-            if (data.error) pending.reject(Error(data.error)); else pending.resolve();
+            if (data.error) pending.reject(Error(data.error)); else pending.resolve(data.value);
             return;
         }
         if (data.type === 'buttons') {

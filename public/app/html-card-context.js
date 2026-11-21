@@ -12,7 +12,7 @@ export function htmlCardContext(snapshot) {
     const clone = value => JSON.parse(JSON.stringify(value));
     let requestId = 0; const pendingRequests = new Map();
     const request = (operation, payload) => new Promise((resolve, reject) => {
-        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : operation.startsWith('opening-') ? 90000 : 20000);
+        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : operation.startsWith('opening-') || operation === 'mvu-reparse' ? 90000 : 20000);
         pendingRequests.set(id, { resolve, reject, timer }); parent.postMessage({ type: 'tavern-html-request', id, operation, payload }, '*');
     });
     if (snapshot.scriptActions) {
@@ -20,6 +20,11 @@ export function htmlCardContext(snapshot) {
         window.setChatMessages = messages => request('set-messages', { messages });
     }
     if (snapshot.opening) window.__companionOpening = (operation, payload) => request('opening-' + operation, payload);
+    if (snapshot.mvuReparse) window.__companionMvu = async (operation, payload) => {
+        const result = await request('mvu-' + operation, payload);
+        if (operation === 'reparse') snapshot.variables = clone(result.data);
+        return result;
+    };
     const helperReady = [];
     let helperLoaded = !snapshot.helper;
     const ready = callback => {
@@ -70,7 +75,7 @@ export function htmlCardContext(snapshot) {
             if (event.data.error) task.reject(Error(event.data.error)); else task.resolve(event.data.value);
             return;
         }
-        if (event.source === parent && event.data?.type === 'tavern-html-variables' && snapshot.helper) {
+        if (event.source === parent && event.data?.type === 'tavern-html-variables' && (snapshot.helper || snapshot.mvuReparse)) {
             snapshot.variables = event.data.variables || {};
             for (const fn of events.get('mvu_update') || []) window.errorCatched(fn)();
             return;

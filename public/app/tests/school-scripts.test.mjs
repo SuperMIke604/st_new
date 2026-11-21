@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs/promises';
 import { parseScriptCommands, patchScriptWorldFields } from '../script-commands.js';
-import { patchHelperMessages, helperMessageRevision } from '../helper-state.js';
+import { patchHelperMessages, patchHelperVariables, helperMessageRevision } from '../helper-state.js';
 import { scriptSupport } from '../scripts.js';
 import { roleScriptContent } from '../role-script-adapters.js';
 import { scriptDocument } from '../script-runtime.js';
 import { SCHEMA_MODULE_REVISION, MVU_MODULE_URL } from '../script-modules.js';
 import { htmlCardContext } from '../html-card-context.js';
 import { adaptHtmlOpening, adaptMvuSealOpening, openingVariableData, openingWorldCommands, sealedOpeningVariables } from '../html-opening.js';
+import { isReparseMvuData, previousMvuSource, reparseMvuBase } from '../html-mvu-reparse.js';
+import { messageMvuPatch } from '../mvu-compat.js';
 import { scriptLayoutNodes } from '../script-layout.js';
 import { scriptHelper } from '../script-helper.js';
 
@@ -156,4 +158,41 @@ test('seal RPC rejects stale opening variables, preserves drafts and never reque
     assert.deepEqual(calls, ['save-variables', 'set-draft', 'set-draft']);
     input.value = '';
     await assert.rejects(run('opening-seal', { text: 'Other draft' }), /已经落契/);
+});
+
+test('reparse saves only the selected branch and requires a fresh preceding snapshot', async () => {
+    const source = main.slice(main.indexOf('async function htmlMvuAction('), main.indexOf('async function scriptWorldbook('));
+    const seed = { stat_data: { 主角: { 气血: 10 }, 世界: {} }, schema: { type: 'object' } };
+    const predecessor = { mes: 'opening', variables: [seed] };
+    const message = { mes: 'reply', swipes: ['reply', 'other'], variables: [structuredClone(seed), { untouched: true }] };
+    let records = [{ chat_metadata: {} }, predecessor, message];
+    let parseCount = 0, mutatePredecessor = false;
+    const context = vm.createContext({ state: { chat: [predecessor, message] }, panelDirty: false, assertSaved() {}, copy: structuredClone, validateVariables: structuredClone,
+        helperMessageRevision, isReparseMvuData, previousMvuSource, reparseMvuBase, messageMvuPatch, scriptSnapshot() {},
+        scriptRuntime: { refresh() {}, async parseMvu(_text, base) {
+            parseCount++;
+            if (mutatePredecessor) predecessor.variables[0].stat_data.主角.气血++;
+            base.stat_data.主角.气血 = 20;
+            return base;
+        } },
+        async helperHostAction(action, payload, _identity, check) {
+            assert.equal(action, 'save-variables');
+            check();
+            records = patchHelperVariables(records, payload.changes);
+        },
+    });
+    vm.runInContext(source, context);
+    const run = (operation, payload) => context.htmlMvuAction(operation, payload, 1, message, 'thread', () => {});
+    const base = await run('mvu-previous');
+    const text = '<UpdateVariable><JSONPatch>[]</JSONPatch></UpdateVariable>';
+    await assert.rejects(run('mvu-reparse', { text: text.replace('[]', '[{invalid json]'), base }), /JSONPatch 格式无效/);
+    await assert.rejects(run('mvu-reparse', { text, base: {} }), /前层变量已更新/);
+    assert.equal(parseCount, 0);
+    assert.equal((await run('mvu-reparse', { text, base })).changed, true);
+    assert.equal(records[1], predecessor);
+    assert.equal(records[2].mes, message.mes);
+    assert.equal(records[2].variables[0].stat_data.主角.气血, 20);
+    assert.deepEqual(records[2].variables[1], { untouched: true });
+    mutatePredecessor = true;
+    await assert.rejects(run('mvu-reparse', { text, base }), /变量或回复分支已变化/);
 });

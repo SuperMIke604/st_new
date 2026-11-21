@@ -124,6 +124,12 @@ export function scriptBridge(initial, { externalMvu = false, scriptId = '', scri
                 await Promise.all([...helpers.values()].map(item => item.idle()));
                 post({ type: 'helper-event-result', id: data.id });
             } catch (error) { post({ type: 'helper-event-result', id: data.id, error: error.message }); }
+        } else if (data.type === 'mvu-parse') {
+            try {
+                if (!externalMvu || typeof window.Mvu?.parseMessage !== 'function') throw Error('原始 MVU 解析器尚未就绪。');
+                const value = await window.Mvu.parseMessage(data.text, data.base);
+                post({ type: 'helper-event-result', id: data.id, value });
+            } catch (error) { post({ type: 'helper-event-result', id: data.id, error: error.message }); }
         } else if (data.type === 'helper-settings') {
             helper?.openSettings();
         } else if (data.type === 'response' && pending.has(data.id)) {
