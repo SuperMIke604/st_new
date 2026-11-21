@@ -210,13 +210,17 @@
     border-radius: var(--control-radius);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #top-actions .top-shortcut:is(:hover, [aria-pressed="true"]) {
+:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #top-actions .top-shortcut[aria-pressed="true"] {
     background: var(--soft);
     color: var(--green);
+    box-shadow: inset 0 0 0 1px var(--line);
 }
 
-:is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #top-actions .top-shortcut[aria-pressed="true"] {
-    box-shadow: inset 0 0 0 1px var(--line);
+@media (hover: hover) and (pointer: fine) {
+    :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #top-actions .top-shortcut:hover {
+        background: var(--soft);
+        color: var(--green);
+    }
 }
 
 :is([data-palette="lavender-paper"], [data-palette="ivory-cards"], [data-palette="ivory-cards-am"]) #conversation {
@@ -916,7 +920,18 @@
         bottom: calc(-1 * var(--panel-end-space));
         padding-block: var(--space-3);
         gap: var(--control-gap);
-        margin-block-start: var(--space-6);
+    }
+    /* Reserve a minimum gap before the sticky footer while its auto margin fills short panels. */
+    & #panel :is(#panel-body, .panel-content, .script-manager, .db-content):has(> .editor-footer)::after {
+        content: "";
+        flex: 0 0 var(--divider-space);
+    }
+    & #panel :is(#panel-body, .panel-content, .script-manager, .db-content):has(> .editor-footer)
+          > :nth-last-child(1 of :not([hidden], .editor-footer)) {
+        margin-block-end: 0;
+    }
+    & #panel :is(#panel-body, .panel-content, .script-manager, .db-content) > .editor-footer {
+        order: 1;
     }
 
     & #conversation {

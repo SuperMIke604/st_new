@@ -89,14 +89,30 @@
         const root = document.documentElement;
         const hexColor = /^#[0-9a-f]{6}$/i;
         let lastBars;
+        function panelBottomColor() {
+            const viewport = window.visualViewport;
+            const bottom = viewport ? viewport.offsetTop + viewport.height : root.clientHeight;
+            const center = viewport ? viewport.offsetLeft + viewport.width / 2 : root.clientWidth / 2;
+            for (const dialog of Array.from(document.querySelectorAll('dialog[open]')).reverse()) {
+                const box = dialog.getBoundingClientRect();
+                if (box.top >= bottom || box.bottom < bottom - 1 || center < box.left || center > box.right) continue;
+                const color = getComputedStyle(dialog).backgroundColor;
+                const channels = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(color);
+                if (channels) return '#' + channels.slice(1).map(value => Number(value).toString(16).padStart(2, '0')).join('');
+            }
+            return '';
+        }
         function updateBars() {
             const style = getComputedStyle(root);
             const gradientTop = style.getPropertyValue('--card-gradient-top').trim();
             const paper = style.getPropertyValue('--paper').trim();
             const fallback = theme?.content || '';
-            // The card background fades from the gradient top to the paper color.
-            const bars = hexColor.test(gradientTop) && hexColor.test(paper)
-                ? 'system-bars:' + gradientTop + ':' + paper
+            const gradient = hexColor.test(gradientTop) && hexColor.test(paper);
+            const status = gradient ? gradientTop : fallback;
+            const panelColor = panelBottomColor();
+            const navigation = panelColor || (gradient ? paper : fallback);
+            const bars = (gradient || panelColor) && hexColor.test(status)
+                ? 'system-bars:' + status + ':' + navigation
                 : fallback;
             if ((bars === fallback && !hexColor.test(fallback)) || bars === lastBars) return;
             lastBars = bars;
@@ -105,6 +121,12 @@
         const themeObserver = new MutationObserver(updateBars);
         themeObserver.observe(root, { attributes: true, attributeFilter: ['data-palette'] });
         if (theme) themeObserver.observe(theme, { attributes: true, attributeFilter: ['content'] });
+        const panelObserver = new MutationObserver(records => {
+            if (records.some(record => record.target.localName === 'dialog')) updateBars();
+        });
+        panelObserver.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+        window.addEventListener('resize', updateBars);
+        window.visualViewport?.addEventListener('resize', updateBars);
         updateBars();
 
         const menu = document.getElementById('composer-tools');
