@@ -55,6 +55,18 @@ test('interactive HTML preserves native controls, handlers and scripts inside th
     assert.ok(html.includes("form-action 'none'"));
 });
 
+test('imported HTML previews decode one escape layer in encoded inline scripts', () => {
+    const markup = '<div title="A &amp;amp; B">A &amp;amp; B</div>';
+    const data = '<script>window.label = "A &amp; B"</script><script type="text/yaml">label: A &amp;&amp; B</script>';
+    const encoded = '<script>if (true &amp;&amp; true) window.status = "A &amp;amp; B";</script>';
+    const source = markup + data + encoded;
+
+    const html = previewDocument(source);
+    assert.ok(html.includes(markup + data));
+    assert.ok(html.includes('<script>if (true && true) window.status = "A &amp; B";</script>'));
+    assert.ok(previewDocument(source, {}, true).includes(source));
+});
+
 
 test('sample card send bridge compiles and preserves multiline form content', () => {
     const html=previewDocument('');const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];

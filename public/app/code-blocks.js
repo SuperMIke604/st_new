@@ -167,6 +167,12 @@ function installPreviewEdgeStyles() {
 }
 
 export function previewDocument(source, context = {}, remote = false) {
+    if (!remote && source.includes('&amp;&amp;')) {
+        // SillyTavern removes one ampersand escape layer from rendered code blocks.
+        // Restore that layer in encoded inline JS while preserving HTML text and attributes.
+        source = source.replace(/(<script\s*>)([\s\S]*?)(<\/script\s*>)/gi, (block, opening, script, closing) =>
+            script.includes('&amp;&amp;') ? opening + script.replaceAll('&amp;', '&') + closing : block);
+    }
     if (context.scriptActions && source.includes("document.querySelectorAll('.sys-btn')") && source.includes("triggerSlash('/setinput ' + command)")) {
         source = source.replace(/\}\.catch\(function \(\) \{\s*triggerSlash\('\/echo severity=info 已填入命令：' \+ command\);/, "}.catch(function (error) { window.alert(error.message || String(error));");
     }
