@@ -122,7 +122,17 @@ button > svg, .button > svg, .folder-button > svg, .folder-heading .button > svg
 .global-world-control > .global-world-toggle { margin-block: -5px; }
 .world-entry-order input { width: 84px; }
 .world-entry-mode, .world-entry-position { min-width: 0; }
-.card-actions { grid-template-columns: repeat(auto-fit,minmax(var(--control-size),1fr)); gap: var(--control-gap); justify-items: center; }
+.character-files:not(.list-view) .card-actions {
+    grid-template-columns: repeat(3,minmax(var(--control-size),1fr));
+    row-gap: var(--control-gap);
+    column-gap: 0;
+    justify-items: center;
+}
+@media (max-width: 700px) {
+    .character-files:not(.list-view) {
+        grid-template-columns: repeat(auto-fill,minmax(min(100%,max(160px,calc((100% - var(--card-grid-gap, 10px)) / 2))),1fr));
+    }
+}
 .db-table-tabs { flex-wrap: wrap; }
 .check-field, .global-world-option { min-height: var(--control-size); }
 .prompt-drag-handle { font-size: var(--control-icon-size); }

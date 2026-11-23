@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { checkForUpdate, manualUpdate, UPDATE_URL } from '../update.js';
 import { BUILD } from '../version.js';
 
@@ -19,6 +21,43 @@ test('network and malformed manifests fail explicitly', async () => {
     await assert.rejects(checkForUpdate({ fetcher: async () => ({ ok: false, status: 404 }) }), /404/);
     await assert.rejects(checkForUpdate({ fetcher: async () => ({ ok: true, json: async () => ({ revision: 'bad' }) }) }), /格式无效/);
     await assert.rejects(checkForUpdate({ fetcher: async () => { throw Error('offline'); } }), /offline/);
+});
+
+test('the update menu installs while generating and still checks for unsaved edits', async t => {
+    const source = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+    const guards = ['assertIdle', 'assertMessageEditClosed', 'assertSaved'].map(name =>
+        source.match(new RegExp('^function ' + name + '\\([^\\n]*?(?:\\n[^\\n]*?)*?\\}(?=\\r?$)', 'm'))[0]);
+    const menuEntry = source.split(/\r?\n/).find(line => line.trimStart().startsWith("['检查更新',"));
+    const state = { busy: true };
+    const notices = [];
+    const revision = BUILD.revision === 'a'.repeat(64) ? 'b'.repeat(64) : 'a'.repeat(64);
+    let remote = { schema: 1, revision: BUILD.revision };
+    t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => remote }));
+    const post = t.mock.fn(async route => route.endsWith('/status') ? { available: true } : { ok: true });
+    const confirmFrontendUpdate = t.mock.fn(async () => { state.busy = true; return true; });
+    const checkUpdate = runInNewContext(guards.join('\n') + '\n[' + menuEntry + '][0][2]', {
+        state, api: { post }, confirmFrontendUpdate, notify: text => notices.push(text),
+        variablesSaving: false, scriptRuntime: {}, inlineEdit: null, resolvingMessageEdit: false, panelDirty: false,
+        manualUpdate: options => manualUpdate({ ...options, progress: () => ({ close() {} }) }),
+    });
+    await checkUpdate();
+    assert.equal(notices.at(-1), '当前已是最新版本');
+    assert.equal(confirmFrontendUpdate.mock.callCount(), 0);
+
+    remote = { schema: 1, revision };
+    await checkUpdate();
+    assert.match(notices.at(-1), /更新完成.*聊天空闲.*刷新网页/);
+
+    state.busy = false;
+    await checkUpdate();
+    assert.equal(state.busy, true);
+    assert.equal(post.mock.calls.filter(call => call.arguments[0].endsWith('/install')).length, 2);
+
+    state.dirty = true;
+    await checkUpdate();
+    assert.match(notices.at(-1), /发现新版本.*尚未保存/);
+    assert.equal(confirmFrontendUpdate.mock.callCount(), 2);
+    assert.ok(post.mock.calls.at(-1).arguments[0].endsWith('/status'));
 });
 
 

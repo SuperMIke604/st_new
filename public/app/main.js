@@ -311,7 +311,7 @@ function status(text, error = false) {
     $('save-status').textContent = text; $('save-status').classList.toggle('error', error);
     if (state.loading) $('chat-loading-label').textContent = text;
 }
-function assertIdle() { if (state.historySaving || state.databaseHistorySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy) throw new Error('请先停止或等待生成完成。'); }
+function assertIdle({ allowGeneration = false } = {}) { if (state.historySaving || state.databaseHistorySaving) throw new Error('正在保存聊天记录，请稍候。'); if (variablesSaving) throw new Error('正在保存变量，请稍候。'); if (scriptRuntime.processing) throw new Error('角色脚本正在处理消息，请稍候。'); if (state.loading) throw new Error('正在切换聊天，请稍候。'); if (state.busy && !allowGeneration) throw new Error('请先停止或等待生成完成。'); }
 function cancelMessageEdit() {
     if (!inlineEdit) return;
     const index = state.chat.indexOf(inlineEdit.message);
@@ -371,7 +371,7 @@ function assertMessageEditClosed(ErrorType = Error) {
     if (inlineEdit || resolvingMessageEdit) throw new ErrorType('请先处理聊天记录中尚未保存的修改。');
 }
 function assertViewable() { if (state.loading) throw new Error('正在切换聊天，请稍候。'); assertMessageEditClosed(); if (state.dirty && !state.busy) throw new Error('请先保存聊天。'); }
-function assertSaved() { assertIdle(); assertMessageEditClosed(); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
+function assertSaved(options) { assertIdle(options); assertMessageEditClosed(); if (state.dirty) throw new Error('当前聊天尚未保存，请先在工具中重试保存。'); }
 function settingsOwn(settings) {
     settings.extension_settings ||= {};
     const own = settings.independent_frontend = settings.extension_settings.independent_frontend ||= settings.independent_frontend || {};
@@ -3981,7 +3981,7 @@ for (const [label, glyph, callback] of [
     } })],
     ['变量管理器', 'tools', variableManagerPanel],
     ['加载日志', 'activity', timingPanel],
-    ['检查更新', 'updateDownload', () => manualUpdate({ api, notify, confirmUpdate: confirmFrontendUpdate, guard: () => { assertSaved(); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })],
+    ['检查更新', 'updateDownload', () => manualUpdate({ api, notify, confirmUpdate: confirmFrontendUpdate, guard: () => { assertSaved({ allowGeneration: true }); if (panelDirty) throw new Error('请先保存或取消当前编辑。'); } })],
     ['关闭聊天', 'close', async () => { assertSaved(); state.character = null; state.chat = []; state.header = null; state.file = ''; welcome(); synchronize(); }],
     ['聊天记录管理', 'message', chatHistoryPanel],
     ['历史聊天', 'history', chatsPanel],
