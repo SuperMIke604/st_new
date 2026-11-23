@@ -44,6 +44,46 @@ function fixture() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('database progress stays 16 pixels below the measured toolbar and releases its listeners', () => {
+    let appbarBottom = 66, actionsBottom = 61, reposition, disconnected = false, stopped = false;
+    const notice = { style: {}, setAttribute() {}, append() {}, showPopover() {}, matches: () => true, hidePopover() {}, remove() {} };
+    const text = { textContent: '' };
+    const viewport = Object.assign(new EventTarget(), { offsetTop: 0 });
+    const appbar = { getBoundingClientRect: () => ({ bottom: appbarBottom }) };
+    const actions = { getBoundingClientRect: () => ({ bottom: actionsBottom }) };
+    const document = { body: { append() {} }, documentElement: { dataset: { palette: 'ivory-cards' } }, querySelector: () => appbar };
+    const context = vm.createContext({
+        document, window: { visualViewport: viewport }, $: id => id === 'top-actions' ? actions : { open: false },
+        ResizeObserver: class {
+            constructor(callback) { reposition = callback; }
+            observe() {}
+            disconnect() { disconnected = true; }
+        },
+        el: tag => tag === 'div' ? notice : text,
+        action: (_label, callback) => { const button = { click: callback }; notice.stop = button; return button; },
+    });
+    vm.runInContext(functions, context);
+    const progress = context.databaseProgress('正在总结消息', { abort() { stopped = true; } });
+    assert.equal(notice.style.top, '77px');
+    actionsBottom = 93;
+    reposition();
+    assert.equal(notice.style.top, '109px');
+    document.documentElement.dataset.palette = '';
+    appbarBottom = 50;
+    viewport.dispatchEvent(new Event('resize'));
+    assert.equal(notice.style.top, '66px');
+    viewport.offsetTop = 70;
+    viewport.dispatchEvent(new Event('scroll'));
+    assert.equal(notice.style.top, '86px');
+    notice.stop.click();
+    assert.ok(stopped && notice.stop.disabled);
+    progress.close();
+    assert.ok(disconnected);
+    viewport.offsetTop = 100;
+    viewport.dispatchEvent(new Event('scroll'));
+    assert.equal(notice.style.top, '86px');
+});
+
 test('database summary applies bare operations to the latest snapshot without dialogue or hiding messages', async () => {
     const f = fixture();
     f.context.parseUpdate = parseUpdate;

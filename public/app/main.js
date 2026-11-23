@@ -3081,11 +3081,38 @@ async function databasePanel() {
     });
 }
 function databaseProgress(message, controller) {
-    const notice=el('div','database-progress'),text=el('span','',message);
-    notice.setAttribute('role','status');notice.setAttribute('popover','manual');
-    const stop=action('终止',()=>{controller.abort();stop.disabled=true;text.textContent='正在终止填表…';});notice.append(text,stop);document.body.append(notice);
-    if(notice.showPopover)notice.showPopover();else $('panel').open?$('panel').append(notice):document.body.append(notice);
-    return {update:value=>{text.textContent=value;},close:()=>{if(notice.matches(':popover-open'))notice.hidePopover();notice.remove();}};
+    const notice = el('div', 'database-progress'), text = el('span', '', message);
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('popover', 'manual');
+    const stop = action('终止', () => {
+        controller.abort(); stop.disabled = true; text.textContent = '正在终止填表…';
+    });
+    notice.append(text, stop);
+    const panel = $('panel');
+    (notice.showPopover || !panel.open ? document.body : panel).append(notice);
+
+    const appbar = document.querySelector('.appbar'), actions = $('top-actions'), viewport = window.visualViewport;
+    const position = () => {
+        const toolbar = document.documentElement.dataset.palette === 'ivory-cards' ? actions : appbar;
+        notice.style.top = `${Math.max(viewport?.offsetTop ?? 0, toolbar.getBoundingClientRect().bottom) + 16}px`;
+    };
+    const observer = new ResizeObserver(position);
+    observer.observe(appbar);
+    observer.observe(actions);
+    viewport?.addEventListener('resize', position);
+    viewport?.addEventListener('scroll', position);
+    position();
+    notice.showPopover?.();
+    return {
+        update: value => { text.textContent = value; },
+        close: () => {
+            observer.disconnect();
+            viewport?.removeEventListener('resize', position);
+            viewport?.removeEventListener('scroll', position);
+            if (notice.matches(':popover-open')) notice.hidePopover();
+            notice.remove();
+        },
+    };
 }
 async function databaseTokenCount(data, settings) {
     const model = databaseConnection(settings).model || 'gpt-4';
