@@ -12,7 +12,7 @@ const waitingPresentation = source.slice(source.indexOf('function setReplyWaitin
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, timeoutWhileWriting = false, intercept = body => body } = {}) {
-    const prepared = deferred(), response = deferred(), statuses = [], renders = [], notices = [], postGeneration = [];
+    const prepared = deferred(), response = deferred(), statuses = [], renders = [], scrollModes = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
     const stopClasses = new Set(), stopAttributes = new Map();
@@ -21,6 +21,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         setAttribute: (name, value) => stopAttributes.set(name, value),
     };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const window = new EventTarget();
     Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     const storage = new Map(), backgroundCalls = [], releases = [];
@@ -41,13 +42,14 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables,
+    const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables,
         $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
         preparePrompt: chat => { promptHistory.push(Array.from(chat, message => message.mes)); return prepared.promise; },
-        list: { follow: true, update() {}, setMessages(messages) {
+        list: { follow: true, update() {}, setMessages(messages, { latest } = {}) {
             if (state.generation?.reply) assert.equal(requests, 1, 'start the request before repainting the chat');
+            scrollModes.push(latest);
             renders.push(context.visibleChatMessages(messages).map(message => ({ text: message.mes, pending: state.generation?.reply === message })));
         } },
         api: {
@@ -74,8 +76,63 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(waitingPresentation + generate, context);
-    return { state, input, storage, backgroundCalls, releases, prepared, response, statuses, renders, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, requestLog: context.requestLog, setVisibility, requests: () => requests, run: mode => vm.runInContext(`generate(${mode === true ? 'true' : 'false'})`, context) };
+    return { state, input, window, storage, backgroundCalls, releases, prepared, response, statuses, renders, scrollModes, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, requestLog: context.requestLog, setVisibility, requests: () => requests, run: (mode, options) => context.generate(mode, null, options) };
 }
+
+test('composer submit immediately shows the card and waits five seconds before generation', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture({ native: true });
+    const running = f.run(false, { delaySend: true });
+    assert.equal(f.input.value, '');
+    assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
+    assert.equal(f.scrollModes.at(-1), true);
+    assert.equal(f.state.chat.length, 1, 'the pending card does not change the saved chat or script snapshot');
+    f.input.value = '下一条草稿';
+    await assert.rejects(f.run(false, { delaySend: true }));
+    t.mock.timers.tick(4999);
+    await tick();
+    assert.equal(f.state.busy, true);
+    assert.equal(f.stopAttributes.get('aria-label'), '正在准备发送，停止生成');
+    assert.deepEqual(f.helperEvents, []);
+    assert.deepEqual(f.saveOptions, []);
+    assert.deepEqual(f.promptHistory, []);
+    assert.equal(f.requests(), 0);
+    t.mock.timers.tick(1);
+    f.prepared.resolve({ messages: [] });
+    await tick();
+    assert.equal(f.input.value, '下一条草稿');
+    assert.deepEqual(f.helperEvents, ['generation_started', 'message_sent']);
+    assert.equal(f.requests(), 1);
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复<UpdateVariable></UpdateVariable>' } }] }) });
+    await running;
+    assert.equal(f.state.chat.filter(message => message.is_user).length, 1);
+    assert.equal(f.scrollModes.at(-1), 'top');
+    assert.equal(f.requests(), 1);
+});
+
+test('stopping or leaving during the delay keeps the user card and cancels model generation', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    for (const pageHidden of [false, true]) {
+        const f = fixture({ native: true });
+        const message = '保留这条消息';
+        f.input.value = message;
+        const running = f.run(false, { delaySend: true });
+        if (pageHidden) f.window.dispatchEvent(new Event('pagehide'));
+        else f.state.controller.abort(new DOMException('user-stop', 'AbortError'));
+        await running;
+        t.mock.timers.tick(5000);
+        assert.equal(f.state.busy, false);
+        assert.equal(f.input.value, '');
+        assert.deepEqual(f.notices, pageHidden ? [] : ['发送已取消']);
+        assert.deepEqual(f.helperEvents, []);
+        assert.equal(f.saveOptions.length, 1);
+        assert.equal(f.saved[0].at(-1).mes, message);
+        assert.equal(f.state.chat.length, 2);
+        assert.equal(f.renders.at(-1).at(-1).text, message);
+        assert.notEqual(f.scrollModes.at(-1), 'top');
+        assert.equal(f.requests(), 0);
+    }
+});
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {
     const finalMessages = [{ role: 'user', content: '脚本改写后的消息' }];
@@ -181,6 +238,7 @@ test('stream diagnostics distinguish response headers, first reasoning text and 
     assert.equal(record('模型请求至首段文本（含思考）').status, 'success');
     assert.equal(record('模型请求至回复接收完成').status, 'loading');
     tail.resolve(); await running;
+    assert.equal(f.scrollModes.at(-1), 'top');
     assert.equal(record('模型请求至回复接收完成').status, 'success');
     assert.ok(f.timings.snapshot().every(entry => entry.status !== 'loading'));
     assert.ok(!JSON.stringify(f.timings.snapshot()).includes('private'));

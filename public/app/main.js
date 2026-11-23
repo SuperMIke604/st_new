@@ -419,9 +419,11 @@ function setReplyWaiting(label = '') {
     button.classList.toggle('send-button', waiting);
     button.classList.toggle('icon-button', !waiting);
     button.setAttribute('aria-label', label ? label + '，停止生成' : '停止生成');
+    button.title = label ? label + '，点击停止' : '停止生成';
 }
 
 function visibleChatMessages(messages) {
+    if (state.generation?.queuedUser) return [...messages, state.generation.queuedUser];
     return state.hiddenReply && messages.at(-1) === state.hiddenReply ? messages.slice(0, -1) : messages;
 }
 
@@ -3404,7 +3406,27 @@ async function resumeBackgroundChat({ discover = false } = {}) {
     await generate(false, job);
 }
 
-async function generate(mode = false, recovery = null) {
+async function waitToSend(controller) {
+    const { signal } = controller;
+    signal.throwIfAborted();
+    const onPageHide = () => controller.abort(new DOMException('pagehide', 'AbortError'));
+    window.addEventListener('pagehide', onPageHide);
+    let timer, onAbort;
+    try {
+        await new Promise((resolve, reject) => {
+            onAbort = () => reject(signal.reason);
+            signal.addEventListener('abort', onAbort, { once: true });
+            timer = setTimeout(resolve, 5000);
+        });
+        signal.throwIfAborted();
+    } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        window.removeEventListener('pagehide', onPageHide);
+    }
+}
+
+async function generate(mode = false, recovery = null, { delaySend = false } = {}) {
     assertIdle(); if (state.chatConflict) throw new Error(state.chatConflict);
     if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
     if (!recovery && usesBackgroundGeneration() && pendingBackgroundJob()) return resumeBackgroundChat();
@@ -3415,7 +3437,9 @@ async function generate(mode = false, recovery = null) {
         if (state.presetMissing) throw new Error('保存的预设已不存在，请打开预设面板选择有效预设；不会自动切换到第一个。');
     }
     const regenerate = recovery ? recovery.regenerate === true : mode === true;
-    const text = $('message-input').value.trim();
+    const input = $('message-input');
+    const draft = input.value;
+    const text = draft.trim();
     const retry = !!recovery || mode === 'retry' || (!regenerate && !text && !!state.chat.at(-1)?.is_user);
     if (!regenerate && !retry && !text) return;
     if (!regenerate && retry && !recovery && !state.chat.at(-1)?.is_user) throw new Error('最后一条消息不是待回复的用户消息。');
@@ -3423,15 +3447,12 @@ async function generate(mode = false, recovery = null) {
     const previousReply = regenerate ? copy(state.chat.at(-1)) : null;
     // Fail local validation before fetching books or running tokenizer requests.
     if (!recovery) generationBody(connection(), state.preset, []);
-    const user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
-    const openingVariables = !regenerate && !retry ? sealedOpeningVariables(state.chat, text) : null;
-    if (user && openingVariables) user.variables = { 0: openingVariables };
-    const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
     const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
+    let waitingToSend = delaySend;
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
     status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
-    let reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
+    let user, reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
     let requestStarted, replyReceived;
     let backgroundJob = recovery;
@@ -3443,14 +3464,34 @@ async function generate(mode = false, recovery = null) {
         acknowledgeBackgroundJob(backgroundJob);
         backgroundJob = null;
     };
+    const appendUser = () => {
+        state.chat.push(user);
+        pendingUser = true;
+        if (state.generation.queuedUser) state.generation.queuedUser = null;
+        else { input.value = ''; resizeInput(); }
+    };
     const persistUser = async () => {
-        state.chat.push(user); pendingUser = true; $('message-input').value = ''; resizeInput();
+        appendUser();
         await loadTimings.measure('发送前保存聊天', 'generation', () => saveChat({ incremental: true }));
         userSaved = true;
         userSaveBase = api.chatBase;
     };
     try {
+        user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
+        const openingVariables = !regenerate && !retry ? sealedOpeningVariables(state.chat, text) : null;
+        if (user && openingVariables) user.variables = { 0: openingVariables };
+        const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
         setReplyWaiting(recovery ? '正在恢复后台回复' : '正在准备发送');
+        if (waitingToSend) {
+            if (!regenerate && !retry) {
+                // Show the card without changing the chat snapshot seen by generation_started.
+                state.generation.queuedUser = user;
+                input.value = ''; resizeInput();
+                list.setMessages(state.chat, { latest: true });
+            }
+            await waitToSend(state.controller);
+            waitingToSend = false;
+        }
         if (regenerate) {
             state.hiddenReply = state.chat.at(-1);
             list.setMessages(state.chat, { latest: list.follow });
@@ -3606,7 +3647,9 @@ async function generate(mode = false, recovery = null) {
         const failure = requestFailure(error, state.controller?.signal);
         finishFirstText?.(failure.status, failure);
         finishModelResponse?.(failure.status, failure);
-        if (error.name === 'AbortError') notifyGeneration('生成已停止，已收到的内容会保存', 'info');
+        if (error.name === 'AbortError') {
+            if (error.message !== 'pagehide') notifyGeneration(waitingToSend ? '发送已取消' : '生成已停止，已收到的内容会保存', 'info');
+        }
         else {
             state.error = resumeLater ? '暂时无法读取后台回复，点击发送可继续恢复' : error.message;
             notifyGeneration(state.error, true);
@@ -3618,6 +3661,7 @@ async function generate(mode = false, recovery = null) {
         }
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
+        if (state.generation.queuedUser) appendUser();
         state.generation = null;
         let rawSaved = false;
         if (completed && reply && (backgroundJob || scriptRuntime.helperReady)) {
@@ -3686,13 +3730,15 @@ async function generate(mode = false, recovery = null) {
             }
             if (state.chatConflict && !userSaved && state.chat.at(-1) === user) {
                 state.chat.pop();
-                $('message-input').value = text; resizeInput();
+                input.value = input.value ? `${draft}\n\n${input.value}` : draft;
+                resizeInput();
             }
         }
         if (reply || pendingUser || regenerate) {
             state.hiddenReply = null;
             setReplyWaiting();
-            list.setMessages(state.chat, { latest: list.follow });
+            const showReplyTop = completed && state.chat.at(-1) === reply;
+            list.setMessages(state.chat, { latest: showReplyTop ? 'top' : list.follow });
         }
         if (!reply && !resumeLater && backgroundJob) acknowledgeReply();
         if (completed && scriptRuntime.helperReady && document.visibilityState !== 'visible') await waitForReplyScriptVisibility();
@@ -3938,7 +3984,10 @@ $('close-panel').addEventListener('click', closePanel);
 $('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
 $('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
 window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
-$('composer').addEventListener('submit', event => { event.preventDefault(); void afterMessageEdit(() => generate(false)); });
+$('composer').addEventListener('submit', event => {
+    event.preventDefault();
+    if (!state.busy) void afterMessageEdit(() => generate(false, null, { delaySend: true }));
+});
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('scroll', raiseNotification);

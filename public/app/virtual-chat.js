@@ -8,6 +8,9 @@ export class VirtualChat {
         this.messageFrame = element.parentElement?.classList.contains('message-list-frame') ? element.parentElement : null;
         this.frameEdgeCheckPending = false;
         this.clippedCards = new Set();
+        this.scrollPosition = element.scrollTop;
+        this.topAlignedMessage = null;
+        this.pinLatestTop = false;
         this.top = document.createElement('div'); this.bottom = document.createElement('div');
         this.top.className = this.bottom.className = 'virtual-spacer';
         this.element.replaceChildren(this.top, this.bottom);
@@ -29,15 +32,20 @@ export class VirtualChat {
                 if (this.prefix[index + 1] < this.element.scrollTop) correction += height - old;
                 this.heights.set(index, height); changed = true;
             }
-            if (changed) {
-                this.calculate(); this.spacers();
-                if (this.follow) this.element.scrollTop = this.element.scrollHeight;
-                else if (correction) this.element.scrollTop += correction;
+            if (changed || entries.some(({ target }) => target === element)) {
+                if (changed) this.calculate();
+                this.spacers();
+                if (!this.alignScroll() && correction) this.setScrollTop(element.scrollTop + correction);
             }
         });
         this.observer.observe(element);
         element.addEventListener('scroll', () => {
-            this.follow = element.scrollHeight - element.scrollTop - element.clientHeight < 90;
+            const movement = element.scrollTop - this.scrollPosition;
+            if (Math.abs(movement) > 1) {
+                this.follow = movement > 0 && element.scrollHeight - element.scrollTop - element.clientHeight < 90;
+                this.pinLatestTop = false;
+                this.scrollPosition = element.scrollTop;
+            }
             if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.paint(null, true); });
         }, { passive: true });
     }
@@ -107,22 +115,42 @@ export class VirtualChat {
     }
     setMessages(messages, { reset = false, latest = false } = {}) {
         this.messages = this.projectMessages(messages);
+        if (reset || this.messages.at(-1) !== this.topAlignedMessage) {
+            this.topAlignedMessage = null;
+            this.pinLatestTop = false;
+        }
         if (reset) {
             this.heights.clear(); this.observer.disconnect(); this.nodes.clear();
             this.observer.observe(this.element);
             this.element.replaceChildren(this.top, this.bottom);
         }
         this.calculate();
-        if (latest) { this.follow = true; this.jump(Math.max(0, this.messages.length - 1), true); }
+        if (latest === 'top' && this.messages.length) {
+            this.follow = false;
+            this.topAlignedMessage = this.messages.at(-1);
+            this.pinLatestTop = true;
+            this.paint(this.messages.length - 1);
+        } else if (latest) this.jump(this.messages.length - 1, true);
         else this.paint();
     }
     spacers() {
         this.top.style.height = `${this.prefix[this.start || 0] || 0}px`;
-        this.bottom.style.height = `${Math.max(0, this.prefix.at(-1) - (this.prefix[this.end || 0] || 0))}px`;
+        const remaining = Math.max(0, this.prefix.at(-1) - (this.prefix[this.end || 0] || 0));
+        let tailSpace = 0;
+        if (this.topAlignedMessage) {
+            const last = this.messages.length - 1;
+            const height = this.nodes.get(last)?.getBoundingClientRect().height ?? this.heights.get(last) ?? 200;
+            const { paddingTop, paddingBottom } = getComputedStyle(this.element);
+            // Short replies need enough space below them to reach the top of the viewport.
+            const padding = (parseFloat(paddingTop) || 0) + (parseFloat(paddingBottom) || 0);
+            tailSpace = Math.max(0, this.element.clientHeight - height - this.gap - padding);
+        }
+        this.bottom.style.height = `${remaining + tailSpace}px`;
         this.bottom.dataset.atEnd = String(this.end === this.messages.length);
     }
     paint(forcedIndex = null, duringScroll = false) {
-        const index = forcedIndex ?? this.locate(this.element.scrollTop);
+        const visibleIndex = this.locate(this.element.scrollTop);
+        const index = forcedIndex ?? Math.max(visibleIndex, this.follow ? this.messages.length - 32 : 0);
         this.start = Math.max(0, index - 8);
         this.end = Math.min(this.messages.length, this.start + 40);
         const next = new Map();
@@ -144,6 +172,7 @@ export class VirtualChat {
         this.nodes = next;
         for (const node of next.values()) this.observer.observe(node, { box: 'border-box' });
         this.spacers();
+        this.alignScroll();
         if (duringScroll) this.updateFrameEdges();
         else this.scheduleFrameEdgeCheck();
         this.onRange?.({ start: this.start, end: this.end, total: this.messages.length, follow: this.follow });
@@ -152,11 +181,29 @@ export class VirtualChat {
         const node = this.nodes.get(index);
         if (node) this.renderMessage(this.messages[index], index, node);
     }
+    setScrollTop(position) {
+        this.element.scrollTop = position;
+        this.scrollPosition = this.element.scrollTop;
+    }
+    alignScroll() {
+        if (this.follow) {
+            this.setScrollTop(this.element.scrollHeight);
+            return true;
+        }
+        if (!this.pinLatestTop) return false;
+        const node = this.nodes.get(this.messages.length - 1);
+        if (!node) return false;
+        const viewportTop = this.element.getBoundingClientRect().top + this.element.clientTop;
+        const inset = parseFloat(getComputedStyle(this.element).paddingTop) || 0;
+        this.setScrollTop(this.element.scrollTop + node.getBoundingClientRect().top - viewportTop - inset);
+        return true;
+    }
     jump(index, bottom = false) {
         index = Math.min(Math.max(0, index), Math.max(0, this.messages.length - 1));
+        this.topAlignedMessage = null;
+        this.pinLatestTop = false;
         this.follow = bottom;
         this.paint(index);
-        this.element.scrollTop = bottom ? this.element.scrollHeight : this.prefix[index];
-        if (bottom) requestAnimationFrame(() => { if (this.follow) this.element.scrollTop = this.element.scrollHeight; });
+        if (!bottom) this.setScrollTop(this.prefix[index]);
     }
 }
