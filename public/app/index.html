@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-palette="paper">
+<html lang="zh-CN" data-palette="ivory-cards" data-theme="ivory-cards">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -11,7 +11,6 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./controls.css">
   <link rel="stylesheet" href="./typography.css">
-  <link rel="stylesheet" href="./claude-day.css">
   <link rel="stylesheet" href="./paper-cards.css">
   <script defer src="./vendor/showdown.min.js"></script>
   <script defer src="./vendor/purify.min.js"></script>
@@ -46,10 +45,10 @@
     <header class="panel-header"><div><small id="panel-kicker">工作空间</small><h1 id="panel-title"></h1></div><button id="close-panel" class="icon-button" aria-label="关闭面板"></button></header>
     <div id="panel-body"></div>
   </dialog>
-  <dialog id="message-edit-confirmation" role="alertdialog" aria-labelledby="message-edit-confirmation-title">
+  <dialog id="message-edit-confirmation" class="compact-dialog" role="alertdialog" aria-labelledby="message-edit-confirmation-title">
     <form method="dialog">
       <h2 id="message-edit-confirmation-title">保存对聊天记录的修改？</h2>
-      <div class="message-edit-confirmation-actions">
+      <div class="compact-dialog-actions">
         <button class="button" value="continue" autofocus>继续编辑</button>
         <button class="button danger" value="discard">放弃修改</button>
         <button class="button primary" value="save">保存</button>

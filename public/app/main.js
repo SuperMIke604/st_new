@@ -172,6 +172,13 @@ function action(label, callback, glyph, className = '') {
     button.addEventListener('click', () => run(callback));
     return button;
 }
+function iconAction(label, callback, glyph) {
+    const button = action(label, callback, glyph, 'icon-button');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.querySelector('span').remove();
+    return button;
+}
 function discloseProfileTools(bar, tools, button, label, groupLabel) {
     const extra = el('div', 'profile-extra-tools');
     extra.id = `profile-tools-${uuid()}`;
@@ -669,23 +676,12 @@ function welcome() {
     $('message-list').append(welcome);
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
-function applyPalette(palette, persist = false) {
-    document.documentElement.dataset.palette = palette;
-    const themeColor = palette === 'lavender-paper' ? '#eee9f5'
-        : palette === 'ivory-cards-am' ? '#efe7da'
-        : palette === 'claude-day' ? '#f8f8f6'
-        : ['paper', 'mist', 'ivory', 'ivory-cards'].includes(palette) ? '#f3eee4' : '#f7f8f4';
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
-    if (persist) {
-        try { localStorage.setItem('independent-palette', palette); } catch { /* Server preferences remain available. */ }
-    }
-}
 async function reloadResources() {
     const loaded = await api.bootstrapSettings(); state.settings = loaded.settings; state.bundle = loaded.bundle;
     const legacySelection = { independent_frontend: { preset: state.settings.independent_frontend?.preset }, extension_settings: { independent_frontend: { preset: state.settings.extension_settings?.independent_frontend?.preset } } };
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
-    applyPalette(state.own.palette || 'paper', true);
+    frontendThemes.apply(state.own.palette, true);
     try {
         const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null');
         if (saved) state.own.reading = readingSettings({ ...state.own.reading, ...saved }, true);
@@ -797,11 +793,6 @@ function closePanel() {
     return true;
 }
 function timingPanel() {
-    const iconAction = (label, callback, glyph) => {
-        const button = action(label, callback, glyph, 'icon-button');
-        button.title = label; button.setAttribute('aria-label', label); button.querySelector('span')?.remove();
-        return button;
-    };
     // Diagnostics have their own dialog and never enter the editable panel or
     // chat lifecycle (dirty flags, save queues, generation controller/history).
     const existing = document.getElementById('timing-dialog');
@@ -2281,12 +2272,12 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         }
     };
     const render = () => timing ? timing.measureSync('正则与脚本 · 构建脚本列表', 'data', renderList, () => ({ metrics: { scriptCount: scriptRows(tree).length } })) : renderList();
-    toolbar.append(action('新建脚本', () => { tree.push({ type: 'script', id: uuid(), name: '新脚本', enabled: false, content: '', info: '', button: { enabled: false, buttons: [] }, data: {} }); dirty(); render(); rows.lastElementChild.open = true; }, 'plus'), action('导入脚本', async () => {
+    toolbar.append(iconAction('新建脚本', () => { tree.push({ type: 'script', id: uuid(), name: '新脚本', enabled: false, content: '', info: '', button: { enabled: false, buttons: [] }, data: {} }); dirty(); render(); rows.lastElementChild.open = true; }, 'plus'), iconAction('导入脚本', async () => {
         const file = await pickFile('.json'); if (!file) return; const value = JSON.parse(await file.text());
         const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.extensions?.tavern_helper?.scripts ?? value.data?.extensions?.tavern_helper?.scripts;
         validateScriptTree(imported);
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
-    }, 'folder'), action('导出脚本', () => downloadJson(tree, `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本`), 'export'));
+    }, 'folder'), iconAction('导出脚本', () => downloadJson(tree, `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本`), 'export'));
     const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
         assertIdle();
         validateScriptTree(tree);
@@ -2758,7 +2749,10 @@ async function personaEditor(avatar = null) {
             let blob = avatarFile;
             if (!blob) {
                 const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256; const ctx = canvas.getContext('2d');
-                const paper = ['paper', 'mist', 'ivory'].includes(state.own.palette || 'paper'); ctx.fillStyle = paper ? '#eae2d6' : '#e6eddf'; ctx.fillRect(0, 0, 256, 256); ctx.fillStyle = paper ? '#805b40' : '#496c53'; ctx.font = '112px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText([...name.value.trim()][0], 128, 132);
+                const theme = getComputedStyle(document.documentElement);
+                ctx.fillStyle = theme.getPropertyValue('--soft').trim();
+                ctx.fillRect(0, 0, 256, 256);
+                ctx.fillStyle = theme.getPropertyValue('--green').trim(); ctx.font = '112px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText([...name.value.trim()][0], 128, 132);
                 blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')); if (!blob) throw new Error('生成头像失败。');
             }
             const form = new FormData(); form.append('avatar', blob, avatarFile?.name || 'persona.png'); form.append('overwrite_name', avatar || `persona-${uuid()}.png`);
@@ -3819,11 +3813,8 @@ function toolsPanel() {
     const body = showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
-    const palette = field(body, '页面配色', state.own.palette || 'paper', { options: [
-        ['sage', '鼠尾草绿'], ['paper', '米白纸色'], ['mist', '奶油纸色'], ['ivory', '象牙纸白'], ['claude-day', 'Claude 白天'],
-        ['lavender-paper', '雾紫纸色'], ['ivory-cards', '象牙卡片'], ['ivory-cards-am', '象牙卡片（午前版）'],
-    ] });
-    palette.addEventListener('change', () => applyPalette(palette.value));
+    const palette = field(body, '页面配色', frontendThemes.normalize(state.own.palette), { options: frontendThemes.options });
+    palette.addEventListener('change', () => frontendThemes.apply(palette.value));
     const rememberReading = value => {
         const settings = readingSettings(value, true);
         state.own.reading = settings;
@@ -3873,7 +3864,7 @@ function toolsPanel() {
         const selectedPalette = palette.value;
         await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
         rememberReading(reading);
-        applyPalette(selectedPalette, true);
+        frontendThemes.apply(selectedPalette, true);
         panelDirty = false; notify('阅读设置已保存');
     }, 'tools', 'primary'), action('恢复默认排版', () => {
         for (const [key, , fallback] of readingFields) readingInputs.get(key).value = fallback;
@@ -3928,7 +3919,6 @@ function positionComposerMenu(menu, toggle) {
     menu.style.maxHeight = `${Math.max(60, rect.top - 8 - gap)}px`;
 }
 function confirmFrontendUpdate(question) {
-    if (document.documentElement.dataset.palette !== 'ivory-cards') return confirm(question);
     const dialog = el('dialog', 'compact-dialog');
     const heading = el('h2', '', '检查更新'); heading.id = 'frontend-update-confirm-title';
     const description = el('p', '', question); description.id = 'frontend-update-confirm-description';

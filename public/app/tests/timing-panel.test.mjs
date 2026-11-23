@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { LoadTimings, timingStatusText, timingDetailText } from '../load-timings.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
+const iconAction = source.slice(source.indexOf('function iconAction('), source.indexOf('\nfunction discloseProfileTools('));
 const panel = source.slice(source.indexOf('function timingPanel()'), source.indexOf('\nfunction field('));
 class Node {
     constructor(tag, className, text) { this.tag = tag; this.className = className; this.textContent = text; this.children = []; this.dataset = {}; this.events = {}; }
@@ -30,12 +31,19 @@ test('log refresh, export and clear remain independent of pending generation and
     const context = vm.createContext({ state, panelDirty: true, variablesSaving: true, loadTimings: logs, timingStatusText, timingDetailText,
         document: { body: root, getElementById: () => null }, matchMedia: () => ({ matches: true }),
         el: (...args) => new Node(...args), note: (parent, text) => parent.append(new Node('p', '', text)),
-        action: (label, callback) => { const node = new Node('button', '', label); buttons.set(label, callback); return node; },
+        action: (label, callback) => {
+            const node = new Node('button', '', label);
+            const text = new Node('span', '', label);
+            node.append(text);
+            node.querySelector = selector => selector === 'span' ? text : null;
+            buttons.set(label, callback);
+            return node;
+        },
         BUILD: { revision: 'test-build' }, generationPreload: { stats: () => ({ activeTasks: 1 }) }, historyRegexCache: { capacity: () => ({ cacheEntries: 1 }) },
         exportDiagnostics: text => { exported = text; },
         showPanel() { throw Error('must not enter shared editor lifecycle'); },
     });
-    vm.runInContext(panel, context); vm.runInContext('timingPanel()', context);
+    vm.runInContext(`${iconAction}\n${panel}`, context); vm.runInContext('timingPanel()', context);
     assert.equal(root.children[0].open, true);
     buttons.get('刷新记录')(); buttons.get('导出日志')();
     const snapshot = JSON.parse(exported);
