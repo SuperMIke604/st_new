@@ -91,7 +91,7 @@ $(() => registerMvuSchema(Schema));`;
 test('enabled character and global modules share the loader while disabled modules cannot open CDN access', () => {
     const remote = { scope: 'character', content: `import '${MVU_MODULE_URL}'` };
     const html = scriptDocument([remote], { chat: [] }, '');
-    assert.match(html, /script-src 'unsafe-inline' https:\/\/testingcf\.jsdelivr\.net;/);
+    assert.match(html, /script-src 'unsafe-inline' https:\/\/testingcf\.jsdelivr\.net https:\/\/cdn\.jsdelivr\.net\/npm\/;/);
     assert.match(html, /connect-src 'none'/);
     assert.ok(!html.includes('allow-same-origin'));
     for (const scripts of [[{ ...remote, enabled: false }], [{ ...remote, scope: 'global', enabled: false }]]) {
@@ -138,8 +138,23 @@ test('original MVU receives actual external libraries and a failed library load 
     assert.equal(imports.length, 4);
     assert.ok(imports.every(url => new URL(url).origin === 'https://testingcf.jsdelivr.net'));
     const original = { _: { previous: true } };
-    await assert.rejects(loadMvuLibraries(async url => { if (url.includes('yaml@')) throw Error('network offline'); return {}; }, original), /network offline/);
+    await assert.rejects(loadMvuLibraries(async url => { if (url.includes('yaml@')) throw Error('network offline'); return {}; }, original), /YAML.*testingcf\.jsdelivr\.net.*network offline.*cdn\.jsdelivr\.net.*network offline/);
     assert.deepEqual(original, { _: { previous: true } });
+});
+
+test('a failed primary dependency retries the same version on the fallback CDN', async () => {
+    const target = {}, imports = [];
+    const vuePath = '/npm/vue@3.5.21/dist/vue.esm-browser.prod.js';
+    const primaryVue = 'https://testingcf.jsdelivr.net' + vuePath;
+    const fallbackVue = 'https://cdn.jsdelivr.net' + vuePath;
+    await loadMvuLibraries(async url => {
+        imports.push(url);
+        if (url === primaryVue) throw TypeError('Failed to fetch dynamically imported module');
+        return { url };
+    }, target);
+    assert.deepEqual(imports.filter(url => url.endsWith(vuePath)), [primaryVue, fallbackVue]);
+    assert.deepEqual(imports.filter(url => new URL(url).hostname === 'cdn.jsdelivr.net'), [fallbackVue]);
+    assert.equal(target.Vue.url, fallbackVue);
 });
 
 test('module status does not overwrite a failure with successful import completion', async () => {

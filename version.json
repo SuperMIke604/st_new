@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "d8999d15592ec2d52f9162fc1b4af92e7b71d88999bf148f10ca93df3bd5b933",
-  "publishedAt": "2026-11-22T13:14:31.742545+00:00",
+  "revision": "98abc8f83d6ea5975609913fb9aaaeaee611a92f8a39602f371097c1daad2819",
+  "publishedAt": "2026-11-23T02:00:25.838310+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -67,9 +67,9 @@
     "public/app/script-helper.js": "8f9bc85a275d84609446d7b01b52621ce5cf2d168ae64b471b0fc527540d375d",
     "public/app/script-inline.js": "2207ddc70361c2b0f4139f5a12963bd82ef4c144ffd149fd6b1604d26038b075",
     "public/app/script-layout.js": "68044b5f2ca95eadd923044eb80558ae35d1fff7ce16d18381ff6c04d3a4d30f",
-    "public/app/script-modules.js": "edfe2ad51504913b3064ea3d7eed10c4f55f3385cdf81907caa53b34884d6ce9",
+    "public/app/script-modules.js": "13fa2cd114104bb39d80ec550b07c51f8350d359b626c7513d4a7dd485c5f760",
     "public/app/script-prompts.js": "58cb89f47679fb9361f9c69a4b4b8b66be06f6904bc886ff50b407e195bffbe3",
-    "public/app/script-runtime.js": "2b0366655f743cfe09473092a8731fbfa0d8b25eff266533fbc3a629f31bd714",
+    "public/app/script-runtime.js": "4fef63237a4f6d0300cd54ea041979d19dcb83fcf4de74b4b9a92ff650e8fe40",
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "df5d566634820ac9a07ddc83c3529a939ee633b89d33c7f7432141c40ab6ce25",
     "public/app/select.js": "69dbc0e5b4ce4f1ba88a2cd3efa4d489dc85839a1b933d3cd443a34d0d6c2bca",
@@ -95,7 +95,7 @@
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "c5f186944bb6c0e48126c7f7feb598c11a47d116107f72f5eb3fb5807c450998"
+    "public/app/version.js": "85b9fb0d9f22b8e3f9ef1748f69a7b0cffee450bfec7fc1410d64a9da841a503"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

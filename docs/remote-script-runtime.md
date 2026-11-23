@@ -24,6 +24,8 @@ import 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate@beta/artif
 
 支持入口前后注释、引号及分号，使用浏览器原生 ES 模块导入；不改写、内嵌或重新打包其业务代码。停用脚本和全局脚本不执行，其他远程入口尚未开放。公共库使用该项目 webpack 声明的真实外部库：Vue 3.5.21、lodash 4.17.21、YAML 2.8.0、Zod 4.1.11。所有库获取成功后才替换对应命名空间。
 
+公共库由浏览器在脚本沙箱中加载。单个库从 `testingcf.jsdelivr.net` 导入失败后，改用 `cdn.jsdelivr.net/npm/` 的同版本文件。两源都失败时，报错包含库名和两次导入失败的原因。
+
 独立助手 API 当前版本为 **0.1.0**，`getTavernHelperVersion()` 如实返回此值，因此原版 MVU 的最低 3.4.17 检查仍会提示版本不足。这不是本机原生插件版本检测结果，也没有通过伪造版本号掩盖未接入的接口。核心流程已经验证，尚不等于完整酒馆助手兼容。
 
 ## 隔离与兼容父容器

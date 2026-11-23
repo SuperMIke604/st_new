@@ -100,7 +100,18 @@ export async function loadMvuLibraries(importer = url => import(url), target = w
         ['z', 'zod@4.1.11/+esm', false],
     ];
     const libraries = await Promise.all(definitions.map(async ([name, path, useDefault]) => {
-        const library = await importer('https://testingcf.jsdelivr.net/npm/' + path);
+        const primary = 'https://testingcf.jsdelivr.net/npm/' + path;
+        const fallback = 'https://cdn.jsdelivr.net/npm/' + path;
+        let library;
+        try {
+            library = await importer(primary);
+        } catch (primaryError) {
+            try {
+                library = await importer(fallback);
+            } catch (fallbackError) {
+                throw Error(`${name} 的两个 CDN 均加载失败。testingcf.jsdelivr.net：${primaryError?.message || primaryError}。cdn.jsdelivr.net：${fallbackError?.message || fallbackError}`, { cause: fallbackError });
+            }
+        }
         return [name, useDefault ? library.default : library];
     }));
     for (const [name, library] of libraries) target[name] = library;
