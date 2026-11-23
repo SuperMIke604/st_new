@@ -40,12 +40,15 @@ export class VirtualChat {
         });
         this.observer.observe(element);
         element.addEventListener('scroll', () => {
-            const movement = element.scrollTop - this.scrollPosition;
+            const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight);
+            const position = Math.min(maxScroll, Math.max(0, element.scrollTop));
+            // A resize can clamp scrollTop before ResizeObserver runs.
+            const movement = position - Math.min(this.scrollPosition, maxScroll);
             if (Math.abs(movement) > 1) {
-                this.follow = movement > 0 && element.scrollHeight - element.scrollTop - element.clientHeight < 90;
+                this.follow = movement > 0 && maxScroll - position < 90;
                 this.pinLatestTop = false;
-                this.scrollPosition = element.scrollTop;
             }
+            this.scrollPosition = position;
             if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.paint(null, true); });
         }, { passive: true });
     }
@@ -183,7 +186,7 @@ export class VirtualChat {
     }
     setScrollTop(position) {
         this.element.scrollTop = position;
-        this.scrollPosition = this.element.scrollTop;
+        this.scrollPosition = Math.max(0, this.element.scrollTop);
     }
     alignScroll() {
         if (this.follow) {

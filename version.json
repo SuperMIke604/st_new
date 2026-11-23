@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "5e5ae4a76e429b131d2748b16ab36287a8a5859496594722e97e9ab44c27939c",
-  "publishedAt": "2026-11-23T03:18:05.550917+00:00",
+  "revision": "cd742d02186ae499349b7a4d1d8127fe5debce7dfad5b8574281835cf7e04975",
+  "publishedAt": "2026-11-23T03:46:07.577267+00:00",
   "files": {
     "public/app/api.js": "8e02663a82919caf76c117030ea52f194fa41f64fff81ca8425761d4c94f02a8",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -90,11 +90,11 @@
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
-    "public/app/virtual-chat.js": "48c1519516d30bea8991bca52d4cba5a77e02a78f0f3ce612413b5dd733e021b",
+    "public/app/virtual-chat.js": "56d8fe27d043aaee5137c65d9d2984182bfb43a8e17e30453faf34620ed6150c",
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "c196d27497df649401fe168e8235f0e7b810b02c2db627821966e0f4a168c859"
+    "public/app/version.js": "61c82135ddb66c2aaf99be47b56e93610f47332964f6764830e84011d4d11a0b"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
