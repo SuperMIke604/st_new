@@ -444,3 +444,26 @@ test('display reads and writes selected shared settings without routing private 
     assert.equal(model('https://elsewhere.example/v1'), guest.root);
     for (const pathname of ['/api/worldinfo/get', '/api/characters/get', '/api/chats/get']) assert.equal(call(pathname).request.user.directories, guest);
 });
+
+test('bootstrap marks a signed-in passwordless original account as eligible for first-time password setup', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'st-display-first-password-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const openAI_Settings = path.join(root, 'presets');
+    await fs.mkdir(openAI_Settings);
+    await fs.writeFile(path.join(root, 'settings.json'), '{}');
+    const routes = new Map();
+    await init({ post: (route, handler) => routes.set(route, handler) }, { displayHost: {} });
+    const bootstrap = async (password, handle = 'original-account') => {
+        let result;
+        const profile = { handle: 'original-account', password };
+        await routes.get('/bootstrap')({ user: { profile, directories: { root, openAI_Settings } }, session: { handle } }, {
+            json: value => { result = value; }, status: code => assert.fail(`Bootstrap failed with ${code}`),
+        });
+        return result;
+    };
+    assert.equal((await bootstrap('')).needsPrimaryPassword, true);
+    const protectedAccount = await bootstrap('hashed');
+    assert.equal(protectedAccount.needsPrimaryPassword, false);
+    assert.equal(protectedAccount.displayTavern, 'owner');
+    assert.equal((await bootstrap('', 'other-account')).needsPrimaryPassword, false);
+});

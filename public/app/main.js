@@ -2687,8 +2687,18 @@ async function renderDisplayCardControl(container, avatar) {
 
 function displayPasswordPanel() {
     const body = showPanel('展示密码', ''); if (!body) return;
+    if (state.bundle.displayTavern !== 'owner' && !state.bundle.needsPrimaryPassword) {
+        note(body, '当前运行的酒馆未启用展示密码功能。请确认 Termux 已加载新版更新插件，再重启酒馆。', true);
+        return;
+    }
     note(body, `登录时仍填写用户名 ${state.bundle.account}。填写原版密码进入原版，填写展示密码进入展示版。`);
     const form = el('form'); form.method = 'post'; body.append(form);
+    let primary;
+    if (state.bundle.needsPrimaryPassword) {
+        primary = field(form, '新原版密码', '', { type: 'password' });
+        primary.required = true;
+        primary.autocomplete = 'new-password';
+    }
     const password = field(form, '新展示密码', '', { type: 'password' });
     password.required = true;
     password.autocomplete = 'new-password';
@@ -2699,8 +2709,21 @@ function displayPasswordPanel() {
         save.disabled = true;
         void run(async () => {
             try {
+                if (!password.value.trim()) throw Error('请输入展示密码。');
+                if (primary) {
+                    if (!primary.value.trim()) throw Error('请输入原版密码。');
+                    if (primary.value.normalize() === password.value.normalize()) throw Error('两个密码必须不同。');
+                    await api.post('/api/users/change-password', { handle: state.bundle.account, oldPassword: '', newPassword: primary.value });
+                    primary.value = '';
+                    primary.parentElement.hidden = true;
+                    primary.disabled = true;
+                    primary = null;
+                    state.bundle.needsPrimaryPassword = false;
+                    state.bundle.displayTavern = 'owner';
+                }
                 await api.post('/api/plugins/st-new-updater/display-password', { password: password.value });
                 password.value = '';
+                panelDirty = false;
                 notify('展示密码已保存');
                 closePanel();
             } finally { save.disabled = false; }
@@ -4018,7 +4041,7 @@ function toolsPanel() {
         rememberReading(values()); panelDirty = true;
     }, 'refresh'));
     if (state.dirty) footer.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
-    if (state.bundle.displayTavern === 'owner') footer.append(action('设置展示密码', displayPasswordPanel));
+    if (state.bundle.account && state.bundle.displayTavern !== 'display') footer.append(action('设置展示密码', displayPasswordPanel));
     if (state.bundle.account) footer.append(tavernSwitchButton());
     body.append(footer);
 }

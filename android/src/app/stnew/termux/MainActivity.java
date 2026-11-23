@@ -58,6 +58,7 @@ public final class MainActivity extends Activity {
     private EditText loginUsername;
     private EditText loginPassword;
     private HttpAuthHandler authRequest;
+    private WebMessagePort accountLoginPort;
     private boolean signingIn;
     private WebMessagePort shellPort;
     private String shellScript;
@@ -348,18 +349,45 @@ public final class MainActivity extends Activity {
         boolean rejected = signingIn && !handler.useHttpAuthUsernamePassword();
         authRequest = handler;
         signingIn = false;
+        showLoginForm(rejected ? "用户名或密码有误，请重试。" : null);
+    }
+
+    private void showLoginForm(String failure) {
         applySystemBarColors(LoginPanel.TOP_COLOR, PAPER);
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         loginPanel.setVisibility(View.VISIBLE);
-        loginPanel.showForm(HOST + ":" + port, rejected);
-        if (rejected) loginPassword.requestFocus();
+        loginPanel.showForm(HOST + ":" + port, failure);
+        if (failure != null) loginPassword.requestFocus();
         else loginPanel.requestFocus();
     }
 
+    private void connectAccountLogin(WebView view, String url) {
+        if (accountLoginPort != null) return;
+        WebMessagePort[] ports = view.createWebMessageChannel();
+        accountLoginPort = ports[0];
+        accountLoginPort.setWebMessageCallback(new WebMessagePort.WebMessageCallback() {
+            @Override
+            public void onMessage(WebMessagePort port, WebMessage message) {
+                if (port != accountLoginPort || !url.equals(view.getUrl())) return;
+                try {
+                    JSONObject payload = new JSONObject(message.getData());
+                    if ("ready".equals(payload.optString("type"))) {
+                        loginUsername.setText(payload.optString("handle"));
+                        showLoginForm(null);
+                    } else if ("error".equals(payload.optString("type"))) {
+                        showLoginForm(payload.optString("message", "登录失败，请重试。"));
+                    }
+                } catch (JSONException ignored) { }
+            }
+        });
+        view.postWebMessage(new WebMessage("st-new-android-account-login", new WebMessagePort[]{ports[1]}), Uri.parse(serverOrigin()));
+    }
+
     private void submitLogin() {
-        if (authRequest == null) return;
+        if ((authRequest == null && accountLoginPort == null) || !loginPanel.submit.isEnabled()) return;
         String username = loginUsername.getText().toString();
+        if (authRequest == null) username = username.trim();
         String password = loginPassword.getText().toString();
         if (username.isEmpty() || username.contains(":")) {
             loginUsername.setError(username.isEmpty() ? "请输入用户名" : "用户名不能包含冒号");
@@ -377,7 +405,12 @@ public final class MainActivity extends Activity {
         loginPanel.showSubmitting();
         loginPassword.setText("");
         hideLoginKeyboard();
-        handler.proceed(username, password);
+        if (handler != null) handler.proceed(username, password);
+        else {
+            signingIn = false;
+            accountLoginPort.postMessage(new WebMessage("{\"handle\":" + JSONObject.quote(username)
+                    + ",\"password\":" + JSONObject.quote(password) + "}"));
+        }
     }
 
     private void hideLoginKeyboard() {
@@ -387,6 +420,10 @@ public final class MainActivity extends Activity {
     private void closeLogin() {
         HttpAuthHandler handler = authRequest;
         authRequest = null;
+        if (accountLoginPort != null) {
+            accountLoginPort.close();
+            accountLoginPort = null;
+        }
         signingIn = false;
         if (loginPanel.getVisibility() == View.VISIBLE) {
             hideLoginKeyboard();
@@ -472,6 +509,7 @@ public final class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             disconnectShell();
+            if (accountLoginPort != null) closeLogin();
         }
 
         @Override
@@ -491,6 +529,10 @@ public final class MainActivity extends Activity {
                     && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
                 if ("/".equals(page.getPath())) {
                     view.evaluateJavascript("location.replace('/app/')", null);
+                } else if ("/app/login.html".equals(page.getPath())) {
+                    if (accountLoginPort == null) closeLogin();
+                    webView.setVisibility(View.VISIBLE);
+                    connectAccountLogin(view, url);
                 } else {
                     closeLogin();
                     view.setVisibility(View.VISIBLE);

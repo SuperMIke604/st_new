@@ -38,6 +38,28 @@ if (form) {
     const status = document.getElementById('tavern-login-status');
     const submit = form.querySelector('button[type="submit"]');
     try { username.value = sessionStorage.getItem('st-new-login-handle') || ''; } catch { /* Login still works. */ }
+    const signIn = async (handle, secret) => {
+        await loginWithPassword(handle, secret);
+        try { sessionStorage.setItem('st-new-login-handle', handle); } catch { /* Login still works. */ }
+        location.replace('./');
+    };
+    const errorMessage = error => error.name === 'TimeoutError' || error instanceof TypeError ? '连接酒馆失败，请重试。' : error.message;
+    window.addEventListener('message', event => {
+        const port = event.ports[0];
+        if (!event.isTrusted || event.source !== null || event.data !== 'st-new-android-account-login' || !port) return;
+        let pending = false;
+        port.onmessage = async ({ data }) => {
+            if (pending) return;
+            pending = true;
+            try {
+                const { handle, password: secret } = JSON.parse(data);
+                await signIn(handle, secret);
+            } catch (error) {
+                port.postMessage(JSON.stringify({ type: 'error', message: errorMessage(error) }));
+            } finally { pending = false; }
+        };
+        port.postMessage(JSON.stringify({ type: 'ready', handle: username.value }));
+    });
     submit.disabled = false;
     form.addEventListener('submit', async event => {
         event.preventDefault();
@@ -47,13 +69,10 @@ if (form) {
         status.hidden = true;
         submit.textContent = '正在登录…';
         try {
-            const handle = username.value.trim();
-            await loginWithPassword(handle, password.value);
-            try { sessionStorage.setItem('st-new-login-handle', handle); } catch { /* Login still works. */ }
+            await signIn(username.value.trim(), password.value);
             password.value = '';
-            location.replace('./');
         } catch (error) {
-            status.textContent = error.name === 'TimeoutError' || error instanceof TypeError ? '连接酒馆失败，请重试。' : error.message;
+            status.textContent = errorMessage(error);
             status.hidden = false;
         } finally {
             submit.disabled = false;

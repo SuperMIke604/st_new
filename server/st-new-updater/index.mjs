@@ -940,7 +940,8 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
             const openai_settings = await Promise.all(names.map(name => fs.readFile(path.join(presetDirectory, name), 'utf8')));
             const account = inDisplay(request) ? displayOwner(request.user.profile) : request.session?.handle || '';
             const displayTavern = inDisplay(request) ? 'display' : displayHost && originalSession(request) ? 'owner' : null;
-            response.json({ settings, openai_settings, openai_setting_names: names.map(name => name.slice(0, -5)), account, displayTavern });
+            const needsPrimaryPassword = Boolean(displayHost && !displayTavern && account && account === request.user.profile?.handle && !request.user.profile.password);
+            response.json({ settings, openai_settings, openai_setting_names: names.map(name => name.slice(0, -5)), account, displayTavern, needsPrimaryPassword });
         } catch (error) { response.status(500).json({ error: error.message }); }
     });
     router.post('/status', async (_request, response) => {

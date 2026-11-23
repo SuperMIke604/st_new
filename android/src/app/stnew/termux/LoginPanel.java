@@ -123,11 +123,11 @@ final class LoginPanel extends ScrollView {
         add(content, back, 2);
     }
 
-    void showForm(String address, boolean rejected) {
+    void showForm(String address, String failure) {
         server.setText(address);
-        if (rejected) {
+        if (failure != null) {
             error.setVisibility(View.VISIBLE);
-            error.setText("用户名或密码有误，请重试。");
+            error.setText(failure);
         } else {
             error.setVisibility(View.GONE);
         }
