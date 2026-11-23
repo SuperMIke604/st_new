@@ -1,0 +1,51 @@
+:root {
+    color-scheme: light;
+    font-family: Roboto, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #292341;
+    background: #f3eee4;
+}
+
+* { box-sizing: border-box; }
+
+.tavern-login {
+    display: grid;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 24px 20px;
+    place-items: center;
+    background: linear-gradient(#eee9f5, #f3eee4 55%);
+}
+
+.tavern-login main { width: min(100%, 400px); }
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    font-size: 21px;
+    font-weight: 700;
+}
+
+.login-mark { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 12px; background: #292341; }
+.login-mark::before {
+    content: "";
+    width: 24px;
+    height: 23px;
+    background: linear-gradient(#292341 0 0) 5px 6px / 15px 2px no-repeat,
+        linear-gradient(#292341 0 0) 5px 11px / 10px 2px no-repeat, #d9c9ff;
+    clip-path: polygon(0 0, 100% 0, 100% 76%, 39% 76%, 12% 100%, 12% 76%, 0 76%);
+}
+
+.login-card { padding: 24px 20px; border: 1px solid #ded5df; border-radius: 22px; background: #fffdf9; }
+.login-card h1 { margin: 0; font-size: 24px; line-height: 1.3; }
+.login-description { margin: 6px 0 22px; color: #625a70; font-size: 14px; line-height: 1.5; }
+.login-card label { display: grid; gap: 6px; margin-bottom: 14px; font-size: 14px; }
+.login-card input, .login-card button { width: 100%; min-height: 48px; border-radius: 10px; font: inherit; font-size: 16px; }
+.login-card input { padding: 8px 12px; border: 1px solid #95889c; color: inherit; background: #faf8f6; }
+.login-card input:focus { border-color: #523c79; outline: 1px solid #523c79; background: #fff; }
+.login-card button { margin-top: 4px; border: 0; color: #fff; background: #523c79; cursor: pointer; }
+.login-card button:focus-visible { outline: 2px solid #523c79; outline-offset: 2px; }
+.login-card button:disabled { color: #292341; background: #e9dff1; cursor: default; }
+#tavern-login-status { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; color: #8a2e45; background: #faecee; font-size: 14px; }

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { init, validateManifest, listRecentCharacters, installUpdate, createCatalogReader, readCardMetadata } from './index.mjs';
+import { createHash, scryptSync, randomUUID } from 'node:crypto';
+import { init, validateManifest, listRecentCharacters, installUpdate, createCatalogReader, readCardMetadata, registerAccountLogin } from './index.mjs';
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
 
@@ -129,17 +129,18 @@ test('catalog malformed files match native lists while directory and parser fail
     await assert.rejects(list('/cards', 'characters'), /directory offline/);
 });
 
+function chunk(type, value) {
+    const data = Buffer.concat([Buffer.from(type), value]), result = Buffer.alloc(value.length + 12);
+    result.writeUInt32BE(value.length); data.copy(result, 4);
+    let crc = 0xffffffff;
+    for (const byte of data) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1; }
+    result.writeUInt32BE((crc ^ 0xffffffff) >>> 0, result.length - 4); return result;
+}
+const text = (keyword, value) => chunk('tEXt', Buffer.from(keyword + '\0' + Buffer.from(JSON.stringify(value)).toString('base64')));
+const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+const header = Buffer.from('0000000d49484452000000010000000108060000001f15c489', 'hex');
+
 test('PNG metadata reader preserves V3 precedence and Unicode, skips image bytes and rejects damaged metadata', async () => {
-    const chunk = (type, value) => {
-        const data = Buffer.concat([Buffer.from(type), value]), result = Buffer.alloc(value.length + 12);
-        result.writeUInt32BE(value.length); data.copy(result, 4);
-        let crc = 0xffffffff;
-        for (const byte of data) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1; }
-        result.writeUInt32BE((crc ^ 0xffffffff) >>> 0, result.length - 4); return result;
-    };
-    const text = (keyword, value) => chunk('tEXt', Buffer.from(keyword + '\0' + Buffer.from(JSON.stringify(value)).toString('base64')));
-    const signature = Buffer.from('89504e470d0a1a0a', 'hex');
-    const header = Buffer.from('0000000d49484452000000010000000108060000001f15c489', 'hex');
     const image = chunk('IDAT', Buffer.alloc(10000));
     const v3 = { data: { name: '中文🙂', extensions: { unknown: true } } };
     const metadata = text('CCV3', v3);
@@ -159,6 +160,111 @@ test('PNG metadata reader preserves V3 precedence and Unicode, skips image bytes
     assert.equal(JSON.parse(await readCardMetadata('v2.png', io)).name, 'V2');
     contents = contents.subarray(0, contents.length - 5);
     await assert.rejects(readCardMetadata('short.png', io), /end|Truncated/); assert.equal(closed, 4);
+});
+test('display accounts see only published cards and merge their previous chats into shared history', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'st-display-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const account = (handle, admin) => ({
+        profile: { handle, admin, password: 'hash' }, directories: { root: path.join(root, handle), characters: path.join(root, handle, 'characters'), chats: path.join(root, handle, 'chats') },
+    });
+    const owner = account('existing-user', false);
+    const guest = account('st-display-' + createHash('sha256').update(owner.profile.handle).digest('hex').slice(0, 32), false);
+    const originalPassword = 'fixture-original', alternatePassword = 'fixture-display';
+    Object.assign(owner.profile, { enabled: true, salt: randomUUID() });
+    owner.profile.password = scryptSync(originalPassword, owner.profile.salt, 64).toString('base64');
+    await Promise.all([owner, guest].flatMap(user => Object.values(user.directories).map(dir => fs.mkdir(dir, { recursive: true }))));
+    const card = (name, description) => Buffer.concat([signature, header, text('chara', { name, description }), chunk('IEND', Buffer.alloc(0))]);
+    const avatar = '可展示.png';
+    const source = path.join(owner.directories.characters, avatar);
+    const original = card('展品', '角色专属设定');
+    await fs.writeFile(source, original);
+    await fs.writeFile(path.join(owner.directories.characters, '私有.png'), card('私有角色'));
+    await fs.writeFile(path.join(guest.directories.characters, '示例.png'), card('默认示例'));
+    await fs.mkdir(path.join(owner.directories.chats, '可展示'));
+    await fs.writeFile(path.join(owner.directories.chats, '可展示', '原版聊天.jsonl'), '{"mes":"仅原版"}');
+
+    const profiles = new Map([[owner.profile.handle, owner.profile]]);
+    const displayHost = {
+        getProfile: async handle => profiles.get(handle), saveProfile: async profile => profiles.set(profile.handle, profile),
+        getDirectories: handle => handle === owner.profile.handle ? owner.directories : guest.directories,
+        createSalt: randomUUID, initialize: async handle => assert.equal(handle, guest.profile.handle),
+    };
+    const routes = new Map();
+    const router = { post: (route, handler) => routes.set(route, handler) };
+    await init(router, { displayHost });
+    registerAccountLogin(router, { getProfile: displayHost.getProfile, accountVersion: profile => profile.password, consume: async () => async () => {} });
+    const call = async (route, user, body = {}, session = { handle: user.profile.handle }) => {
+        const result = { status: 200 };
+        const response = { json: value => { result.body = value; }, status: code => { result.status = code; return response; }, sendStatus: code => { result.status = code; }, set() {} };
+        const request = { user, session, body };
+        await routes.get(route)(request, response);
+        result.session = request.session;
+        return result;
+    };
+    const share = (enabled, user = owner) => call('/display-card', user, { avatar, enabled });
+    const login = (password, handle = owner.profile.handle) => call('/st-new-login', null, { handle, password }, {});
+    assert.deepEqual((await share()).body, { available: false, enabled: false });
+    assert.equal((await login(originalPassword)).session.handle, owner.profile.handle);
+    assert.equal((await login(alternatePassword)).status, 403);
+    assert.equal((await call('/display-password', owner, { password: originalPassword })).status, 400);
+    assert.equal((await call('/display-password', owner, { password: alternatePassword })).status, 200);
+    guest.profile = profiles.get(guest.profile.handle);
+    assert.equal((await login(alternatePassword)).session.handle, guest.profile.handle);
+    assert.deepEqual((await login(alternatePassword)).body, { handle: owner.profile.handle });
+    assert.equal((await login(alternatePassword, guest.profile.handle)).status, 403);
+    assert.equal((await login(alternatePassword, 'unrelated-user')).status, 403);
+    assert.equal((await call('/display-password', guest, { password: 'blocked' })).status, 403);
+    assert.deepEqual((await share()).body, { available: true, enabled: false });
+    assert.deepEqual((await call('/characters', guest)).body, []);
+    assert.equal((await share(true, guest)).status, 403);
+    assert.equal((await call('/display-card', owner, { avatar, enabled: true }, {})).status, 403);
+    assert.equal((await call('/display-card', owner, { avatar: '../私有.png', enabled: true })).status, 400);
+    assert.equal((await call('/display-card', owner, { avatar: '不存在.png', enabled: true })).status, 404);
+    assert.equal((await call('/install', guest)).status, 403);
+
+    assert.deepEqual((await share(true)).body, { available: true, enabled: true });
+    assert.equal((await share()).body.enabled, true);
+    const [listed] = (await call('/characters', guest)).body;
+    assert.equal(listed.name, '展品');
+    assert.deepEqual((await call('/characters', guest)).body.map(item => item.name), ['展品']);
+    assert.deepEqual(await fs.readFile(path.join(guest.directories.characters, listed.avatar)), original);
+    assert.deepEqual(await fs.readdir(guest.directories.chats), []);
+    const chatDir = path.join(guest.directories.chats, path.parse(listed.avatar).name);
+    await fs.mkdir(chatDir);
+    await fs.writeFile(path.join(chatDir, '展示聊天.jsonl'), '{"mes":"仅展示版"}');
+    await fs.writeFile(path.join(chatDir, '原版聊天.jsonl'), '{"mes":"同名的展示版记录"}');
+    assert.equal((await call('/recent', guest)).body[0].characterName, '展品');
+    const sharedChats = path.join(owner.directories.chats, '可展示');
+    const conflictCopy = (await fs.readdir(sharedChats)).find(name => name.startsWith('展示版-'));
+    assert.equal(await fs.readFile(path.join(sharedChats, conflictCopy), 'utf8'), '{"mes":"同名的展示版记录"}');
+    assert.equal(await fs.readFile(path.join(sharedChats, '原版聊天.jsonl'), 'utf8'), '{"mes":"仅原版"}');
+    await call('/recent', guest);
+    assert.equal((await fs.readdir(sharedChats)).length, 3);
+
+    await fs.writeFile(source, 'bad png');
+    assert.equal((await share(true)).status, 500);
+    assert.deepEqual(await fs.readFile(path.join(guest.directories.characters, listed.avatar)), original);
+    await fs.writeFile(source, card('更新后的展品'));
+    assert.equal((await share(true)).status, 200);
+    assert.equal((await call('/characters', guest)).body[0].avatar, listed.avatar);
+    assert.equal((await call('/characters', guest)).body[0].name, '更新后的展品');
+
+    const beforeRotation = (await login(alternatePassword)).session;
+    const newPassword = 'fixture-rotated';
+    assert.equal((await call('/display-password', owner, { password: newPassword })).status, 200);
+    assert.equal((await login(alternatePassword)).status, 403);
+    const rotated = (await login(newPassword)).session;
+    assert.equal(rotated.handle, beforeRotation.handle);
+    assert.notEqual(rotated.version, beforeRotation.version);
+    assert.equal((await call('/characters', guest)).body[0].avatar, listed.avatar);
+    profiles.get(guest.profile.handle).enabled = false;
+    assert.deepEqual((await share(false)).body, { available: false, enabled: false });
+    assert.equal((await share(true)).status, 409);
+    assert.deepEqual((await call('/characters', guest)).body, []);
+    assert.deepEqual((await call('/recent', guest)).body, []);
+    assert.deepEqual(await fs.readdir(guest.directories.characters), ['示例.png']);
+    assert.deepEqual(await fs.readdir(chatDir), []);
+    assert.deepEqual((await fs.readdir(sharedChats)).sort(), ['原版聊天.jsonl', '展示聊天.jsonl', conflictCopy].sort());
 });
 test('manifest rejects traversal, server paths and missing entrypoints', () => {
     assert.equal(validateManifest(manifest).length, 4);
@@ -292,4 +398,49 @@ test('recent role index uses directory metadata only and returns six unique role
     };
     const result = await listRecentCharacters(dirs, io);
     assert.equal(result.length, 6); assert.equal(result[0].avatar, 'role7.png'); assert.equal(result[0].file_name, 'new.jsonl'); assert.equal(stats, 16);
+});
+
+test('display reads and writes selected shared settings without routing private resources to the owner', async t => {
+    const { registerSharedDisplayConfig } = await import('./index.mjs');
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'st-display-shared-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const handle = 'shared-owner';
+    const directories = name => Object.fromEntries(['root', 'files', 'openAI_Settings', 'worlds', 'characters', 'chats'].map(key => [key, path.join(root, name, key)]));
+    const owner = directories('owner'), guest = directories('guest');
+    await Promise.all([owner, guest].flatMap(view => [view.root, view.files].map(directory => fs.mkdir(directory, { recursive: true }))));
+    const ownerSettings = { extension_settings: { regex: ['shared'], private: true }, world_info_settings: { world_info: { globalSelect: ['private world'] } } };
+    const guestSettings = { extension_settings: { regex: ['old display'] }, world_info_settings: { world_info: { globalSelect: ['display world'] } } };
+    await fs.writeFile(path.join(owner.root, 'settings.json'), JSON.stringify(ownerSettings));
+    await fs.writeFile(path.join(guest.root, 'settings.json'), JSON.stringify(guestSettings));
+    await fs.writeFile(path.join(owner.files, 'independent-frontend-connections.json'), JSON.stringify({ profiles: [{ source: 'custom', url: 'https://model.example/v1', secretId: 'configured' }] }));
+    const router = { stack: ['native'], use(middleware) { this.stack.push(middleware); } };
+    let written;
+    registerSharedDisplayConfig(router, { getDirectories: id => { assert.equal(id, handle); return owner; }, writeSettings: (file, text) => { assert.equal(file, path.join(owner.root, 'settings.json')); written = JSON.parse(text); } });
+    const call = (pathname, body, { method = 'POST', scope } = {}) => {
+        const profile = { handle: 'st-display-' + createHash('sha256').update(handle).digest('hex').slice(0, 32), stNewDisplay: { owner: handle } };
+        const request = { method, path: pathname, body, user: { profile, directories: guest }, get: () => scope };
+        const result = { json: value => value, send: value => value, status: code => assert.fail(`unexpected ${code}`) };
+        router.stack[0](request, result, () => {});
+        return { request, result };
+    };
+    const read = call('/api/settings/get');
+    assert.equal(read.request.user.directories.openAI_Settings, owner.openAI_Settings);
+    const merged = JSON.parse(read.result.json({ settings: JSON.stringify(guestSettings) }).settings);
+    assert.deepEqual(merged.extension_settings, { regex: ['shared'] });
+    assert.deepEqual(merged.world_info_settings, guestSettings.world_info_settings);
+    const edit = { extension_settings: { regex: ['updated'] }, world_info_settings: {} };
+    call('/api/settings/save', structuredClone(edit));
+    assert.equal(written, undefined);
+    const save = call('/api/settings/save', edit, { scope: 'regex' });
+    assert.deepEqual(written, { ...ownerSettings, extension_settings: { regex: ['updated'], private: true } });
+    assert.deepEqual(save.request.body.extension_settings.regex, ['old display']);
+    assert.equal(call('/api/presets/save', { apiId: 'openai' }).request.user.directories.openAI_Settings, owner.openAI_Settings);
+    assert.equal(call('/user/files/independent-frontend-connections.json', null, { method: 'GET' }).request.user.directories.files, owner.files);
+    assert.equal(call('/user/files/private.json', null, { method: 'GET' }).request.user.directories.files, guest.files);
+    assert.deepEqual(call('/api/secrets/read').result.send({ api_key_openai: [], unrelated: ['private'] }), { api_key_openai: [] });
+    assert.equal(call('/api/secrets/view').request.user.directories.root, guest.root);
+    const model = custom_url => call('/api/backends/chat-completions/generate', { chat_completion_source: 'custom', custom_url, secret_id: 'configured' }).request.user.directories.root;
+    assert.equal(model('https://model.example/v1'), owner.root);
+    assert.equal(model('https://elsewhere.example/v1'), guest.root);
+    for (const pathname of ['/api/worldinfo/get', '/api/characters/get', '/api/chats/get']) assert.equal(call(pathname).request.user.directories, guest);
 });

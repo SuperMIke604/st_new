@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
+  <meta name="theme-color" content="#eee9f5">
+  <title>登录 SillyTavern</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./login.css">
+  <script type="module" src="./login.js"></script>
+</head>
+<body class="tavern-login">
+  <main>
+    <div class="login-brand"><span class="login-mark" aria-hidden="true"></span>ST New</div>
+    <section class="login-card" aria-labelledby="login-title">
+      <h1 id="login-title">登录 SillyTavern</h1>
+      <p class="login-description">使用酒馆的用户名和密码。</p>
+      <form id="tavern-login" method="post">
+        <label>用户名<input id="tavern-username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+        <label>密码<input id="tavern-password" name="password" type="password" autocomplete="current-password" required></label>
+        <p id="tavern-login-status" role="status" aria-live="polite" hidden></p>
+        <button type="submit" disabled>登录</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

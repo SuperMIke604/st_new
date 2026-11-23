@@ -53,6 +53,15 @@ textarea { min-height: var(--control-size); }
     justify-content: center;
 }
 .button { max-width: 100%; }
+.welcome-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 18px;
+}
+.home-view .welcome .welcome-actions > .button { margin: 0; }
+.display-character-files { margin-block-start: 12px; }
 :is(.button.primary,.send-button) { border: 1px solid #e2dbd1; }
 .composer-tools .button { justify-content: flex-start; text-align: left; }
 .variable-actions .icon-button > span { display: none; }

@@ -616,12 +616,17 @@ function welcome() {
             loading.id = 'home-startup-loading'; recent.append(loading);
         } else {
             note(recent, `初始化失败：${state.startupError}`, true);
-            recent.append(action('重新加载', () => { startupPromise = start(); return startupPromise; }, 'refresh'));
+            if (state.loginRequired) {
+                const login = el('a', 'button primary', '登录酒馆'); login.href = './login.html'; recent.append(login);
+            } else recent.append(action('重新加载', () => { startupPromise = start(); return startupPromise; }, 'refresh'));
         }
         $('message-list').append(welcome); return;
     }
     const loading = el('div', 'home-loading', '正在加载最近角色…'); loading.setAttribute('role', 'status'); recent.append(loading);
-    welcome.append(action('选择角色', () => navigation(), 'card', 'primary'));
+    const actions = el('div', 'welcome-actions');
+    actions.append(action('选择角色', () => navigation(), 'card', 'primary'));
+    if (state.bundle.account) actions.append(tavernSwitchButton());
+    welcome.append(actions);
     $('composer').hidden = true;
     document.body.classList.add('home-view');
     const recentRequest = state.homeReady ? (homeRecentRequest || loadRecentCharacters()) : null;
@@ -667,13 +672,32 @@ function welcome() {
         }
         if (query && !seen.size) grid.append(el('p', 'note', '没有找到匹配的角色卡。'));
     };
-    let cached = null; try { cached = JSON.parse(sessionStorage.getItem(`home-recent:${state.settings.username || 'default'}`) || 'null'); } catch {}
+    const cacheKey = homeRecentCacheKey();
+    let cached = null; try { if (cacheKey) cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch {}
     if (Array.isArray(cached)) drawRecent(cached);
     if (recentRequest) void recentRequest.then(chats => {
-        try { sessionStorage.setItem(`home-recent:${state.settings.username || 'default'}`, JSON.stringify(chats.slice(0, 100).map(chat => ({ avatar: chat.avatar, file_name: chat.file_name, characterName: state.characters.find(item => item.avatar === chat.avatar)?.name || chat.characterName })))); } catch {}
+        try { if (cacheKey) sessionStorage.setItem(cacheKey, JSON.stringify(chats.slice(0, 100).map(chat => ({ avatar: chat.avatar, file_name: chat.file_name, characterName: state.characters.find(item => item.avatar === chat.avatar)?.name || chat.characterName })))); } catch {}
         drawRecent(chats);
     }).catch(error => { if (!cached) recent.replaceChildren(el('p', 'note', '最近角色加载失败，请稍后重试')); console.debug(error.message); });
     $('message-list').append(welcome);
+}
+function tavernSwitchButton() {
+    const button = action('切换密码', switchTavernAccount, 'requestFlow', 'icon-button');
+    button.title = '切换密码';
+    button.setAttribute('aria-label', button.title);
+    button.querySelector('span')?.remove();
+    return button;
+}
+function homeRecentCacheKey() {
+    if (state.bundle.displayTavern === 'display') return null;
+    return `home-recent:${state.bundle.account || 'local'}:${state.settings.username || 'default'}`;
+}
+async function switchTavernAccount() {
+    assertSaved();
+    if (panelDirty) throw new Error('请先保存或取消当前编辑。');
+    await api.post('/api/users/logout');
+    try { sessionStorage.setItem('st-new-login-handle', state.bundle.account); } catch { /* Login still works. */ }
+    location.replace('./login.html');
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
 async function reloadResources() {
@@ -700,6 +724,7 @@ function startupStage(text) {
 }
 async function start() {
     state.startupLoading = true; state.startupError = ''; state.ready = false; state.connectionPending = true;
+    state.loginRequired = false;
     const finish = loadTimings.start('全局初始化', 'startup'), pending = [];
     let outcome = 'success';
     welcome();
@@ -724,7 +749,13 @@ async function start() {
         }
         state.ready = true;
     } catch (error) {
-        outcome = 'error'; state.startupError = error.message; throw error;
+        outcome = 'error'; state.startupError = error.message;
+        state.loginRequired = error.status === 401 || error.status === 403;
+        if (state.loginRequired) {
+            location.replace('./login.html');
+            return;
+        }
+        throw error;
     } finally {
         await Promise.allSettled(pending);
         state.startupLoading = false; state.connectionPending = false;
@@ -955,9 +986,11 @@ async function loadChat(file, internal = false, character = state.character) {
 }
 async function rememberChat(patch = {}) {
     try {
-        const key = `home-recent:${state.settings.username || 'default'}`;
-        const previous = JSON.parse(sessionStorage.getItem(key) || '[]');
-        sessionStorage.setItem(key, JSON.stringify([{ avatar: state.character.avatar, file_name: state.file, characterName: state.character.name }, ...previous.filter(item => item.avatar !== state.character.avatar)].slice(0, 100)));
+        const key = homeRecentCacheKey();
+        if (key) {
+            const previous = JSON.parse(sessionStorage.getItem(key) || '[]');
+            sessionStorage.setItem(key, JSON.stringify([{ avatar: state.character.avatar, file_name: state.file, characterName: state.character.name }, ...previous.filter(item => item.avatar !== state.character.avatar)].slice(0, 100)));
+        }
     } catch {}
     recentCharacters.invalidate();
     const lastChats = { ...(state.own.lastChats || {}), [state.character.avatar]: state.file };
@@ -1675,7 +1708,7 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
     footer.append(action('保存正则', async () => {
         assertIdle();
         if (scope === 'global') {
-            state.settings = await api.patchSettings(settings => { (settings.extension_settings ||= {}).regex = copy(rules); });
+            state.settings = await api.patchSettings(settings => { (settings.extension_settings ||= {}).regex = copy(rules); }, { sharedSetting: 'regex' });
             state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
         } else if (scope === 'preset') {
@@ -2282,7 +2315,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         assertIdle();
         validateScriptTree(tree);
         if (kind === 'global') {
-            state.settings = await api.patchSettings(settings => patchGlobalScripts(settings, tree)); state.own = settingsOwn(state.settings);
+            state.settings = await api.patchSettings(settings => patchGlobalScripts(settings, tree), { sharedSetting: 'scripts' }); state.own = settingsOwn(state.settings);
         } else if (kind === 'preset') {
             await savePresetScripts(api, selected, tree);
             await reloadResources();
@@ -2355,8 +2388,32 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
 }
 
 async function characterPanel(force = false) {
+    if (state.bundle.displayTavern === 'display') {
+        const host = showPanel('展示版角色卡', '', 'library-panel'); if (!host) return;
+        return loadPanelContent(host, '展示版角色卡', renderDisplayCharacterPanel, characterPanel);
+    }
     const host = showPanel('角色卡', '', 'library-panel'); if (!host) return;
     return loadPanelContent(host, '角色卡', (body, revision, timing) => renderCharacterPanel(body, revision, force, timing), () => characterPanel(true));
+}
+async function renderDisplayCharacterPanel(body, revision, timing) {
+    const characters = await loadCharacterCatalog(true, timing);
+    if (revision !== panelRevision) return;
+    const search = el('input', 'library-search'); search.type = 'search'; search.placeholder = '搜索角色名称…'; search.setAttribute('aria-label', '搜索角色');
+    const toolbar = el('div', 'library-toolbar'); toolbar.append(search);
+    const cards = el('div', 'character-files display-character-files'); body.append(toolbar, cards);
+    const render = () => {
+        cards.replaceChildren();
+        const query = search.value.trim().toLocaleLowerCase();
+        for (const card of characters.filter(card => card.name.toLocaleLowerCase().includes(query))) {
+            const file = el('article', 'character-file');
+            const cover = action(`进入 ${card.name} 最新聊天`, async () => { assertSaved(); if (closePanel()) await openCharacter(card.avatar, { latest: true }); }, null, 'card-cover');
+            cover.setAttribute('aria-label', `进入 ${card.name} 最新聊天`); cover.append(image(card.avatar, 'avatar', true));
+            const info = el('div', 'card-info'); info.append(el('h3', '', card.name));
+            file.append(cover, info); cards.append(file);
+        }
+        if (!cards.children.length) note(cards, characters.length ? '没有找到匹配的角色卡。' : '原版还没有选择展示的角色卡。');
+    };
+    search.addEventListener('input', render); render();
 }
 async function renderCharacterPanel(body, revision, force = false, timing) {
     let library = timing ? timing.measureSync('角色卡 · 整理分类数据', 'data', () => libraryState(state.own.characterLibrary)) : libraryState(state.own.characterLibrary);
@@ -2546,6 +2603,10 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
                 const linkedWorld = (details.data || details).extensions?.world;
                 const deleteWorld = linkedWorld && confirm(`是否同时删除关联世界书「${linkedWorld}」？确定：删除世界书；取消：仅删除角色卡。若其他角色也关联此书，它们会失去该世界书。`);
                 await api.post('/api/characters/delete', { avatar_url: card.avatar, delete_chats: false });
+                if (state.bundle.displayTavern === 'owner') {
+                    try { await api.post('/api/plugins/st-new-updater/display-card', { avatar: card.avatar, enabled: false }); }
+                    catch (error) { notify(`原版角色卡已删除，撤下展示失败：${error.message}`, true); }
+                }
                 if (deleteWorld) { try { await api.post('/api/worldinfo/delete', { name: linkedWorld }); } catch(error) { notify(`角色卡已删除，世界书删除失败：${error.message}`, true); } }
                 state.settings = await api.patchSettings(settings => {
                     const own = settingsOwn(settings); if (deleteWorld) { const wi=settings.world_info_settings?.world_info; if(Array.isArray(wi?.globalSelect))wi.globalSelect=wi.globalSelect.filter(name=>name!==linkedWorld); if(Array.isArray(own.worlds))own.worlds=own.worlds.filter(name=>name!==linkedWorld); } if (own.characterLibrary?.assignments) delete own.characterLibrary.assignments[card.avatar];
@@ -2595,6 +2656,58 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     renderFolders(); renderCards();
 }
 
+async function renderDisplayCardControl(container, avatar) {
+    const route = '/api/plugins/st-new-updater/display-card';
+    const status = el('p', 'note', '正在读取展示状态…'); status.setAttribute('role', 'status');
+    const controls = el('div', 'persona-editor-actions');
+    container.append(status, controls);
+    const refresh = async (enabled, announce = false) => {
+        const current = await api.post(route, { avatar, enabled });
+        status.textContent = current.enabled ? '已在展示版展示' : current.available ? '未在展示版展示' : '设置展示密码后，即可选择要展示的角色卡。';
+        controls.replaceChildren();
+        const change = (label, value, glyph) => action(label, async () => {
+            assertSaved();
+            if (panelDirty) throw new Error('请先保存角色卡，再更新展示设置。');
+            if (value && !current.enabled && !confirm('向展示版共享这张角色卡及卡内嵌内容？')) return;
+            for (const button of controls.children) button.disabled = true;
+            try { await refresh(value, true); }
+            finally { for (const button of controls.children) button.disabled = false; }
+        }, glyph);
+        if (current.enabled) controls.append(change('撤下展示', false, 'eyeOff'));
+        if (current.available) controls.append(change(current.enabled ? '更新展示副本' : '在展示版展示', true, 'eye'));
+        else controls.append(action('设置展示密码', displayPasswordPanel));
+        if (announce) notify(enabled ? '展示版角色卡已保存' : '角色卡已从展示版撤下');
+    };
+    try { await refresh(); }
+    catch (error) {
+        status.textContent = `展示状态读取失败：${error.message}`;
+        controls.append(action('重试', () => { container.replaceChildren(); return renderDisplayCardControl(container, avatar); }, 'refresh'));
+    }
+}
+
+function displayPasswordPanel() {
+    const body = showPanel('展示密码', ''); if (!body) return;
+    note(body, `登录时仍填写用户名 ${state.bundle.account}。填写原版密码进入原版，填写展示密码进入展示版。`);
+    const form = el('form'); form.method = 'post'; body.append(form);
+    const password = field(form, '新展示密码', '', { type: 'password' });
+    password.required = true;
+    password.autocomplete = 'new-password';
+    const save = el('button', 'button primary', '保存展示密码'); save.type = 'submit'; form.append(save);
+    form.addEventListener('submit', event => {
+        event.preventDefault();
+        if (save.disabled) return;
+        save.disabled = true;
+        void run(async () => {
+            try {
+                await api.post('/api/plugins/st-new-updater/display-password', { password: password.value });
+                password.value = '';
+                notify('展示密码已保存');
+                closePanel();
+            } finally { save.disabled = false; }
+        });
+    });
+}
+
 async function characterEditor(avatar = state.character?.avatar) {
     const body = showPanel(avatar ? '编辑角色卡' : '新建角色', '角色资料'); if (!body) return;
     const revision = panelRevision;
@@ -2612,6 +2725,10 @@ async function characterEditor(avatar = state.character?.avatar) {
             if (panelDirty && !confirm('放弃未保存的角色修改并查看世界书？')) return;
             panelDirty = false; await openCharacterWorld(editing.avatar);
         }, 'book'));
+        if (state.bundle.displayTavern === 'owner') {
+            const display = el('section'); display.setAttribute('aria-label', '展示版'); body.append(display);
+            void renderDisplayCardControl(display, avatar);
+        }
     }
     let avatarFile = null;
     const portrait = el('div', 'character-portrait'); const portraitImage = editing ? image(editing.avatar, 'avatar', true) : el('img'); portraitImage.alt = '角色图片'; portraitImage.hidden = !editing;
@@ -2926,17 +3043,19 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
 async function loadBooks(options) {
     const names = new Set(state.settings.world_info_settings?.world_info?.globalSelect ?? state.own.worlds ?? []);
     const card = state.character.data || state.character;
-    if (card.extensions?.world) names.add(card.extensions.world);
+    const linked = card.extensions?.world;
+    if (linked) names.add(linked);
     if (persona().world) names.add(persona().world);
     if (names.size) {
         const available = await api.post('/api/worldinfo/list', {}, options);
+        if (state.bundle.displayTavern === 'display' && linked && !available.some(book => book.file_id === linked)) names.delete(linked);
         const missing = [...names].filter(name => name && !available.some(book => book.file_id === name));
         if (missing.length) throw new Error(`找不到关联世界书：${missing.join('、')}。请检查名称或导入文件。`);
     }
     const books = await Promise.all([...names].filter(Boolean).map(name => api.post('/api/worldinfo/get', { name }, options)));
     // Native imports can materialize the embedded book into a named world.
     // Prefer that editable named world instead of injecting the same book twice.
-    if (card.character_book?.entries && !card.extensions?.world) {
+    if (card.character_book?.entries && !names.has(linked)) {
         books.push(embeddedWorld(state.character));
     }
     return books;
@@ -3899,6 +4018,8 @@ function toolsPanel() {
         rememberReading(values()); panelDirty = true;
     }, 'refresh'));
     if (state.dirty) footer.append(action('重试保存当前聊天', saveChat, 'refresh', 'primary'));
+    if (state.bundle.displayTavern === 'owner') footer.append(action('设置展示密码', displayPasswordPanel));
+    if (state.bundle.account) footer.append(tavernSwitchButton());
     body.append(footer);
 }
 

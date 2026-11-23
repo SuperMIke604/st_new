@@ -147,8 +147,7 @@ public final class MainActivity extends Activity {
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         webView.stopLoading();
-        // SillyTavern routes unauthenticated sessions through /login from its root.
-        webView.loadUrl(serverOrigin() + "/");
+        webView.loadUrl(appUrl());
     }
 
     private void showError(String message) {

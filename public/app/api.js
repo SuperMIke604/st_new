@@ -13,10 +13,10 @@ export class TavernAPI {
         if (!response.ok) throw new ApiError('无法连接酒馆，请检查后端是否启动。', response.status);
         this.csrf = (await response.json()).token || '';
     }
-    async response(path, data = {}, { signal, form = false, fallbackStatuses = [], serializedBody, contentEncoding, timing, logSuccess } = {}) {
+    async response(path, data = {}, { signal, form = false, fallbackStatuses = [], serializedBody, contentEncoding, timing, logSuccess, sharedSetting } = {}) {
         const response = await timedFetch(path, {
             method: 'POST', credentials: 'same-origin', signal,
-            headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }), ...(contentEncoding ? { 'Content-Encoding': contentEncoding } : {}) },
+            headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }), ...(contentEncoding ? { 'Content-Encoding': contentEncoding } : {}), ...(sharedSetting ? { 'X-ST-New-Shared-Setting': sharedSetting } : {}) },
             body: form ? data : serializedBody ?? JSON.stringify(data),
         }, { fallbackStatuses, timing, logSuccess });
         if (response.redirected && response.url.includes('/login')) throw new ApiError('请先在原生页面登录，再重新打开 /app/。', 401);
@@ -129,14 +129,14 @@ export class TavernAPI {
     }
     // The native endpoint replaces the entire settings file. Read fresh and patch
     // only owned fields, serializing writes so UI operations cannot race.
-    patchSettings(patch, { source = '保存设置' } = {}) {
+    patchSettings(patch, { source = '保存设置', sharedSetting } = {}) {
         const finish = loadTimings.start(source, 'data'), timing = loadTimings.scope(finish.id);
         const task = this.saveQueue.catch(() => {}).then(async () => {
             try {
                 this.readCache.clear();
                 const { settings } = await this.settings({ lightweight: true });
                 patch(settings);
-                const result = await this.post('/api/settings/save', settings, { timing });
+                const result = await this.post('/api/settings/save', settings, { timing, sharedSetting });
                 if (result?.result !== 'ok') throw new Error('设置未保存，请重试。');
                 finish();
                 return settings;

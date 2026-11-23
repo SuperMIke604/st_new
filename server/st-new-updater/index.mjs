@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { createHash, randomUUID, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { request as requestHttp } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 export const info = { id: 'st-new-updater', name: 'ST New Frontend Updater', description: 'Install confirmed frontend and updater updates from SuperMIke604/st_new only.' };
@@ -13,6 +15,20 @@ const BACKEND_FILE = 'server/st-new-updater/index.mjs';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const revisionPattern = /^[a-f0-9]{64}$/;
+const displayHandle = owner => `st-display-${digest(owner).slice(0, 32)}`;
+const displayOwner = profile => profile?.stNewDisplay?.owner;
+const isDisplayProfile = profile => typeof displayOwner(profile) === 'string' && profile.handle === displayHandle(displayOwner(profile));
+const isDisplayCard = name => /^st-display-[a-f0-9]{64}\.png$/.test(name);
+const displayAvatar = name => `st-display-${digest(name)}.png`;
+const derivePassword = promisify(scrypt);
+const sharedSettings = {
+    regex: [['extension_settings', 'regex']],
+    scripts: [['extension_settings', 'tavern_helper', 'script', 'scripts'], ['extension_settings', 'TavernHelper', 'scriptsRepository']],
+    connection: [['oai_settings']],
+    preset: [['extension_settings', 'independent_frontend', 'preset'], ['independent_frontend', 'preset']],
+};
+const sharedFiles = new Set(['independent-frontend-connections.json', 'independent-frontend-preset.json']);
+const sharedSecretKeys = new Set(['api_key_custom', 'api_key_openai']);
 const plainFilename = value => typeof value === 'string' && value.length > 0
     && !/[<>:"/\\|?*\u0000-\u001f]/.test(value) && !/[. ]$/.test(value)
     && !/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(value);
@@ -181,8 +197,8 @@ async function download(url) {
     throw Error(`下载失败：${file}（${failures.join('、')}）`);
 }
 // No chat contents or PNG metadata are read to build the home list.
-export async function listRecentCharacters(directories, io = fs) {
-    const cards = (await io.readdir(directories.characters, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith('.png'));
+export async function listRecentCharacters(directories, io = fs, include = () => true) {
+    const cards = (await io.readdir(directories.characters, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith('.png') && include(entry.name));
     const recent = [];
     for (const card of cards) {
         const folder = path.join(directories.chats, card.name.slice(0, -4));
@@ -250,9 +266,9 @@ export async function readCardMetadata(filename, io = fs) {
 export function createCatalogReader({ io = fs, readCard, maxEntries = 2048, maxChars = 8000000 } = {}) {
     const cache = new Map(); let chars = 0;
     const remove = key => { const old = cache.get(key); if (old) chars -= old.size; cache.delete(key); };
-    return async (directory, kind) => {
+    return async (directory, kind, include = () => true) => {
         const files = (await io.readdir(directory, { withFileTypes: true }))
-            .filter(file => file.isFile() && (kind === 'characters' ? file.name.endsWith('.png') : path.extname(file.name).toLowerCase() === '.json'))
+            .filter(file => file.isFile() && include(file.name) && (kind === 'characters' ? file.name.endsWith('.png') : path.extname(file.name).toLowerCase() === '.json'))
             .sort((a, b) => a.name.localeCompare(b.name));
         const results = new Array(files.length); let cursor = 0;
         await Promise.all(Array.from({ length: Math.min(4, files.length) }, async () => {
@@ -491,45 +507,440 @@ export function registerBackgroundGeneration(router, { requestModel = requestLoc
     });
 }
 
-export async function init(router, { root = process.cwd(), pluginFile = fileURLToPath(import.meta.url), io = fs } = {}) {
+function copySettingPaths(target, source, paths = Object.values(sharedSettings).flat()) {
+    for (const keys of paths) {
+        const value = keys.reduce((parent, key) => parent?.[key], source);
+        let parent = target;
+        for (const key of keys.slice(0, -1)) {
+            if (!record(parent[key])) {
+                if (value === undefined) { parent = null; break; }
+                parent[key] = {};
+            }
+            parent = parent[key];
+        }
+        if (!parent) continue;
+        if (value === undefined) delete parent[keys.at(-1)];
+        else parent[keys.at(-1)] = value;
+    }
+    return target;
+}
+
+const settingsPath = directories => path.join(directories.root, 'settings.json');
+const readSettingsFile = directories => JSON.parse(readFileSync(settingsPath(directories), 'utf8'));
+
+function filesIn(directory) {
+    try { return readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name); }
+    catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+}
+
+function displayCards(directories, owner) {
+    const published = new Set(filesIn(directories.characters).filter(isDisplayCard));
+    if (!published.size) return new Map();
+    return new Map(filesIn(owner.characters).filter(name => plainFilename(name.slice(0, -4)) && name.endsWith('.png'))
+        .map(name => [displayAvatar(name), name]).filter(([alias]) => published.has(alias)));
+}
+
+async function linkedDisplayWorlds(directories, owner) {
+    const names = new Set();
+    for (const avatar of displayCards(directories, owner).values()) {
+        const source = path.join(owner.characters, avatar);
+        try {
+            const card = JSON.parse(await readCardMetadata(source));
+            const name = (card.data || card).extensions?.world;
+            if (plainFilename(name)) names.add(name);
+        } catch (error) {
+            if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+        }
+    }
+    return names;
+}
+
+export function mergeDisplayChats(directories, owner, alias, avatar) {
+    const source = path.join(directories.chats, alias.slice(0, -4));
+    const target = path.join(owner.chats, avatar.replace('.png', ''));
+    const files = filesIn(source).filter(name => name.endsWith('.jsonl'));
+    if (!files.length) return;
+    if (!lstatSync(source).isDirectory()) throw Error('Invalid display chat folder');
+    mkdirSync(target, { recursive: true });
+    if (!lstatSync(target).isDirectory()) throw Error('Invalid original chat folder');
+    const archive = path.join(directories.root, 'display-chat-migration', alias.slice(0, -4));
+    mkdirSync(archive, { recursive: true });
+    for (const name of files) {
+        const pending = path.join(source, name);
+        const original = path.join(target, name);
+        try { copyFileSync(pending, original, constants.COPYFILE_EXCL); }
+        catch (error) {
+            if (error.code !== 'EEXIST') throw error;
+            const display = readFileSync(pending);
+            if (!readFileSync(original).equals(display)) {
+                const alternate = path.join(target, `展示版-${digest(name + ':' + digest(display)).slice(0, 24)}.jsonl`);
+                try { copyFileSync(pending, alternate, constants.COPYFILE_EXCL); }
+                catch (duplicate) { if (duplicate.code !== 'EEXIST' || !readFileSync(alternate).equals(display)) throw duplicate; }
+            }
+        }
+        renameSync(pending, path.join(archive, `${randomUUID()}-${name.slice(-150)}`));
+    }
+}
+
+export function registerSharedDisplayConfig(router, { getDirectories, writeSettings }) {
+    // The host mounts its user files router at / before the native API routers.
+    router.use(async (request, response, next) => {
+        if (!isDisplayProfile(request.user?.profile)) return next();
+        const route = request.path;
+        const directories = request.user.directories;
+        const owner = getDirectories(displayOwner(request.user.profile));
+        const body = request.body;
+        const post = request.method === 'POST';
+        const useDirectories = overrides => { request.user.directories = { ...directories, ...overrides }; };
+        try {
+            const isChat = route === '/api/characters/chats' || /^\/api\/chats\/(?:get|save|rename|delete|export|search)$/.test(route);
+            const isCard = route === '/api/characters/get' || route === '/api/characters/merge-attributes';
+            const field = route === '/api/characters/merge-attributes' ? 'avatar' : 'avatar_url';
+            if (post && (isChat || isCard) && isDisplayCard(body?.[field])) {
+                const alias = body[field];
+                const avatar = displayCards(directories, owner).get(alias);
+                if (!avatar) return response.status(404).json({ error: '此角色已撤下展示。' });
+                body[field] = avatar;
+                if (isChat) {
+                    mergeDisplayChats(directories, owner, alias, avatar);
+                    useDirectories({ chats: owner.chats });
+                    body.is_group = false;
+                    delete body.force;
+                } else {
+                    useDirectories({ characters: owner.characters, chats: owner.chats });
+                    if (route === '/api/characters/get') {
+                        const json = response.json.bind(response);
+                        response.json = card => json(record(card) ? { ...card, avatar: alias } : card);
+                    }
+                }
+            } else if (post && /^\/api\/worldinfo\/(?:get|edit|delete)$/.test(route) && plainFilename(body?.name)) {
+                if ((await linkedDisplayWorlds(directories, owner)).has(body.name)) useDirectories({ worlds: owner.worlds });
+            } else if (post && route === '/api/settings/get') {
+                useDirectories({ openAI_Settings: owner.openAI_Settings });
+                const json = response.json.bind(response);
+                response.json = bundle => json(typeof bundle?.settings === 'string' ? {
+                    ...bundle, settings: JSON.stringify(copySettingPaths(JSON.parse(bundle.settings), readSettingsFile(owner))),
+                } : bundle);
+            } else if (post && route === '/api/settings/save' && record(body)) {
+                const scope = request.get('X-ST-New-Shared-Setting');
+                if (scope === 'regex' || scope === 'scripts') {
+                    const current = copySettingPaths(readSettingsFile(owner), body, sharedSettings[scope]);
+                    writeSettings(settingsPath(owner), JSON.stringify(current, null, 4), 'utf8');
+                }
+                copySettingPaths(body, readSettingsFile(directories));
+            } else if (post && /^\/api\/presets\/(?:save|delete|restore)$/.test(route) && body?.apiId === 'openai') {
+                useDirectories({ openAI_Settings: owner.openAI_Settings });
+            } else if (post && route === '/api/files/upload' && sharedFiles.has(body?.name)) {
+                useDirectories({ root: owner.root, files: owner.files });
+            } else if (['GET', 'HEAD'].includes(request.method) && [...sharedFiles].some(name => route === `/user/files/${name}`)) {
+                useDirectories({ files: owner.files });
+            } else if (post && route === '/api/secrets/read') {
+                useDirectories({ root: owner.root });
+                const send = response.send.bind(response);
+                response.send = value => send(record(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => sharedSecretKeys.has(key))) : value);
+            } else if (post && route === '/api/secrets/write' && sharedSecretKeys.has(body?.key)) {
+                useDirectories({ root: owner.root });
+            } else if (post && /^\/api\/backends\/chat-completions\/(?:generate|status)$/.test(route) && ['custom', 'openai'].includes(body?.chat_completion_source)) {
+                if (body.chat_completion_source === 'custom') {
+                    const file = path.join(owner.files, 'independent-frontend-connections.json');
+                    const normalize = url => typeof url === 'string' ? url.trim().replace(/\/+$/, '') : '';
+                    let profiles = [];
+                    try { profiles = JSON.parse(readFileSync(file, 'utf8')).profiles; }
+                    catch (error) { if (error.code !== 'ENOENT') throw error; }
+                    if (!Array.isArray(profiles) || !profiles.some(profile => profile?.source === 'custom' && normalize(profile.url) === normalize(body.custom_url) && (profile.secretId || '') === (body.secret_id || ''))) return next();
+                } else if (body.reverse_proxy) return next();
+                useDirectories({ root: owner.root });
+            }
+        } catch {
+            return response.status(500).json({ error: '读取或保存共享配置失败，请重试。' });
+        }
+        return next();
+    });
+    router.stack.unshift(router.stack.pop());
+}
+
+async function loadDisplayHost(root) {
+    const fromHost = file => import(pathToFileURL(path.join(root, 'src', file)).href);
+    const [users, config, http, endpoints, content] = await Promise.all([
+        fromHost('users.js'), fromHost('util.js'), fromHost('express-common.js'),
+        fromHost('endpoints/users-public.js'), fromHost('endpoints/content-manager.js'),
+    ]);
+    if (!config.getConfigValue('enableUserAccounts', false, 'boolean')) return null;
+    const require = createRequire(path.join(root, 'package.json'));
+    const storage = require('node-persist');
+    registerSharedDisplayConfig(users.router, { getDirectories: users.getUserDirectories, writeSettings: require('write-file-atomic').sync });
+    const { RateLimiterMemory, RateLimiterRes } = require('rate-limiter-flexible');
+    const getProfile = handle => storage.getItem(users.toKey(handle));
+    const saveProfile = profile => storage.setItem(users.toKey(profile.handle), profile);
+    const points = config.getConfigValue('rateLimiting.accountsLoginMaxAttempts', 5, 'number');
+    const preferReportedIp = config.getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
+    const limiter = new RateLimiterMemory({ points: points > 0 ? points : Number.MAX_SAFE_INTEGER, duration: 60 });
+    registerAccountLogin(endpoints.router, {
+        getProfile, accountVersion: users.getAccountVersion,
+        async consume(request, response) {
+            const ip = http.getIpAddress(request, preferReportedIp);
+            try { await limiter.consume(ip); }
+            catch (error) {
+                if (!(error instanceof RateLimiterRes)) throw error;
+                http.retryAfter(response, error).sendStatus(429);
+                return null;
+            }
+            return () => limiter.delete(ip);
+        },
+    });
+    return {
+        getProfile, saveProfile, getDirectories: users.getUserDirectories,
+        createSalt: users.getPasswordSalt,
+        async initialize(handle) {
+            const directories = users.getUserDirectories(handle);
+            await Promise.all(Object.values(directories).map(directory => fs.mkdir(directory, { recursive: true })));
+            await content.checkForNewContent([directories], [content.CONTENT_TYPES.SETTINGS]);
+            await fs.access(path.join(directories.root, 'settings.json'));
+        },
+    };
+}
+
+async function hashPassword(password, salt) {
+    return (await derivePassword(password.normalize(), salt, 64)).toString('base64');
+}
+
+async function passwordMatches(password, record) {
+    if (typeof record?.password !== 'string' || !record.password || typeof record.salt !== 'string') return false;
+    const actual = Buffer.from(await hashPassword(password, record.salt), 'base64');
+    const expected = Buffer.from(record.password, 'base64');
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+async function findDisplayProfile(getProfile, owner) {
+    const candidate = await getProfile(displayHandle(owner));
+    return isDisplayProfile(candidate) && displayOwner(candidate) === owner && !candidate.admin ? candidate : null;
+}
+
+export function registerAccountLogin(router, { getProfile, accountVersion, consume }) {
+    router.post('/st-new-login', async (request, response) => {
+        response.set('X-ST-New-Login', '1');
+        response.set('Cache-Control', 'no-store');
+        try {
+            const clearLimit = await consume(request, response);
+            if (!clearLimit) return;
+            const { handle, password } = request.body ?? {};
+            if (typeof handle !== 'string' || !handle || typeof password !== 'string' || !password || !request.session) return response.sendStatus(403);
+            const original = await getProfile(handle);
+            if (!original?.enabled || !original.password || isDisplayProfile(original)) return response.sendStatus(403);
+
+            let profile = original;
+            if (!await passwordMatches(password, original)) {
+                profile = await findDisplayProfile(getProfile, handle);
+                if (!profile?.enabled || !await passwordMatches(password, profile.stNewDisplay)) return response.sendStatus(403);
+            }
+            // Re-read after hashing so a concurrent password rotation cannot issue an old session.
+            const current = await getProfile(profile.handle);
+            if (!current?.enabled || accountVersion(current) !== accountVersion(profile)) return response.sendStatus(403);
+            const currentOwner = await getProfile(handle);
+            if (!currentOwner?.enabled || accountVersion(currentOwner) !== accountVersion(original)) return response.sendStatus(403);
+            await clearLimit();
+            request.session = { handle: profile.handle, version: accountVersion(profile) };
+            return response.json({ handle });
+        } catch {
+            return response.sendStatus(500);
+        }
+    });
+}
+
+function originalSession(request) {
+    const profile = request.user?.profile;
+    return profile?.handle && request.session?.handle === profile.handle && profile.password && !isDisplayProfile(profile) ? profile : null;
+}
+
+function registerDisplayCards(router, { io, displayHost }) {
+    const pending = new Map();
+    const passwordChanges = new Set();
+    router.post('/display-password', async (request, response) => {
+        const owner = originalSession(request);
+        if (!owner) return response.status(403).json({ error: '请在原版中设置展示密码。' });
+        if (!displayHost) return response.status(503).json({ error: '展示版登录功能不可用，请检查插件是否已重新启动。' });
+        const { password } = request.body ?? {};
+        if (typeof password !== 'string' || !password.trim()) return response.status(400).json({ error: '请输入展示密码。' });
+        if (passwordChanges.has(owner.handle)) return response.status(409).json({ error: '正在保存展示密码。' });
+        passwordChanges.add(owner.handle);
+        try {
+            if (await passwordMatches(password, owner)) return response.status(400).json({ error: '展示密码必须与原版密码不同。' });
+            const { getProfile, saveProfile, createSalt, initialize } = displayHost;
+            const handle = displayHandle(owner.handle);
+            const existing = await getProfile(handle);
+            if (existing && (!isDisplayProfile(existing) || displayOwner(existing) !== owner.handle)) {
+                return response.status(409).json({ error: '展示版数据当前不可用。' });
+            }
+            const salt = createSalt();
+            const alternateSalt = createSalt();
+            const [storagePassword, alternatePassword] = await Promise.all([
+                hashPassword(randomBytes(32).toString('hex'), salt), hashPassword(password, alternateSalt),
+            ]);
+            await initialize(handle);
+            await saveProfile({
+                handle, name: owner.name || owner.handle, created: existing?.created ?? Date.now(), admin: false, enabled: true,
+                password: storagePassword, salt, stNewDisplay: { owner: owner.handle, password: alternatePassword, salt: alternateSalt },
+            });
+            return response.json({ configured: true });
+        } catch {
+            return response.status(500).json({ error: '展示密码保存失败，请重试。' });
+        } finally {
+            passwordChanges.delete(owner.handle);
+        }
+    });
+    router.post('/display-card', async (request, response) => {
+        const owner = originalSession(request);
+        if (!owner) {
+            return response.status(403).json({ error: '请在原版中管理展示角色。' });
+        }
+        const { avatar, enabled } = request.body ?? {};
+        if (!plainFilename(avatar) || !avatar.endsWith('.png') || (enabled !== undefined && typeof enabled !== 'boolean')) {
+            return response.status(400).json({ error: '无效的角色卡或展示状态。' });
+        }
+        const name = displayAvatar(avatar);
+        const key = `${owner.handle}/${name}`;
+        const task = (pending.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
+            if (!displayHost) return { available: false, enabled: false };
+            const { getProfile, getDirectories } = displayHost;
+            const backingProfile = await findDisplayProfile(getProfile, owner.handle);
+            if (!backingProfile) return enabled === true ? null : { available: false, enabled: false };
+            const available = Boolean(backingProfile.enabled);
+            const directory = getDirectories(backingProfile.handle).characters;
+            const destination = path.join(directory, name);
+            if (enabled === false) {
+                await io.unlink(destination).catch(error => { if (error.code !== 'ENOENT') throw error; });
+                return { available, enabled: false };
+            }
+            if (enabled === true && !available) return null;
+            if (enabled === undefined) {
+                const stat = await io.lstat(destination).catch(error => { if (error.code !== 'ENOENT') throw error; });
+                return { available, enabled: Boolean(stat?.isFile()) };
+            }
+            const source = path.join(request.user.directories.characters, avatar);
+            const stat = await io.lstat(source).catch(error => { if (error.code !== 'ENOENT') throw error; });
+            if (!stat?.isFile()) return { missing: true };
+            const temporary = path.join(directory, `.${randomUUID()}.tmp`);
+            try {
+                await io.copyFile(source, temporary);
+                const card = JSON.parse(await readCardMetadata(temporary, io));
+                if (!(card?.data?.name || card?.name)) throw Error('Invalid card');
+                await io.rename(temporary, destination);
+            } finally {
+                await io.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+            }
+            return { available, enabled: true };
+        });
+        pending.set(key, task);
+        try {
+            const result = await task;
+            if (!result) return response.status(409).json({ error: '请先在原版中设置展示密码。' });
+            if (result.missing) return response.status(404).json({ error: '原版角色卡已不存在。' });
+            response.set?.('Cache-Control', 'no-store');
+            return response.json(result);
+        } catch {
+            return response.status(500).json({ error: '无法读取或保存展示状态，请重试。' });
+        } finally {
+            if (pending.get(key) === task) pending.delete(key);
+        }
+    });
+}
+
+export async function init(router, { root = process.cwd(), pluginFile = fileURLToPath(import.meta.url), io = fs, displayHost } = {}) {
     root = path.resolve(root); let installing = false;
     const runningHash = digest(await io.readFile(pluginFile));
     const catalog = createCatalogReader({ io, readCard: filename => readCardMetadata(filename, io) });
     const confirmedChat = {};
+    const inDisplay = request => isDisplayProfile(request.user?.profile);
+    if (displayHost === undefined && globalThis.DATA_ROOT) {
+        try { displayHost = await loadDisplayHost(root); }
+        catch { console.warn('ST New: account login integration unavailable.'); }
+    }
+    registerDisplayCards(router, { io, displayHost });
+    const sharedDirectories = request => inDisplay(request) ? displayHost?.getDirectories(displayOwner(request.user.profile)) : null;
+    const readViewSettings = async request => {
+        const settings = JSON.parse(await io.readFile(settingsPath(request.user.directories), 'utf8'));
+        if (!record(settings)) throw Error('Invalid settings');
+        const shared = sharedDirectories(request);
+        return shared ? copySettingPaths(settings, JSON.parse(await io.readFile(settingsPath(shared), 'utf8'))) : settings;
+    };
     registerBackgroundGeneration(router);
     router.post('/chat-delta', (request, response) => {
         try {
-            const { timings, ...result } = applyChatDelta(request.user.directories.chats, request.body, confirmedChat);
+            const directories = request.user.directories;
+            const shared = sharedDirectories(request);
+            let body = request.body;
+            if (shared && isDisplayCard(body?.avatar_url)) {
+                const avatar = displayCards(directories, shared).get(body.avatar_url);
+                if (!avatar) return response.status(404).json({ error: '此角色已撤下展示。' });
+                mergeDisplayChats(directories, shared, body.avatar_url, avatar);
+                body = { ...body, avatar_url: avatar };
+            }
+            const { timings, ...result } = applyChatDelta(shared && isDisplayCard(request.body?.avatar_url) ? shared.chats : directories.chats, body, confirmedChat);
             if (result.status) return response.status(result.status).json({ error: result.error });
             response.set?.('Server-Timing', Object.entries(timings).map(([key, value]) => `${key};dur=${value.toFixed(2)}`).join(', '));
             return response.json(result);
         } catch { return response.status(500).json({ error: '聊天增量保存失败，请重试。' }); }
     });
-    // Read only the authenticated user's settings. No preset or resource scans,
-    // and no cache: callers use this before writes and for persisted readback.
+    // No preset scans or cache: callers use this before writes and for readback.
     router.post('/settings', async (request, response) => {
         try {
-            const settings = JSON.parse(await io.readFile(path.join(request.user.directories.root, 'settings.json'), 'utf8'));
-            if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw Error('Invalid settings');
+            const settings = await readViewSettings(request);
             response.set?.('Cache-Control', 'no-store');
             response.json({ settings });
         } catch { response.status(500).json({ error: '无法读取设置，请重试。' }); }
     });
     for (const [route, kind, directory] of [['/characters', 'characters', 'characters'], ['/worlds', 'worlds', 'worlds']]) router.post(route, async (request, response) => {
-        try { response.json(await catalog(request.user.directories[directory], kind)); }
+        const include = kind === 'characters' && inDisplay(request) ? isDisplayCard : undefined;
+        try {
+            const directories = request.user.directories;
+            const shared = sharedDirectories(request);
+            if (shared && kind === 'characters') {
+                const cards = displayCards(directories, shared);
+                const aliases = new Map([...cards].map(([alias, avatar]) => [avatar, alias]));
+                const items = await catalog(shared.characters, kind, name => aliases.has(name));
+                return response.json(items.map(card => ({ ...card, avatar: aliases.get(card.avatar) })));
+            }
+            const local = await catalog(directories[directory], kind, include);
+            if (!shared || kind !== 'worlds') return response.json(local);
+            const names = await linkedDisplayWorlds(directories, shared);
+            const books = await catalog(shared.worlds, kind, filename => names.has(path.parse(filename).name));
+            return response.json([...local.filter(book => !names.has(book.file_id)), ...books]);
+        }
         catch { response.status(500).json({ error: '无法读取资源目录，请重试。' }); }
     });
     router.post('/recent', async (request, response) => {
-        try { response.json(await listRecentCharacters(request.user.directories)); }
+        try {
+            const directories = request.user.directories;
+            const display = inDisplay(request);
+            const shared = sharedDirectories(request);
+            if (shared) {
+                const aliases = new Map([...displayCards(directories, shared)].map(([alias, avatar]) => [avatar, alias]));
+                for (const [avatar, alias] of aliases) mergeDisplayChats(directories, shared, alias, avatar);
+                const recent = await listRecentCharacters(shared, io, name => aliases.has(name));
+                const avatars = new Set(recent.map(item => item.avatar));
+                const names = new Map((await catalog(shared.characters, 'characters', name => avatars.has(name))).map(card => [card.avatar, card.name]));
+                return response.json(recent.map(item => ({ ...item, avatar: aliases.get(item.avatar), characterName: names.get(item.avatar) || item.characterName })));
+            }
+            const recent = await listRecentCharacters(directories, io, display ? isDisplayCard : undefined);
+            if (display && recent.length) {
+                const recentAvatars = new Set(recent.map(item => item.avatar));
+                const names = new Map((await catalog(directories.characters, 'characters', name => recentAvatars.has(name)))
+                    .map(card => [card.avatar, card.name]));
+                return response.json(recent.filter(item => names.has(item.avatar)).map(item => ({ ...item, characterName: names.get(item.avatar) })));
+            }
+            return response.json(recent);
+        }
         catch (error) { response.status(500).json({ error: error.message }); }
     });
     router.post('/bootstrap', async (request, response) => {
         try {
-            const directories = request.user.directories;
-            const settings = await fs.readFile(path.join(directories.root, 'settings.json'), 'utf8');
-            const names = (await fs.readdir(directories.openAI_Settings)).filter(name => name.endsWith('.json')).sort((a, b) => a.localeCompare(b));
-            const openai_settings = await Promise.all(names.map(name => fs.readFile(path.join(directories.openAI_Settings, name), 'utf8')));
-            response.json({ settings, openai_settings, openai_setting_names: names.map(name => name.slice(0, -5)) });
+            const presetDirectory = (sharedDirectories(request) ?? request.user.directories).openAI_Settings;
+            const settings = JSON.stringify(await readViewSettings(request));
+            const names = (await fs.readdir(presetDirectory)).filter(name => name.endsWith('.json')).sort((a, b) => a.localeCompare(b));
+            const openai_settings = await Promise.all(names.map(name => fs.readFile(path.join(presetDirectory, name), 'utf8')));
+            const account = inDisplay(request) ? displayOwner(request.user.profile) : request.session?.handle || '';
+            const displayTavern = inDisplay(request) ? 'display' : displayHost && originalSession(request) ? 'owner' : null;
+            response.json({ settings, openai_settings, openai_setting_names: names.map(name => name.slice(0, -5)), account, displayTavern });
         } catch (error) { response.status(500).json({ error: error.message }); }
     });
     router.post('/status', async (_request, response) => {
@@ -539,6 +950,7 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
         } catch (error) { response.status(500).json({ error: error.message }); }
     });
     router.post('/install', async (request, response) => {
+        if (inDisplay(request)) return response.status(403).json({ error: '请在原版中安装前端更新。' });
         if (installing) return response.status(409).json({ error: '正在安装更新' });
         installing = true;
         try {
