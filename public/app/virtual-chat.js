@@ -5,6 +5,9 @@ export class VirtualChat {
         this.projectMessages = projectMessages;
         this.messages = []; this.heights = new Map(); this.nodes = new Map(); this.prefix = [0];
         this.frame = 0; this.follow = true; this.revision = 0; this.gap = 0;
+        this.cropOnScroll = globalThis.CSS?.supports('(animation-timeline: view()) and (animation-range: entry-crossing)') === false
+            && element.matches('[data-palette="ivory-cards"] #message-list');
+        this.croppedCards = new Map();
         this.scrollPosition = element.scrollTop;
         this.topAlignedMessage = null;
         this.pinLatestTop = false;
@@ -33,6 +36,7 @@ export class VirtualChat {
                 this.spacers();
                 if (!this.alignScroll() && correction) this.setScrollTop(element.scrollTop + correction);
             }
+            if (this.cropOnScroll) this.updateCardCrops();
         });
         this.observer.observe(element);
         element.addEventListener('scroll', () => {
@@ -51,6 +55,31 @@ export class VirtualChat {
     calculate() {
         this.prefix = [0];
         for (let i = 0; i < this.messages.length; i++) this.prefix.push(this.prefix.at(-1) + (this.heights.get(i) || 200) + this.gap);
+    }
+    updateCardCrops() {
+        const { top, bottom } = this.element.getBoundingClientRect();
+        const cropped = new Map();
+        for (const node of this.nodes.values()) {
+            const card = node.getBoundingClientRect();
+            if (card.top >= bottom) break;
+            if (card.bottom <= top || !card.height) continue;
+            const before = Math.max(0, top - card.top);
+            const after = Math.max(0, card.bottom - bottom);
+            if (!before && !after) continue;
+            const crop = [100 * before / card.height, 100 * after / card.height];
+            cropped.set(node, crop);
+        }
+        for (const node of this.croppedCards.keys()) {
+            if (cropped.has(node)) continue;
+            node.style.removeProperty('--message-crop-top');
+            node.style.removeProperty('--message-crop-bottom');
+        }
+        for (const [node, [before, after]] of cropped) {
+            const previous = this.croppedCards.get(node);
+            if (previous?.[0] !== before) node.style.setProperty('--message-crop-top', `${before}%`);
+            if (previous?.[1] !== after) node.style.setProperty('--message-crop-bottom', `${after}%`);
+        }
+        this.croppedCards = cropped;
     }
     locate(offset) {
         let low = 0; let high = this.messages.length;
@@ -105,6 +134,7 @@ export class VirtualChat {
             this.spacers();
         }
         this.alignScroll();
+        if (this.cropOnScroll) this.updateCardCrops();
         this.onRange?.({ start, end, total: this.messages.length, follow: this.follow });
     }
     renderRange(start, end, reuse, previous) {

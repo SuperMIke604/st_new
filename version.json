@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "f0603ca6a846dc50d7e27a9f16833cb16b1cc76954e303dac312089837d98558",
-  "publishedAt": "2026-11-24T01:27:32.088074+00:00",
+  "revision": "378cc5f7d6018acc37ba0a8f2c323a2f2dfebb26479333b9d977442155a5879d",
+  "publishedAt": "2026-11-24T01:46:07.387323+00:00",
   "files": {
     "public/app/api.js": "76afd43829e90bb3f84385a116de1d3e96ed8f405b511e4048e12fbe3fcad14d",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
@@ -43,11 +43,11 @@
     "public/app/login.css": "b7d16ccb921a9d62e870e603e745b18956eba5514a0b2246456f38f91a37cecb",
     "public/app/login.html": "f4998bc5a0b2749658ff6f4daef371071eea18a2f10a20a306c3ece5da8382db",
     "public/app/login.js": "1dff84b3ed4d37772898d5b36d8a6fe2313c9a83b97b0f5ddad7464f33e834d9",
-    "public/app/main.js": "73bebe3e6d5b0720db317d476011dc604c7a9771aa3f26f2045e01a73d4b6375",
+    "public/app/main.js": "28b3a177582305dec5ac6563511f008ea20ff6104d5dad9543c1c38f58ed2fa2",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "92259ff9c656bb088979a2b4c4da4428945c4348e6e67a746e4218a06d7c7e21",
+    "public/app/paper-cards.css": "25f1670c2ac17ff6d9e888adddcc562a121e6350f5e1c4d9eb11ce5f1a678342",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -93,11 +93,11 @@
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
-    "public/app/virtual-chat.js": "e9b56396971d32aebf94c1ac6d6066f3eabf4fa7445972e133c71e21021bc00f",
+    "public/app/virtual-chat.js": "d40197c3d1429db98c2b6f07bef82dce67b58b4e186c3e4fc9526abb3c664e49",
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "39582c05f53fc8800f619d77fb2315f8789a15c77e92093761213875019d6f8b"
+    "public/app/version.js": "95bc04e4dadbddfe650735654f3437206edd06464600388930252bd0debd7f02"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

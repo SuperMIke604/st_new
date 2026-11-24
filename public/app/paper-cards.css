@@ -235,8 +235,9 @@
 }
 
 [data-palette="ivory-cards"] .message {
+    --message-border-color: var(--line);
     background-color: var(--card-message);
-    border: 1px solid var(--line);
+    border: 1px solid var(--message-border-color);
     border-radius: var(--card-radius);
     box-shadow: none;
 }
@@ -247,7 +248,62 @@
 
 [data-palette="ivory-cards"] .message.from-user {
     background-color: var(--card-user-message, var(--soft));
-    border-color: var(--card-user-border);
+    --message-border-color: var(--card-user-border);
+}
+
+.message-scroll-edges { display: none; }
+
+[data-palette="ivory-cards"] #message-list > .message {
+    border-color: transparent;
+    clip-path: inset(var(--message-crop-top, 0%) 0 var(--message-crop-bottom, 0%) 0 round var(--card-radius));
+}
+
+[data-palette="ivory-cards"] #message-list > .message > .message-scroll-edges {
+    position: absolute;
+    inset: -1px;
+    z-index: 1;
+    display: block;
+    border-radius: inherit;
+    pointer-events: none;
+}
+
+.message-scroll-edges::before {
+    content: "";
+    position: absolute;
+    inset: var(--message-crop-top, 0%) 0 var(--message-crop-bottom, 0%) 0;
+    border: 1px solid var(--message-border-color);
+    border-radius: inherit;
+}
+
+@property --message-crop-top {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 0%;
+}
+
+@property --message-crop-bottom {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 0%;
+}
+
+@keyframes message-crop-top {
+    from { --message-crop-top: 0%; }
+    to { --message-crop-top: 100%; }
+}
+
+@keyframes message-crop-bottom {
+    from { --message-crop-bottom: 100%; }
+    to { --message-crop-bottom: 0%; }
+}
+
+@supports (animation-timeline: view()) and (animation-range: entry-crossing) {
+    [data-palette="ivory-cards"] #message-list > .message {
+        animation: message-crop-top auto linear both, message-crop-bottom auto linear both;
+        animation-timeline: view(block 0px), view(block 0px);
+        /* Each range tracks one edge, including when a card spans the viewport. */
+        animation-range: exit-crossing, entry-crossing;
+    }
 }
 
 [data-palette="ivory-cards"] .message-name {

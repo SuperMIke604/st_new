@@ -11,6 +11,30 @@ class Element {
     remove() { if (this.parent) { this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; } }
 }
 
+test('fallback clipping follows both edges of a tall card and clears stale crops', () => {
+    let viewport = { top: 40, bottom: 240 };
+    const values = new Map();
+    const card = {
+        getBoundingClientRect: () => ({ top: 0, bottom: 400, height: 400 }),
+        style: {
+            setProperty: (name, value) => values.set(name, value),
+            removeProperty: name => values.delete(name),
+        },
+    };
+    const list = {
+        element: { getBoundingClientRect: () => viewport },
+        nodes: new Map([[0, card]]),
+        croppedCards: new Map(),
+    };
+    VirtualChat.prototype.updateCardCrops.call(list);
+    assert.deepEqual([...values], [['--message-crop-top', '10%'], ['--message-crop-bottom', '40%']]);
+
+    viewport = { top: 420, bottom: 620 };
+    VirtualChat.prototype.updateCardCrops.call(list);
+    assert.equal(values.size, 0);
+    assert.equal(list.croppedCards.size, 0);
+});
+
 test('scrolling preserves mounted messages and iframe documents inside the retained window', () => {
     const oldDocument = globalThis.document, oldObserver = globalThis.ResizeObserver;
     globalThis.document = { createElement: () => new Element() };

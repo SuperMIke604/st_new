@@ -509,6 +509,9 @@ function renderMessage(message, index, existing) {
         const jumpTop=node.querySelector('.message-jumps-top'); if(jumpTop) header.append(jumpTop);
         node.prepend(header);
         const content=el('div','message-content'); const bottom=node.querySelector('.message-jumps-bottom'); if(bottom) bottom.before(content); else node.append(content);
+        const edges = el('div', 'message-scroll-edges');
+        edges.setAttribute('aria-hidden', 'true');
+        node.append(edges);
     }
     const visibility = node.querySelector(':scope > .message-visibility');
     if (message.is_system && !visibility) {
