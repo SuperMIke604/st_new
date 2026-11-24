@@ -26,7 +26,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     const storage = new Map(), backgroundCalls = [], releases = [];
     let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [];
-    const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', dispatch: async (event, args) => {
+    const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', auxiliaryControllers: new Map(), refresh() {}, dispatch: async (event, args) => {
         helperEvents.push(event);
         if (native && event === 'message_received') {
             const message = state.chat[args[0]];
@@ -44,7 +44,8 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
     const timings = new LoadTimings();
     const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables,
         $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
-        assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, status: text => statuses.push(text),
+        assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, scriptSchema: {},
+        nextPaint: () => Promise.resolve(), status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
         preparePrompt: chat => { promptHistory.push(Array.from(chat, message => message.mes)); return prepared.promise; },
         list: { follow: true, update() {}, setMessages(messages, { latest } = {}) {
@@ -91,6 +92,9 @@ test('composer submit immediately shows the card and waits five seconds before g
     await assert.rejects(f.run(false, { delaySend: true }));
     t.mock.timers.tick(4999);
     await tick();
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '挂载待发送消息卡片').status, 'success');
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '待发送消息卡片至下一次绘制机会').status, 'success');
+    assert.equal(f.timings.snapshot().find(entry => entry.label === '等待发送（5 秒）').status, 'loading');
     assert.equal(f.state.busy, true);
     assert.equal(f.stopAttributes.get('aria-label'), '正在准备发送，停止生成');
     assert.deepEqual(f.helperEvents, []);

@@ -19,7 +19,7 @@ export class TavernAPI {
             headers: { 'X-CSRF-Token': this.csrf, ...(form ? {} : { 'Content-Type': 'application/json' }), ...(contentEncoding ? { 'Content-Encoding': contentEncoding } : {}), ...(sharedSetting ? { 'X-ST-New-Shared-Setting': sharedSetting } : {}) },
             body: form ? data : serializedBody ?? JSON.stringify(data),
         }, { fallbackStatuses, timing, logSuccess });
-        if (response.redirected && response.url.includes('/login')) throw new ApiError('请先在原生页面登录，再重新打开 /app/。', 401);
+        if (response.redirected && response.url.includes('/login')) throw new ApiError('登录已失效，请重新打开 /app/ 登录。', 401);
         if (!response.ok) {
             const raw = await response.text();
             let message;

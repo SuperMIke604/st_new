@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, scryptSync, randomUUID } from 'node:crypto';
-import { init, validateManifest, listRecentCharacters, installUpdate, createCatalogReader, readCardMetadata, registerAccountLogin } from './index.mjs';
+import { init, validateManifest, listRecentCharacters, installUpdate, createCatalogReader, readCardMetadata, registerAccountLogin, hideDisplayLoginAccounts } from './index.mjs';
 const files = Object.fromEntries(['index.html', 'main.js', 'version.js', 'style.css'].map(name => ['public/app/' + name, 'new ' + name]));
 const manifest = { schema: 1, revision: 'a'.repeat(64), files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, createHash('sha256').update(value).digest('hex')])) };
 
@@ -408,8 +408,15 @@ test('display reads and writes selected shared settings without routing private 
     const directories = name => Object.fromEntries(['root', 'files', 'openAI_Settings', 'worlds', 'characters', 'chats'].map(key => [key, path.join(root, name, key)]));
     const owner = directories('owner'), guest = directories('guest');
     await Promise.all([owner, guest].flatMap(view => [view.root, view.files].map(directory => fs.mkdir(directory, { recursive: true }))));
-    const ownerSettings = { extension_settings: { regex: ['shared'], private: true }, world_info_settings: { world_info: { globalSelect: ['private world'] } } };
-    const guestSettings = { extension_settings: { regex: ['old display'] }, world_info_settings: { world_info: { globalSelect: ['display world'] } } };
+    const ownerSettings = {
+        extension_settings: { regex: ['shared'], private: true },
+        independent_frontend: { reading: { fontSize: 24 }, palette: 'dark', enterSend: false },
+        world_info_settings: { world_info: { globalSelect: ['private world'] } },
+    };
+    const guestSettings = {
+        extension_settings: { regex: ['old display'], independent_frontend: { reading: { fontSize: 16 }, lastCharacter: 'display-card' } },
+        world_info_settings: { world_info: { globalSelect: ['display world'] } },
+    };
     await fs.writeFile(path.join(owner.root, 'settings.json'), JSON.stringify(ownerSettings));
     await fs.writeFile(path.join(guest.root, 'settings.json'), JSON.stringify(guestSettings));
     await fs.writeFile(path.join(owner.files, 'independent-frontend-connections.json'), JSON.stringify({ profiles: [{ source: 'custom', url: 'https://model.example/v1', secretId: 'configured' }] }));
@@ -426,7 +433,9 @@ test('display reads and writes selected shared settings without routing private 
     const read = call('/api/settings/get');
     assert.equal(read.request.user.directories.openAI_Settings, owner.openAI_Settings);
     const merged = JSON.parse(read.result.json({ settings: JSON.stringify(guestSettings) }).settings);
-    assert.deepEqual(merged.extension_settings, { regex: ['shared'] });
+    assert.deepEqual(merged.extension_settings, { regex: ['shared'], independent_frontend: {
+        reading: { fontSize: 24 }, palette: 'dark', enterSend: false, lastCharacter: 'display-card',
+    } });
     assert.deepEqual(merged.world_info_settings, guestSettings.world_info_settings);
     const edit = { extension_settings: { regex: ['updated'] }, world_info_settings: {} };
     call('/api/settings/save', structuredClone(edit));
@@ -434,6 +443,12 @@ test('display reads and writes selected shared settings without routing private 
     const save = call('/api/settings/save', edit, { scope: 'regex' });
     assert.deepEqual(written, { ...ownerSettings, extension_settings: { regex: ['updated'], private: true } });
     assert.deepEqual(save.request.body.extension_settings.regex, ['old display']);
+    const changedReading = { fontSize: 26, letterSpacing: .3 };
+    merged.extension_settings.independent_frontend.reading = changedReading;
+    const displaySave = call('/api/settings/save', merged, { scope: 'reading' });
+    assert.deepEqual(written.extension_settings.independent_frontend, { reading: changedReading, palette: 'dark', enterSend: false });
+    assert.deepEqual(written.world_info_settings, ownerSettings.world_info_settings);
+    assert.deepEqual(displaySave.request.body.extension_settings.independent_frontend, guestSettings.extension_settings.independent_frontend);
     assert.equal(call('/api/presets/save', { apiId: 'openai' }).request.user.directories.openAI_Settings, owner.openAI_Settings);
     assert.equal(call('/user/files/independent-frontend-connections.json', null, { method: 'GET' }).request.user.directories.files, owner.files);
     assert.equal(call('/user/files/private.json', null, { method: 'GET' }).request.user.directories.files, guest.files);
@@ -443,6 +458,17 @@ test('display reads and writes selected shared settings without routing private 
     assert.equal(model('https://model.example/v1'), owner.root);
     assert.equal(model('https://elsewhere.example/v1'), guest.root);
     for (const pathname of ['/api/worldinfo/get', '/api/characters/get', '/api/chats/get']) assert.equal(call(pathname).request.user.directories, guest);
+});
+
+test('the native login list hides only verified display profiles', async () => {
+    const owner = 'existing-owner';
+    const display = 'st-display-' + createHash('sha256').update(owner).digest('hex').slice(0, 32);
+    const similar = 'st-display-' + 'a'.repeat(32);
+    const router = { stack: [], use(route, handler) { assert.equal(route, '/list'); this.stack.push(handler); } };
+    hideDisplayLoginAccounts(router, async handle => handle === display ? { handle, stNewDisplay: { owner } } : { handle });
+    const response = { json: value => value };
+    router.stack[0]({ method: 'POST', path: '/' }, response, () => {});
+    assert.deepEqual(await response.json([{ handle: owner }, { handle: display }, { handle: similar }]), [{ handle: owner }, { handle: similar }]);
 });
 
 test('bootstrap marks a signed-in passwordless original account as eligible for first-time password setup', async t => {

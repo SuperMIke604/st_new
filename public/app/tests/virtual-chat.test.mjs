@@ -17,12 +17,18 @@ test('scrolling preserves mounted messages and iframe documents inside the retai
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
     try {
         const root = new Element();
-        const list = new VirtualChat(root, (message, index, node) => node || Object.assign(new Element(), { messageIndex: index }));
+        const rendered = [];
+        const list = new VirtualChat(root, (message, index, node) => {
+            rendered.push(index);
+            return node || Object.assign(new Element(), { messageIndex: index });
+        });
         list.messages = Array.from({ length: 100 }, () => ({})); list.calculate(); list.paint(20);
         const stable = new Map(list.nodes);
         for (let i = 0; i < 5; i++) list.paint(20);
         for (const node of stable.values()) assert.equal(node.mounts, 1, 'ordinary wheel paints must not detach mounted cards');
-        list.paint(21);
+        rendered.length = 0;
+        list.paint(21, { reuse: true });
+        assert.deepEqual(rendered, [52], 'scrolling only renders a message entering the window');
         for (const [index, node] of stable) if (list.nodes.has(index)) { assert.equal(list.nodes.get(index), node); assert.equal(node.mounts, 1); }
         list.paint(19);
         assert.deepEqual(root.children.slice(1, -1).map(node => node.messageIndex), [...list.nodes.keys()]);
@@ -54,8 +60,18 @@ test('sending keeps the list at the bottom across viewport changes and still all
         Object.defineProperty(globalThis, key, { value, configurable: true });
         t.after(() => previous ? Object.defineProperty(globalThis, key, previous) : delete globalThis[key]);
     }
-    const list = new VirtualChat(root, (_message, _index, node) => node || new Element());
-    list.setMessages([{ mes: 'long previous reply' }, { mes: 'new user message' }], { latest: true });
+    const rendered = [];
+    const earlier = { mes: 'long previous reply' }, pending = { mes: 'new user message' };
+    const list = new VirtualChat(root, (message, _index, node) => {
+        rendered.push(message);
+        return node || new Element();
+    });
+    list.setMessages([earlier], { latest: true });
+    const previousNode = list.nodes.get(0);
+    rendered.length = 0;
+    list.setMessages([earlier, pending], { latest: true, appendPreview: true });
+    assert.deepEqual(rendered, [pending]);
+    assert.equal(list.nodes.get(0), previousNode);
     assert.equal(root.scrollTop, 1480);
 
     root.clientHeight = 720;

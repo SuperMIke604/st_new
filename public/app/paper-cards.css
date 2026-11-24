@@ -219,7 +219,6 @@
 }
 
 [data-palette="ivory-cards"] #message-list {
-    --clip-message-cards: 1;
     --message-gap: var(--card-gap);
     padding: 0;
     scrollbar-gutter: auto;
@@ -237,8 +236,7 @@
 
 [data-palette="ivory-cards"] .message {
     background-color: var(--card-message);
-    --message-outline: var(--line);
-    border: 1px solid var(--message-outline);
+    border: 1px solid var(--line);
     border-radius: var(--card-radius);
     box-shadow: none;
 }
@@ -249,51 +247,7 @@
 
 [data-palette="ivory-cards"] .message.from-user {
     background-color: var(--card-user-message, var(--soft));
-    --message-outline: var(--card-user-border);
-}
-
-/* Let the scroll container clip the text as it moves, including between paints. */
-[data-palette="ivory-cards"] #message-list > .message[data-card-clip] {
-    --visible-card-radius: min(var(--card-radius), calc(var(--card-visible-height) / 2));
-    border-color: transparent;
-    border-radius: var(--natural-top-radius, 0px) var(--natural-top-radius, 0px)
-                   var(--natural-bottom-radius, 0px) var(--natural-bottom-radius, 0px);
-}
-
-#message-list > .message[data-card-clip="top"] { --natural-bottom-radius: var(--visible-card-radius); }
-#message-list > .message[data-card-clip="bottom"] { --natural-top-radius: var(--visible-card-radius); }
-
-.message-list-frame[data-outline-top] { --frame-top-radius: min(var(--card-radius), calc(var(--outline-top-height) / 2)); }
-.message-list-frame[data-outline-bottom] { --frame-bottom-radius: min(var(--card-radius), calc(var(--outline-bottom-height) / 2)); }
-.message-list-frame[data-outline-top="full"] { --frame-bottom-radius: var(--frame-top-radius); }
-.message-list-frame > #message-list {
-    border-radius: var(--frame-top-radius, 0px) var(--frame-top-radius, 0px)
-                   var(--frame-bottom-radius, 0px) var(--frame-bottom-radius, 0px);
-}
-
-.message-list-frame[data-outline-top]::before,
-.message-list-frame[data-outline-bottom]::after {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    box-sizing: border-box;
-    block-size: var(--outline-height);
-    border: 1px solid var(--outline-color);
-    border-radius: min(var(--card-radius), calc(var(--outline-height) / 2));
-    pointer-events: none;
-    z-index: 1;
-}
-
-.message-list-frame[data-outline-top]::before {
-    --outline-height: var(--outline-top-height);
-    --outline-color: var(--outline-top-color);
-    inset-block-start: 0;
-}
-
-.message-list-frame[data-outline-bottom]::after {
-    --outline-height: var(--outline-bottom-height);
-    --outline-color: var(--outline-bottom-color);
-    inset-block-end: 0;
+    border-color: var(--card-user-border);
 }
 
 [data-palette="ivory-cards"] .message-name {

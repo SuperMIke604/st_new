@@ -18,6 +18,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.CookieManager;
 import android.webkit.HttpAuthHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -48,6 +49,7 @@ public final class MainActivity extends Activity {
     private static final int DEFAULT_PORT = 8000;
     private static final int PICK_FILE = 1;
     private static final int PAPER = 0xfff3eee4;
+    private static final String ACCOUNT_LOGIN_PATH = "/app/login.html";
 
     private WebView webView;
     private LinearLayout errorPanel;
@@ -357,7 +359,7 @@ public final class MainActivity extends Activity {
         errorPanel.setVisibility(View.GONE);
         webView.setVisibility(View.INVISIBLE);
         loginPanel.setVisibility(View.VISIBLE);
-        loginPanel.showForm(HOST + ":" + port, failure);
+        loginPanel.showForm(HOST + ":" + port, failure, isAccountSwitch());
         if (failure != null) loginPassword.requestFocus();
         else loginPanel.requestFocus();
     }
@@ -438,15 +440,37 @@ public final class MainActivity extends Activity {
     }
 
     private void cancelLogin() {
+        if (isAccountSwitch()) {
+            loadTavern();
+            return;
+        }
         showError("登录已取消。");
         webView.stopLoading();
+    }
+
+    private boolean isAccountSwitch() {
+        String url = webView.getUrl();
+        if (url == null) return false;
+        Uri page = Uri.parse(url);
+        return isTavern(page) && ACCOUNT_LOGIN_PATH.equals(page.getPath())
+                && "1".equals(page.getQueryParameter("switch"));
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Android may reclaim the process before WebView's scheduled cookie write.
+        CookieManager.getInstance().flush();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         fileExports.saveState(state);
-        if (loginPanel.getVisibility() == View.VISIBLE) {
+        String currentUrl = webView.getUrl();
+        if (loginPanel.getVisibility() == View.VISIBLE
+                || (currentUrl != null && ACCOUNT_LOGIN_PATH.equals(Uri.parse(currentUrl).getPath()))) {
+            // Start again at /app/ so the server can use any committed login session.
             state.putBoolean("loginPending", true);
         } else {
             webView.saveState(state);
@@ -529,11 +553,14 @@ public final class MainActivity extends Activity {
                     && errorPanel.getVisibility() == View.GONE && isTavern(page)) {
                 if ("/".equals(page.getPath())) {
                     view.evaluateJavascript("location.replace('/app/')", null);
-                } else if ("/app/login.html".equals(page.getPath())) {
+                } else if (ACCOUNT_LOGIN_PATH.equals(page.getPath())) {
                     if (accountLoginPort == null) closeLogin();
                     webView.setVisibility(View.VISIBLE);
                     connectAccountLogin(view, url);
                 } else {
+                    if ("/app/".equals(page.getPath())) {
+                        CookieManager.getInstance().flush();
+                    }
                     closeLogin();
                     view.setVisibility(View.VISIBLE);
                     connectShell(view, url);

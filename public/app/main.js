@@ -386,7 +386,10 @@ async function saveOwn(patch) {
         if (!Object.keys(patch).length) return;
     }
     const chatPosition = Object.keys(patch).every(key => ['lastCharacter', 'lastChats'].includes(key));
-    state.settings = await api.patchSettings(settings => { Object.assign(settingsOwn(settings), patch); settings.extension_settings.independent_frontend = settings.independent_frontend; }, { source: chatPosition ? '保存聊天位置设置' : '保存前端偏好设置' });
+    state.settings = await api.patchSettings(settings => { Object.assign(settingsOwn(settings), patch); settings.extension_settings.independent_frontend = settings.independent_frontend; }, {
+        source: chatPosition ? '保存聊天位置设置' : '保存前端偏好设置',
+        sharedSetting: Object.hasOwn(patch, 'reading') ? 'reading' : undefined,
+    });
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     api.readCache.clear();
@@ -434,13 +437,17 @@ function visibleChatMessages(messages) {
     return state.hiddenReply && messages.at(-1) === state.hiddenReply ? messages.slice(0, -1) : messages;
 }
 
-function synchronize() {
+function synchronizeScriptRuntime() {
     if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) { scriptRuntime.dispose(); scriptSchema.dispose(); }
     if (scriptSchema.identity && scriptSchema.identity !== scriptIdentity()) scriptSchema.dispose();
     // Resource saves also synchronize the UI. Keep the working script snapshot intact during a callback.
     if (scriptRuntime.frame && !scriptRuntime.processing && !scriptRuntime.auxiliaryControllers.size) {
         scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
     }
+}
+
+function synchronize({ deferScriptRefresh = false } = {}) {
+    if (!deferScriptRefresh) synchronizeScriptRuntime();
     if (!state.character) scriptAutoIdentity = '';
     if (state.ready && state.character && !state.loading && !state.busy && !state.historySaving && !state.dirty && !inlineEdit && !hasChatPanelDraft() && scriptAutoIdentity !== scriptIdentity()) {
         scriptAutoIdentity = scriptIdentity();
@@ -562,7 +569,8 @@ function renderMessage(message, index, existing) {
         queueMicrotask(() => { if (anchor.isConnected) scriptRuntime.bindChat(anchor, index); });
         return node;
     }
-    const depth = list.messages.length - index - 1;
+    const queuedUser = state.generation?.queuedUser;
+    const depth = list.messages.length - index - 1 - Number(Boolean(queuedUser && message !== queuedUser));
     if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth || node._userName !== names.user || node._charName !== names.char) {
         const body = node.querySelector('.message-content');
         body.innerHTML = markdown(displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names));
@@ -698,9 +706,11 @@ function homeRecentCacheKey() {
 async function switchTavernAccount() {
     assertSaved();
     if (panelDirty) throw new Error('请先保存或取消当前编辑。');
-    await api.post('/api/users/logout');
     try { sessionStorage.setItem('st-new-login-handle', state.bundle.account); } catch { /* Login still works. */ }
-    location.replace('./login.html');
+    location.replace('./login.html?switch=1');
+}
+function readingStorageKey() {
+    return state.bundle.account ? `independent-reading:account:${state.bundle.account}` : `independent-reading:${state.settings.username || 'default'}`;
 }
 function clearWelcome() { $('message-list').querySelector('.welcome')?.remove(); }
 async function reloadResources() {
@@ -709,10 +719,12 @@ async function reloadResources() {
     state.own = settingsOwn(state.settings);
     if (presetSelection.name !== null) state.own.preset = presetSelection.name;
     frontendThemes.apply(state.own.palette, true);
-    try {
-        const saved = JSON.parse(localStorage.getItem(`independent-reading:${state.settings.username || 'default'}`) || 'null');
-        if (saved) state.own.reading = readingSettings({ ...state.own.reading, ...saved }, true);
-    } catch { /* Use server preferences when local data is unavailable. */ }
+    if (!state.own.reading) {
+        try {
+            const saved = JSON.parse(localStorage.getItem(readingStorageKey()) || 'null');
+            if (saved) state.own.reading = readingSettings(saved);
+        } catch { /* Use defaults when saved preferences are unavailable. */ }
+    }
     applyReading(state.own.reading);
     if ($('message-input').value) resizeInput();
     await presetSelection.load(legacySelection, presets().map(item => item.name));
@@ -3622,11 +3634,10 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
     const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
     let waitingToSend = delaySend;
-    state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController(); synchronize();
-    status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
+    state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController();
     let user, reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
-    let requestStarted, replyReceived;
+    let requestStarted, replyReceived, userCardMountedMs;
     let backgroundJob = recovery;
     let resumeLater = false;
     let userSaveBase, rawReplyBase;
@@ -3649,6 +3660,8 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
         userSaveBase = api.chatBase;
     };
     try {
+        synchronize({ deferScriptRefresh: delaySend });
+        status(regenerate ? '重新生成 · 准备上下文…' : '发送消息 · 准备上下文…');
         user = recovery ? null : { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: regexText(text, 1, { depth: 0 }), extra: {} };
         const openingVariables = !regenerate && !retry ? sealedOpeningVariables(state.chat, text) : null;
         if (user && openingVariables) user.variables = { 0: openingVariables };
@@ -3657,12 +3670,20 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
         if (waitingToSend) {
             if (!regenerate && !retry) {
                 // Show the card without changing the chat snapshot seen by generation_started.
-                state.generation.queuedUser = user;
-                input.value = ''; resizeInput();
-                list.setMessages(state.chat, { latest: true });
+                loadTimings.measureSync('挂载待发送消息卡片', 'generation', () => {
+                    state.generation.queuedUser = user;
+                    input.value = ''; resizeInput();
+                    list.setMessages(state.chat, { latest: true, appendPreview: true });
+                });
+                userCardMountedMs = loadTimings.now() - sendStarted;
+                if (!document.hidden) {
+                    const finishPaint = loadTimings.start('待发送消息卡片至下一次绘制机会', 'generation');
+                    void nextPaint().then(() => finishPaint(document.hidden ? 'cancelled' : 'success'));
+                }
             }
-            await waitToSend(state.controller);
+            await loadTimings.measure('等待发送（5 秒）', 'generation', () => waitToSend(state.controller));
             waitingToSend = false;
+            synchronizeScriptRuntime();
         }
         if (regenerate) {
             state.hiddenReply = state.chat.at(-1);
@@ -3923,6 +3944,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
         else if (!state.dirty) status(state.error ? `请求未完成 · ${state.error}` : '已保存', Boolean(state.error));
         finishGeneration(completed ? 'success' : state.error ? 'error' : 'cancelled', { metrics: {
             preSendMs: requestStarted === undefined ? undefined : requestStarted - sendStarted,
+            userCardMountedMs,
             postReplyMs: replyReceived === undefined ? undefined : loadTimings.now() - replyReceived,
         } });
         state.error = '';
@@ -3996,7 +4018,6 @@ function toolsPanel() {
     const rememberReading = value => {
         const settings = readingSettings(value, true);
         state.own.reading = settings;
-        try { localStorage.setItem(`independent-reading:${state.settings.username || 'default'}`, JSON.stringify(settings)); } catch { /* Server save remains available. */ }
         applyReading(settings);
         resizeInput();
     };
@@ -4041,6 +4062,7 @@ function toolsPanel() {
         const reading = readingSettings(values(), true);
         const selectedPalette = palette.value;
         await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
+        try { localStorage.setItem(readingStorageKey(), JSON.stringify(reading)); } catch { /* Server save remains available. */ }
         rememberReading(reading);
         frontendThemes.apply(selectedPalette, true);
         panelDirty = false; notify('阅读设置已保存');

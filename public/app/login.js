@@ -11,7 +11,7 @@ async function getToken(fetchRequest) {
 }
 
 export async function loginWithPassword(handle, password, fetchRequest = fetch) {
-    let token = await getToken(fetchRequest);
+    const token = await getToken(fetchRequest);
     const post = (path, data = {}) => fetchRequest(`/api/users/${path}`, {
         method: 'POST', cache: 'no-store', signal: requestTimeout(),
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
@@ -19,9 +19,6 @@ export async function loginWithPassword(handle, password, fetchRequest = fetch) 
     });
     let response = await post('st-new-login', { handle, password });
     if ([403, 404].includes(response.status) && !response.headers.has('X-ST-New-Login')) {
-        const logout = await post('logout');
-        if (logout.ok) token = await getToken(fetchRequest);
-        else if (logout.status !== 403) throw Error('无法切换当前账号，请稍后重试。');
         response = await post('login', { handle, password });
     }
     if (response.status === 429) throw Error('尝试次数过多，请稍后再试。');
@@ -37,6 +34,8 @@ if (form) {
     const password = document.getElementById('tavern-password');
     const status = document.getElementById('tavern-login-status');
     const submit = form.querySelector('button[type="submit"]');
+    const back = document.getElementById('tavern-login-back');
+    if (back) back.hidden = new URLSearchParams(location.search).get('switch') !== '1';
     try { username.value = sessionStorage.getItem('st-new-login-handle') || ''; } catch { /* Login still works. */ }
     const signIn = async (handle, secret) => {
         await loginWithPassword(handle, secret);

@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "revision": "aba3557091c9df0752f64933d3aefc595fa6c3d1f75e8c862fa08be5f1c36c65",
-  "publishedAt": "2026-11-24T00:40:47.975778+00:00",
+  "revision": "f0603ca6a846dc50d7e27a9f16833cb16b1cc76954e303dac312089837d98558",
+  "publishedAt": "2026-11-24T01:27:32.088074+00:00",
   "files": {
-    "public/app/api.js": "8eed49125835999fd963cb8774506cf31e1b6a977e9a727c635e90bffa0767af",
+    "public/app/api.js": "76afd43829e90bb3f84385a116de1d3e96ed8f405b511e4048e12fbe3fcad14d",
     "public/app/background-generation.js": "18c4da2568f3caf0cfea115811c8a16949246886bbf65e12acccd33e80da3b99",
     "public/app/category-select.js": "66825f8ec6611bbdef8b61803e489debec8a250e8a035003090391c726966ce9",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
@@ -39,15 +39,15 @@
     "public/app/index.html": "a8ebca0fa135554396524a6f560a68344dd14c4eaac845fb2d360fbf348b8a5c",
     "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
-    "public/app/load-timings.js": "b15df8380aebf99778475aea58cf53944d4379a93215bfc719616f362ad7d7fc",
-    "public/app/login.css": "25febd9ea72ed0395b1393d225b0bd59857157a1dd723e215d040f0e3ccd2841",
-    "public/app/login.html": "80204b1503736b5f57859cb079965fd75a378339c18c895c2e0366940e917a33",
-    "public/app/login.js": "b73e820eb8a76e2f48740c2cbe24c7a413fb8cf3a8596999bf77d6f06e3ab299",
-    "public/app/main.js": "1bbb081727d47241620445514ecac9907458c872c4f0a307b920da3c6bee9601",
+    "public/app/load-timings.js": "4631d89e985d2393ae63408ecdaa7a2b7b033078c059a8cf465e24582d5281cb",
+    "public/app/login.css": "b7d16ccb921a9d62e870e603e745b18956eba5514a0b2246456f38f91a37cecb",
+    "public/app/login.html": "f4998bc5a0b2749658ff6f4daef371071eea18a2f10a20a306c3ece5da8382db",
+    "public/app/login.js": "1dff84b3ed4d37772898d5b36d8a6fe2313c9a83b97b0f5ddad7464f33e834d9",
+    "public/app/main.js": "73bebe3e6d5b0720db317d476011dc604c7a9771aa3f26f2045e01a73d4b6375",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "e982bcfec27b5d1fc69937d3934fa3fe11992425fea47ddc7d8792cf52f53e0b",
+    "public/app/paper-cards.css": "92259ff9c656bb088979a2b4c4da4428945c4348e6e67a746e4218a06d7c7e21",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -75,7 +75,7 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "df5d566634820ac9a07ddc83c3529a939ee633b89d33c7f7432141c40ab6ce25",
     "public/app/select.js": "69dbc0e5b4ce4f1ba88a2cd3efa4d489dc85839a1b933d3cd443a34d0d6c2bca",
-    "public/app/style.css": "9b06bd05f21ceb91fba1a97e24fdae410838072a0bf46bca464df2bd778c4f0c",
+    "public/app/style.css": "f2b875a8b5b25c5ca01ec1cec6583e3490bd45214e7c348f63ddbe000953471b",
     "public/app/theme-init.js": "f3cbae8bbff218ce5b8a05f94bd640f2a84482c377142e82b8e38126e0340fa3",
     "public/app/toast.js": "7ff1909c74909d3cb404d7f2cd6a0291fc1d3f72301e7d7249440f42218c8251",
     "public/app/typography.css": "6f5ad613501af4b0821a68881225b34d254d17c322308e80caa91f34d6a6a915",
@@ -93,14 +93,14 @@
     "public/app/vendor/showdown.min.js": "470ee76d0054b235f1a0f0e6745ec4c897b5ca402612c63f04098834c345546b",
     "public/app/vendor/zod.LICENSE": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
     "public/app/vendor/zod.min.js": "53bada55c99a142fd161d9fb9d7b260764cb6df8a715843f17a67042ce15a303",
-    "public/app/virtual-chat.js": "56d8fe27d043aaee5137c65d9d2984182bfb43a8e17e30453faf34620ed6150c",
+    "public/app/virtual-chat.js": "e9b56396971d32aebf94c1ac6d6066f3eabf4fa7445972e133c71e21021bc00f",
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "d4d15bd7466df258b2869a627e4bc2088bdc552defa488a97e9a8006e65aacae",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "1d8d904223ed08bdf07a35494452379d1b8f85772119d9cb832547af334cf203"
+    "public/app/version.js": "39582c05f53fc8800f619d77fb2315f8789a15c77e92093761213875019d6f8b"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
-    "sha256": "1ebdc4373e9d72f8cdce91cb73105dd969a0acbef42acfe883700056dd97ba00"
+    "sha256": "03e8401c2293ad04fc3c651379bca93a8480169a299c0423a78fd8425b1c391d"
   }
 }

@@ -48,4 +48,5 @@
 .login-card button { margin-top: 4px; border: 0; color: #fff; background: #523c79; cursor: pointer; }
 .login-card button:focus-visible { outline: 2px solid #523c79; outline-offset: 2px; }
 .login-card button:disabled { color: #292341; background: #e9dff1; cursor: default; }
+.login-card a:not([hidden]) { display: block; margin-top: 12px; text-align: center; color: #523c79; }
 #tavern-login-status { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; color: #8a2e45; background: #faecee; font-size: 14px; }

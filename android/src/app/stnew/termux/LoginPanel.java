@@ -123,8 +123,9 @@ final class LoginPanel extends ScrollView {
         add(content, back, 2);
     }
 
-    void showForm(String address, String failure) {
+    void showForm(String address, String failure, boolean switchingAccount) {
         server.setText(address);
+        back.setText(switchingAccount ? "返回当前版本" : "返回连接设置");
         if (failure != null) {
             error.setVisibility(View.VISIBLE);
             error.setText(failure);

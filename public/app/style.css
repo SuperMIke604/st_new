@@ -279,14 +279,12 @@ dialog.database-panel{width:min(1100px,calc(100vw - 24px))}.db-tabs{display:flex
     height: 6px;
     border-radius: 1px;
     background: currentColor;
+    animation: reply-wait-pulse 1s ease-in-out infinite alternate;
 }
 .reply-wait-wave > span:is(:nth-child(2), :nth-child(4)) { height: 10px; }
 .reply-wait-wave > span:nth-child(3) { height: 16px; }
-@media (prefers-reduced-motion: no-preference) {
-    .reply-wait-wave > span { animation: reply-wait-pulse 1s ease-in-out infinite alternate; }
-    .reply-wait-wave > span:nth-child(2n) { animation-delay: -.6s; }
-    .reply-wait-wave > span:nth-child(3) { animation-delay: -.3s; }
-}
+.reply-wait-wave > span:nth-child(2n) { animation-delay: -.6s; }
+.reply-wait-wave > span:nth-child(3) { animation-delay: -.3s; }
 @keyframes reply-wait-pulse {
     from { transform: scaleY(.45); }
     to { transform: scaleY(1); }

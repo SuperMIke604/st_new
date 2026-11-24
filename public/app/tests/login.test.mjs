@@ -8,7 +8,7 @@ function fixture({ accepted = 'vault-user', status = 200, legacy = false } = {})
     const fetch = async (path, options) => {
         if (path === '/csrf-token') return Response.json({ token: String(++token) });
         assert.equal(options.headers['X-CSRF-Token'], String(token));
-        if (path === '/api/users/logout') return new Response(null, { status: 204 });
+        assert.notEqual(path, '/api/users/logout', 'a pending sign-in must preserve the current session');
         const credentials = JSON.parse(options.body);
         attempts.push([path, credentials]);
         if (legacy && path.endsWith('/st-new-login')) return new Response(null, { status: 403 });
@@ -40,5 +40,5 @@ test('an older backend can still authenticate the original account with the nati
     const legacy = fixture({ legacy: true });
     await loginWithPassword('vault-user', 'fixture-original', legacy.fetch);
     assert.deepEqual(legacy.attempts.map(([path]) => path), ['/api/users/st-new-login', '/api/users/login']);
-    assert.equal(legacy.tokens(), 2);
+    assert.equal(legacy.tokens(), 1);
 });

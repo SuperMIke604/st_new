@@ -27,6 +27,10 @@ const sharedSettings = {
     connection: [['oai_settings']],
     preset: [['extension_settings', 'independent_frontend', 'preset'], ['independent_frontend', 'preset']],
 };
+const readingPreferenceKeys = ['reading', 'palette', 'enterSend'];
+const readingPreferencePaths = readingPreferenceKeys.flatMap(key => [
+    ['extension_settings', 'independent_frontend', key], ['independent_frontend', key],
+]);
 const sharedFiles = new Set(['independent-frontend-connections.json', 'independent-frontend-preset.json']);
 const sharedSecretKeys = new Set(['api_key_custom', 'api_key_openai']);
 const plainFilename = value => typeof value === 'string' && value.length > 0
@@ -525,6 +529,17 @@ function copySettingPaths(target, source, paths = Object.values(sharedSettings).
     return target;
 }
 
+function copyReadingPreferences(target, source) {
+    const legacy = { ...source.independent_frontend, ...source.extension_settings?.independent_frontend };
+    const preferences = Object.fromEntries(readingPreferenceKeys.filter(key => legacy[key] !== undefined).map(key => [key, legacy[key]]));
+    if (!Object.keys(preferences).length) return target;
+    const extensions = target.extension_settings ||= {};
+    const frontend = extensions.independent_frontend ||= { ...target.independent_frontend };
+    Object.assign(frontend, preferences);
+    if (record(target.independent_frontend)) Object.assign(target.independent_frontend, preferences);
+    return target;
+}
+
 const settingsPath = directories => path.join(directories.root, 'settings.json');
 const readSettingsFile = directories => JSON.parse(readFileSync(settingsPath(directories), 'utf8'));
 
@@ -618,16 +633,24 @@ export function registerSharedDisplayConfig(router, { getDirectories, writeSetti
             } else if (post && route === '/api/settings/get') {
                 useDirectories({ openAI_Settings: owner.openAI_Settings });
                 const json = response.json.bind(response);
-                response.json = bundle => json(typeof bundle?.settings === 'string' ? {
-                    ...bundle, settings: JSON.stringify(copySettingPaths(JSON.parse(bundle.settings), readSettingsFile(owner))),
-                } : bundle);
+                response.json = bundle => {
+                    if (typeof bundle?.settings !== 'string') return json(bundle);
+                    const original = readSettingsFile(owner);
+                    const settings = copySettingPaths(JSON.parse(bundle.settings), original);
+                    return json({ ...bundle, settings: JSON.stringify(copyReadingPreferences(settings, original)) });
+                };
             } else if (post && route === '/api/settings/save' && record(body)) {
                 const scope = request.get('X-ST-New-Shared-Setting');
                 if (scope === 'regex' || scope === 'scripts') {
                     const current = copySettingPaths(readSettingsFile(owner), body, sharedSettings[scope]);
                     writeSettings(settingsPath(owner), JSON.stringify(current, null, 4), 'utf8');
+                } else if (scope === 'reading') {
+                    const current = copyReadingPreferences(readSettingsFile(owner), body);
+                    writeSettings(settingsPath(owner), JSON.stringify(current, null, 4), 'utf8');
                 }
-                copySettingPaths(body, readSettingsFile(directories));
+                const previous = readSettingsFile(directories);
+                copySettingPaths(body, previous);
+                copySettingPaths(body, previous, readingPreferencePaths);
             } else if (post && /^\/api\/presets\/(?:save|delete|restore)$/.test(route) && body?.apiId === 'openai') {
                 useDirectories({ openAI_Settings: owner.openAI_Settings });
             } else if (post && route === '/api/files/upload' && sharedFiles.has(body?.name)) {
@@ -672,6 +695,7 @@ async function loadDisplayHost(root) {
     const { RateLimiterMemory, RateLimiterRes } = require('rate-limiter-flexible');
     const getProfile = handle => storage.getItem(users.toKey(handle));
     const saveProfile = profile => storage.setItem(users.toKey(profile.handle), profile);
+    hideDisplayLoginAccounts(endpoints.router, getProfile);
     const points = config.getConfigValue('rateLimiting.accountsLoginMaxAttempts', 5, 'number');
     const preferReportedIp = config.getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
     const limiter = new RateLimiterMemory({ points: points > 0 ? points : Number.MAX_SAFE_INTEGER, duration: 60 });
@@ -714,6 +738,24 @@ async function passwordMatches(password, record) {
 async function findDisplayProfile(getProfile, owner) {
     const candidate = await getProfile(displayHandle(owner));
     return isDisplayProfile(candidate) && displayOwner(candidate) === owner && !candidate.admin ? candidate : null;
+}
+
+export function hideDisplayLoginAccounts(router, getProfile) {
+    router.use('/list', (request, response, next) => {
+        if (request.method !== 'POST' || request.path !== '/') return next();
+        const json = response.json.bind(response);
+        response.json = async accounts => {
+            if (!Array.isArray(accounts)) return json(accounts);
+            const hidden = await Promise.all(accounts.map(async ({ handle }) => {
+                if (!/^st-display-[a-f0-9]{32}$/.test(handle)) return false;
+                try { return isDisplayProfile(await getProfile(handle)); }
+                catch { return false; }
+            }));
+            return json(accounts.filter((_, index) => !hidden[index]));
+        };
+        return next();
+    });
+    router.stack.unshift(router.stack.pop());
 }
 
 export function registerAccountLogin(router, { getProfile, accountVersion, consume }) {
@@ -861,7 +903,9 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
         const settings = JSON.parse(await io.readFile(settingsPath(request.user.directories), 'utf8'));
         if (!record(settings)) throw Error('Invalid settings');
         const shared = sharedDirectories(request);
-        return shared ? copySettingPaths(settings, JSON.parse(await io.readFile(settingsPath(shared), 'utf8'))) : settings;
+        if (!shared) return settings;
+        const original = JSON.parse(await io.readFile(settingsPath(shared), 'utf8'));
+        return copyReadingPreferences(copySettingPaths(settings, original), original);
     };
     registerBackgroundGeneration(router);
     router.post('/chat-delta', (request, response) => {

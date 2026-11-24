@@ -14,12 +14,13 @@
     <div class="login-brand"><span class="login-mark" aria-hidden="true"></span>ST New</div>
     <section class="login-card" aria-labelledby="login-title">
       <h1 id="login-title">登录 SillyTavern</h1>
-      <p class="login-description">使用酒馆的用户名和密码。</p>
+      <p class="login-description">使用酒馆的用户名。输入主密码进入原版，输入展示密码进入展示版。</p>
       <form id="tavern-login" method="post">
         <label>用户名<input id="tavern-username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
         <label>密码<input id="tavern-password" name="password" type="password" autocomplete="current-password" required></label>
         <p id="tavern-login-status" role="status" aria-live="polite" hidden></p>
         <button type="submit" disabled>登录</button>
+        <a id="tavern-login-back" href="./" hidden>返回当前版本</a>
       </form>
     </section>
   </main>
