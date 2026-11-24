@@ -178,7 +178,8 @@ test('seal RPC rejects stale opening variables, preserves drafts and never reque
 });
 
 test('reparse saves only the selected branch and requires a fresh preceding snapshot', async () => {
-    const source = main.slice(main.indexOf('async function htmlMvuAction('), main.indexOf('async function scriptWorldbook('));
+    const guard = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('async function helperHostAction('));
+    const source = guard + main.slice(main.indexOf('async function htmlMvuAction('), main.indexOf('async function scriptWorldbook('));
     const seed = { stat_data: { 主角: { 气血: 10 }, 世界: {} }, schema: { type: 'object' } };
     const predecessor = { mes: 'opening', variables: [seed] };
     const message = { mes: 'reply', swipes: ['reply', 'other'], variables: [structuredClone(seed), { untouched: true }] };

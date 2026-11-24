@@ -437,9 +437,12 @@ function visibleChatMessages(messages) {
 function synchronize() {
     if (scriptRuntime.identity && scriptRuntime.identity !== scriptIdentity()) { scriptRuntime.dispose(); scriptSchema.dispose(); }
     if (scriptSchema.identity && scriptSchema.identity !== scriptIdentity()) scriptSchema.dispose();
-    if (scriptRuntime.frame) scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
+    // Resource saves also synchronize the UI. Keep the working script snapshot intact during a callback.
+    if (scriptRuntime.frame && !scriptRuntime.processing && !scriptRuntime.auxiliaryControllers.size) {
+        scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity());
+    }
     if (!state.character) scriptAutoIdentity = '';
-    if (state.ready && state.character && !state.loading && !state.busy && !state.historySaving && !state.dirty && !inlineEdit && !panelDirty && scriptAutoIdentity !== scriptIdentity()) {
+    if (state.ready && state.character && !state.loading && !state.busy && !state.historySaving && !state.dirty && !inlineEdit && !hasChatPanelDraft() && scriptAutoIdentity !== scriptIdentity()) {
         scriptAutoIdentity = scriptIdentity();
         if (nativeScriptPlan(state.settings, state.character, state.preset).some(script => script.enabled !== false && scriptSupport(script).supported)) {
             void openScriptWorkspace(false).catch(error => notify(`角色脚本启动失败：${error.message}`, true));
@@ -1745,7 +1748,10 @@ function scriptSnapshot(value) {
     }
     return snapshot;
 }
-function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}/${encodeURIComponent(state.own.preset || '')}`; }
+function scriptIdentity() { return `${state.character?.avatar || ''}/${state.file}/${state.header?.chat_metadata?.integrity || ''}/${encodeURIComponent(presetSelection.name || '')}`; }
+function hasChatPanelDraft() {
+    return panelDirty && $('panel').matches('.variable-panel, .chat-history-panel, .database-panel');
+}
 async function helperHostAction(operation, payload, identity, externalCheck = null) {
     const owner = scriptRuntime.frame, epoch = scriptRuntime.epoch;
     const replyEvent = state.replyScriptEvent;
@@ -1758,7 +1764,7 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
         }
         if (!state.character || identity !== scriptIdentity() || state.loading) throw Error('聊天已切换，脚本结果未写入。');
         if (state.chatConflict) throw Error(state.chatConflict);
-        if (state.busy && (externalCheck || !scriptRuntime.processing) || state.dirty || inlineEdit || panelDirty) throw Error('当前正在生成、编辑或尚未保存，请稍后重试。');
+        if (state.busy && (externalCheck || !scriptRuntime.processing) || state.dirty || inlineEdit || hasChatPanelDraft() || state.historySaving || state.databaseHistorySaving) throw Error('当前正在生成、编辑或尚未保存，请稍后重试。');
     };
     check();
     if (operation === 'set-extension-prompt') {
@@ -1985,20 +1991,20 @@ function variableManagerPanel() {
 }
 async function applyScriptVariables(payload, identity) {
     assertSaved();
-    if (panelDirty) throw Error('请先保存或取消当前修改。');
+    if (hasChatPanelDraft()) throw Error('请先保存或取消当前修改。');
     if (!state.character || identity !== scriptIdentity()) throw Error('聊天已切换，脚本结果未写入。');
     if (!payload?.variables || Object.prototype.toString.call(payload.variables) !== '[object Object]' || JSON.stringify(payload.variables).length > 1000000) throw Error('脚本变量格式无效或数据过大。');
     if (payload.type === 'chat') { state.header.chat_metadata ||= {}; state.header.chat_metadata.variables = copy(payload.variables); }
     else if (payload.type === 'message' && Number.isInteger(payload.message_id) && state.chat[payload.message_id]) {
         try { if (payload.variables.stat_data) payload.variables.stat_data = await normalizeRoleMvu(payload.variables.stat_data); }
         catch (error) { scriptRuntime.refresh(scriptSnapshot(state), scriptIdentity()); throw error; }
-        assertSaved(); if (panelDirty || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，变量未写入。');
+        assertSaved(); if (hasChatPanelDraft() || identity !== scriptIdentity()) throw Error('聊天或编辑状态已变化，变量未写入。');
         const message = state.chat[payload.message_id]; (message.variables ||= {})[message.swipe_id || 0] = copy(payload.variables);
     } else throw Error('暂不支持此变量写入范围。');
     await saveChat();
 }
 async function openScriptWorkspace(diagnostics = true) {
-    assertViewable(); if (panelDirty) throw Error('请先保存或取消当前修改。');
+    assertViewable(); if (hasChatPanelDraft()) throw Error('请先保存或取消当前修改。');
     if (!state.character) throw Error('请先进入角色卡聊天。');
     const identity = scriptIdentity(); let preparation = '';
     if (usesMvuCompat(state.settings, state.character) && !state.busy && !state.dirty) {
@@ -2102,7 +2108,7 @@ async function htmlMvuAction(operation, payload, index, message, identity, previ
     if (operation === 'mvu-previous') return previous ? validateVariables(reparseMvuBase(previous.data)) : null;
     if (operation !== 'mvu-reparse') throw Error('不支持此 MVU 操作。');
     assertSaved();
-    if (panelDirty) throw Error('请先保存或取消当前修改。');
+    if (hasChatPanelDraft()) throw Error('请先保存或取消当前修改。');
     const text = payload?.text;
     if (typeof text !== 'string' || text.length > 500000 || !/<UpdateVariable\b[^>]*>[\s\S]*?<\/UpdateVariable\s*>/i.test(text)) throw Error('本层缺少完整的变量更新指令，或指令过大。');
     if (!/<UpdateVariable\b[^>]*>(?:(?!<\/UpdateVariable>).)*<JSONPatch\b/is.test(text)) throw Error('变量更新指令缺少 JSONPatch。');
@@ -2435,7 +2441,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
     more.title = '更多角色卡操作'; more.setAttribute('aria-label', more.title);
     more.setAttribute('aria-expanded', 'false'); more.setAttribute('aria-controls', tools.id);
     const create = action('新建角色', () => { setToolsOpen(false); return characterEditor(null); }, 'plus', 'icon-button');
-    const importButton = action('导入角色', () => { setToolsOpen(false); more.focus(); return importCharacter(library.folders.some(item => item.id === folder) ? folder : ''); }, 'import', 'icon-button');
+    const importButton = action('导入角色', () => { setToolsOpen(false); more.focus(); return importCharacter(); }, 'import', 'icon-button');
     const createFolder = action('新建分类', () => { setToolsOpen(false); editFolder(null, more); }, 'folderPlus', 'icon-button');
     for (const button of [more, create, importButton, createFolder]) {
         button.title = button.textContent.trim();
@@ -2807,7 +2813,7 @@ function pickFile(accept) {
         input.addEventListener('cancel', () => resolve(null), { once: true }); input.click();
     });
 }
-async function importCharacter(folderId = '') {
+async function importCharacter() {
     assertSaved(); const file = await pickFile('.png,.json,.charx,.yaml,.yml'); if (!file) return;
     const data = new FormData(); data.append('avatar', file); data.append('file_type', file.name.split('.').at(-1).toLowerCase());
     const result = await api.post('/api/characters/import', data, { form: true });
@@ -2816,9 +2822,12 @@ async function importCharacter(folderId = '') {
     let worldResult;
     try { worldResult = await importCharacterWorld(api, avatar, safeName); }
     catch (error) { notify(`角色卡已导入，但世界书提取失败：${error.message}。可在世界书页面补导入。`, true); }
-    if (folderId) {
-        state.settings = await api.patchSettings(settings => { const own = settingsOwn(settings); own.characterLibrary = moveCards(own.characterLibrary, [avatar], folderId); });
-        state.own = state.settings.independent_frontend;
+    if (Object.hasOwn(libraryState(state.own.characterLibrary).assignments, avatar)) {
+        state.settings = await api.patchSettings(settings => {
+            const own = settingsOwn(settings);
+            own.characterLibrary = moveCards(own.characterLibrary, [avatar], '');
+        });
+        state.own = settingsOwn(state.settings);
     }
     characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; closePanel();
     await openCharacter(avatar);

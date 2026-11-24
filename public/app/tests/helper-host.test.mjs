@@ -7,14 +7,15 @@ import { validateVariables } from '../variable-manager.js';
 import { scriptSnapshot } from '../scripts.js';
 import { LoadTimings } from '../load-timings.js';
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const hostSource = main.slice(main.indexOf('async function helperHostAction('), main.indexOf('\nfunction variableManagerPanel('));
+const hostSource = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('\nfunction variableManagerPanel('));
 function fixture({ unpersisted = false, stored } = {}) {
     let records = [{ chat_metadata: { integrity: 'identity' } }, { mes: 'reply', swipe_id: 0, variables: { 0: { score: 2 } } }], settings = { extension_settings: { independentHelper: { keep: 42 } }, world_info_settings: { world_info: { globalSelect: ['Enabled'] } } }, writes = 0, paints = 0;
     const state = { character: { avatar: 'card.png', data: { extensions: { world: 'Allowed' } } }, file: 'chat', header: structuredClone(records[0]), chat: structuredClone(records.slice(1)), settings: structuredClone(settings) };
     state.chatUnpersisted = unpersisted;
     if (stored !== undefined) records = structuredClone(stored);
     const scriptRuntime = { processing: false };
-    const context = vm.createContext({ state, scriptRuntime, inlineEdit: null, panelDirty: false, variablesSaving: false, structuredClone, AbortSignal, copy: structuredClone,
+    const panel = { className: 'variable-panel', matches: selector => selector.split(', ').includes('.' + panel.className) };
+    const context = vm.createContext({ state, scriptRuntime, inlineEdit: null, panelDirty: false, $: () => panel, variablesSaving: false, structuredClone, AbortSignal, copy: structuredClone,
         patchHelperVariables, patchHelperMessages, validateVariables, scriptSnapshot, scriptIdentity: () => 'identity', settingsOwn: () => ({}),
         nativeScriptPlan: () => [{ scope: 'character', id: 'mvu', enabled: true }, { scope: 'global', id: 'ordinary', enabled: true }], scriptSupport: () => ({ adapter: 'remote-module' }),
         roleWorldEntries: book => book.entries, list: { setMessages() { paints++; } }, generationPreload: { invalidate() {} },
@@ -27,7 +28,7 @@ function fixture({ unpersisted = false, stored } = {}) {
         },
     });
     vm.runInContext(hostSource, context);
-    return { state, context, scriptRuntime, records: () => records, settings: () => settings, writes: () => writes, paints: () => paints, call: (operation, payload, identity = 'identity') => context.helperHostAction(operation, payload, identity) };
+    return { state, context, panel, scriptRuntime, records: () => records, settings: () => settings, writes: () => writes, paints: () => paints, call: (operation, payload, identity = 'identity') => context.helperHostAction(operation, payload, identity) };
 }
 test('host saves a fresh variable transaction, verifies persistence and retains generation message references', async () => {
     const f = fixture(), reference = f.state.chat[0];
@@ -92,6 +93,18 @@ test('host permits only explicitly dispatched lifecycle writes during generation
     assert.equal(f.state.chat[0], reference);
     assert.equal(f.records()[1].variables[0].score, 5);
     assert.equal(result.snapshot.chat[0].mes, 'updated');
+});
+test('reply variables save while a preset or character card draft is open', async () => {
+    for (const className of ['preset-panel', '']) {
+        const f = fixture();
+        f.state.busy = true;
+        f.scriptRuntime.processing = true;
+        f.panel.className = className;
+        f.context.panelDirty = true;
+        await f.call('save-variables', { changes: [{ type: 'chat', base: {}, value: { score: 2 } }] });
+        assert.equal(f.records()[0].chat_metadata.variables.score, 2);
+        assert.equal(f.context.panelDirty, true);
+    }
 });
 test('message_sent applies the confirmed increment without a full chat round trip', async () => {
     const f = fixture();

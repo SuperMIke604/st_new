@@ -1,6 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { embeddedWorld, importCharacterWorld } from '../character-world.js';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import { filterCards, libraryState, moveCards } from '../library.js';
+
+test('card import opens the card and leaves it unfiled even when its filename had a category', async () => {
+    const source = await readFile(new URL('../main.js', import.meta.url), 'utf8');
+    const importer = source.slice(source.indexOf('async function importCharacter('), source.indexOf('function themeDefaultAvatar('));
+    for (const assignments of [{ 'other.png': 'first' }, { 'new.png': 'first', 'other.png': 'first' }]) {
+        const own = { characterLibrary: { folders: [{ id: 'first', name: 'First' }], assignments } };
+        const state = { own }, opened = [];
+        let writes = 0;
+        const context = vm.createContext({
+            state, libraryState, moveCards, FormData, panelDirty: false,
+            assertSaved() {}, pickFile: async () => new File(['{}'], 'new.json'),
+            api: {
+                post: async () => ({ file_name: 'new' }),
+                patchSettings: async patch => { writes++; const settings = { independent_frontend: structuredClone(own) }; patch(settings); return settings; },
+            },
+            settingsOwn: settings => settings.independent_frontend,
+            importCharacterWorld: async () => ({ imported: false }), safeName: value => value,
+            characterCatalog: { invalidate() {} }, loadCharacterCatalog() {}, closePanel() {}, notify() {},
+            openCharacter: async avatar => opened.push(avatar),
+        });
+        vm.runInContext(importer, context);
+        await context.importCharacter();
+        assert.deepEqual(opened, ['new.png']);
+        assert.equal(writes, Number(Object.hasOwn(assignments, 'new.png')));
+        assert.deepEqual(filterCards([{ avatar: 'new.png' }], state.own.characterLibrary, 'unfiled'), [{ avatar: 'new.png' }]);
+        assert.equal(state.own.characterLibrary.assignments['other.png'], 'first');
+    }
+});
 
 test('embedded lore converts native activation fields without changing original card', () => {
     const character = { data: { name: '林', character_book: { name: '书店', entries: [{ id: 4, keys: ['雨'], secondary_keys: ['猫'], content: '书店背景', enabled: false, insertion_order: 35, position: 'after_char', extensions: { scan_depth: 6, ignore_budget: true, future: 9 } }] } } };
