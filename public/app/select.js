@@ -38,6 +38,34 @@ export function enhanceSelect(select) {
         select.selectedIndex = index; sync(); close();
         select.dispatchEvent(new Event('input', { bubbles: true })); select.dispatchEvent(new Event('change', { bubbles: true })); button.focus();
     };
+    const positionMenu = searchable => {
+        const rect = button.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const top = (viewport?.offsetTop ?? 0) + 12;
+        const bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight) - 12;
+        const left = (viewport?.offsetLeft ?? 0) + 12;
+        const availableWidth = Math.max(0, (viewport?.width ?? innerWidth) - 24);
+        const width = Math.min(Math.max(rect.width, 180), availableWidth);
+        const style = getComputedStyle(button);
+        const controlSize = parseFloat(style.getPropertyValue('--control-size')) || 42;
+        const anchorGap = parseFloat(style.getPropertyValue('--menu-anchor-gap')) || 6;
+        const menuPadding = parseFloat(style.getPropertyValue('--menu-padding')) || 6;
+        const optionGap = parseFloat(style.getPropertyValue('--select-option-gap') || '5');
+        const searchGap = parseFloat(style.getPropertyValue('--select-search-gap')) || 7;
+        const height = Math.min(300, items.length * controlSize + Math.max(0, items.length - 1) * optionGap
+            + 2 * menuPadding + (searchable ? controlSize + 2 * searchGap : 0));
+        const below = bottom - rect.bottom - anchorGap;
+        const above = rect.top - top - anchorGap;
+        const opensBelow = below >= Math.min(height, 160) || below >= above;
+        const available = opensBelow ? below : above;
+        const maxHeight = Math.max(0, Math.min(300, bottom - top, Math.max(80, available)));
+        const menuTop = opensBelow ? rect.bottom + anchorGap : rect.top - anchorGap - Math.min(height, maxHeight);
+        const y = Math.max(top, Math.min(menuTop, bottom - Math.min(height, maxHeight)));
+        menu.style.width = `${width}px`;
+        menu.style.left = `${Math.max(left, Math.min(rect.left, left + availableWidth - width))}px`;
+        menu.style.top = `${y}px`;
+        menu.style.maxHeight = `${Math.max(0, Math.min(maxHeight, bottom - y))}px`;
+    };
     const open = () => {
         opened?.close(); menu.replaceChildren();
         let root = menu; let filterInput = null;
@@ -79,6 +107,7 @@ export function enhanceSelect(select) {
                 custom.textContent = `使用模型 ID：${filterInput.value.trim()}`;
             });
             filterInput.addEventListener('keydown', event => {
+                if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Escape') { event.preventDefault(); close(); button.focus(); }
                 else if (event.key === 'Tab') close();
                 else if (event.key === 'Enter') { event.preventDefault(); if (active >= 0 && !items[active].hidden) choose(active); else useCustom(); }
@@ -88,25 +117,15 @@ export function enhanceSelect(select) {
                 }
             });
         }
-        (select.closest('dialog') || document.body).append(menu);
-        const rect = button.getBoundingClientRect();
-        const style = getComputedStyle(button);
-        const controlSize = parseFloat(style.getPropertyValue('--control-size')) || 42;
-        const anchorGap = parseFloat(style.getPropertyValue('--menu-anchor-gap')) || 6;
-        const menuPadding = parseFloat(style.getPropertyValue('--menu-padding')) || 6;
-        const optionGap = parseFloat(style.getPropertyValue('--select-option-gap') || '5');
-        const searchGap = parseFloat(style.getPropertyValue('--select-search-gap')) || 7;
-        const height = Math.min(300, items.length * controlSize + Math.max(0, items.length - 1) * optionGap
-            + 2 * menuPadding + (filterInput ? controlSize + 2 * searchGap : 0));
-        const below = innerHeight - rect.bottom - 12;
-        const opensBelow = below >= Math.min(height, 160);
-        menu.style.width = `${Math.min(Math.max(rect.width, 180), innerWidth - 24)}px`;
-        menu.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - Math.max(rect.width, 180) - 12))}px`;
-        menu.style.top = `${opensBelow ? rect.bottom + anchorGap : Math.max(12, rect.top - height - anchorGap)}px`;
-        menu.style.maxHeight = `${Math.max(80, Math.min(300, opensBelow ? below - anchorGap : rect.top - 12 - anchorGap))}px`;
+        const dialog = select.closest('dialog');
+        (dialog || document.body).append(menu);
+        const reposition = () => positionMenu(!!filterInput);
+        reposition();
         if (hasPopover) menu.showPopover();
         else menu.hidden = false;
-        button.setAttribute('aria-expanded', 'true'); opened = { button, close }; highlight(select.selectedIndex);
+        button.setAttribute('aria-expanded', 'true');
+        opened = { button, close, dialog, filterInput, reposition };
+        highlight(select.selectedIndex);
         if (matchMedia('(hover: hover) and (pointer: fine)').matches) filterInput?.focus({ preventScroll: true });
     };
     installPopoverToggle(button, menu, { open, close, isOpen });
@@ -138,9 +157,20 @@ export function installSelects() {
         document.querySelectorAll('.select-menu').forEach(menu => { if (!document.querySelector(`[aria-controls="${menu.id}"], [aria-controls="${menu.id}-options"]`)) menu.remove(); });
     };
     new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
-    let viewportWidth = innerWidth;
-    window.addEventListener('resize', () => { if (innerWidth !== viewportWidth) { viewportWidth = innerWidth; opened?.close(); } });
-    document.addEventListener('scroll', event => { if (opened && !event.target.closest?.('.select-menu')) opened.close(); }, true);
+    const reposition = () => opened?.reposition();
+    window.addEventListener('resize', reposition);
+    window.visualViewport?.addEventListener('resize', reposition);
+    window.visualViewport?.addEventListener('scroll', reposition);
+    document.addEventListener('scroll', event => {
+        if (!opened || !event.target.contains(opened.button)) return;
+        // Android can scroll the page or panel while bringing the search input
+        // into view. Keep the focused input mounted through that adjustment.
+        if (opened.filterInput && document.activeElement === opened.filterInput) opened.reposition();
+        else opened.close();
+    }, true);
+    document.addEventListener('close', event => {
+        if (opened?.dialog === event.target && !event.target.open) opened.close();
+    }, true);
     document.addEventListener('pointerdown', event => { if (opened && !event.target.closest('.select-menu') && !opened.button.contains(event.target)) opened.close(); });
     scan();
 }

@@ -28,12 +28,15 @@ test('world selector renders, filters and updates selection on LAN HTTP without 
         crypto: { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) },
         installPopoverToggle,
         innerWidth: 390, innerHeight: 844,
+        window: new Element('window'),
+        document: new Element('document'),
     });
     vm.runInContext(uuidSource.replace('export function', 'function'), context);
     vm.runInContext(selectSource.replace(/^import .*;\r?\n/gm, '').replace('export function', 'function'), context);
     const selected = new Set(['one']); let changes = 0;
     const containers = [new Element('section'), new Element('section')];
     for (const container of containers) {
+        container.parentElement = new Element('main');
         context.renderGlobalWorldSelect(container, [
             { file_id: 'one', name: 'World One' }, { file_id: 'two', name: 'World Two' }, { file_id: 'three', name: 'World Three' },
         ], selected, {
@@ -64,6 +67,15 @@ test('world selector renders, filters and updates selection on LAN HTTP without 
     assert.equal(search.value, '');
     assert.ok(!search.focused);
     assert.equal(list.scrollTop, 0);
+    search.value = 'two'; search.listeners.get('input')();
+    context.document.activeElement = search;
+    containers[0].parentElement.listeners.get('scroll')();
+    assert.equal(popup.open, true);
+    assert.equal(search.value, 'two');
+    context.document.activeElement = null;
+    containers[0].parentElement.listeners.get('scroll')();
+    assert.equal(popup.open, false);
+    toggleClick(click);
     check.checked = false; check.listeners.get('change')();
     assert.equal(list.children[0].children[1].text, 'World Two');
     toggleClick(click); toggleClick(click);

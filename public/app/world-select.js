@@ -1,5 +1,21 @@
 import { installPopoverToggle } from './popover-toggle.js';
 import { uuid } from './uuid.js';
+
+const popupPositions = new WeakMap();
+const openPopupSelector = '.global-world-popup:is(:popover-open)';
+function repositionOpenPopup() {
+    const popup = document.querySelector(openPopupSelector);
+    popupPositions.get(popup)?.();
+}
+window.addEventListener('resize', repositionOpenPopup);
+window.visualViewport?.addEventListener('resize', repositionOpenPopup);
+window.visualViewport?.addEventListener('scroll', repositionOpenPopup);
+document.addEventListener('close', event => {
+    if (event.target.localName === 'dialog' && !event.target.open) {
+        event.target.querySelector(openPopupSelector)?.hidePopover();
+    }
+}, true);
+
 export function renderGlobalWorldSelect(container, worlds, selected, { el, icon, changed }) {
     const label = el('div', 'global-world-label', '已启用的世界书（全局有效）');
     const control = el('div', 'global-world-control');
@@ -36,24 +52,46 @@ export function renderGlobalWorldSelect(container, worlds, selected, { el, icon,
         for (const row of list.children) { row.hidden = !row.dataset.search.includes(query); if (!row.hidden) count++; }
         empty.hidden = count > 0;
     };
+    const close = () => {
+        if (popup.matches(':popover-open')) popup.hidePopover();
+        toggle.setAttribute('aria-expanded', 'false');
+    };
+    const position = () => {
+        const rect = control.getBoundingClientRect(), gap = 6, margin = 12;
+        const viewport = window.visualViewport;
+        const top = (viewport?.offsetTop ?? 0) + margin;
+        const bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight) - margin;
+        const left = (viewport?.offsetLeft ?? 0) + margin;
+        const availableWidth = Math.max(0, (viewport?.width ?? innerWidth) - 2 * margin);
+        const width = Math.min(rect.width, availableWidth);
+        const below = bottom - rect.bottom - gap, above = rect.top - top - gap;
+        const openBelow = below >= Math.min(260, above);
+        const availableHeight = openBelow ? below : above;
+        const height = Math.max(0, Math.min(330, bottom - top, Math.max(100, availableHeight)));
+        popup.style.width = `${width}px`;
+        popup.style.left = `${Math.max(left, Math.min(rect.left, left + availableWidth - width))}px`;
+        popup.style.maxHeight = `${height}px`;
+        const popupHeight = Math.min(popup.scrollHeight, height);
+        const y = openBelow ? rect.bottom + gap : rect.top - gap - popupHeight;
+        popup.style.top = `${Math.max(top, Math.min(y, bottom - popupHeight))}px`;
+    };
+    popupPositions.set(popup, position);
     search.addEventListener('input', filter);
-    const activate = installPopoverToggle(toggle, popup, { pointerTarget: control, close: () => { if (popup.matches(':popover-open')) popup.hidePopover(); toggle.setAttribute('aria-expanded', 'false'); }, open: () => {
+    const activate = installPopoverToggle(toggle, popup, { pointerTarget: control, close, open: () => {
         const checked = [], unchecked = [];
         for (const [id, { row }] of options) (selected.has(id) ? checked : unchecked).push(row);
         list.replaceChildren(...checked, ...unchecked);
         search.value = ''; filter(); popup.showPopover({ source: toggle }); list.scrollTop = 0;
-        const rect = control.getBoundingClientRect(), gap = 6;
-        popup.style.width = `${Math.min(rect.width, innerWidth - 24)}px`;
-        popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - popup.offsetWidth - 12))}px`;
-        const below = innerHeight - rect.bottom - 12, above = rect.top - 12;
-        const openBelow = below >= Math.min(260, above);
-        const height = Math.max(100, Math.min(330, openBelow ? below - gap : above - gap));
-        popup.style.maxHeight = `${height}px`;
-        popup.style.top = `${openBelow ? rect.bottom + gap : Math.max(12, rect.top - Math.min(popup.scrollHeight, height) - gap)}px`;
+        position();
     } });
     control.addEventListener('click', event => { if (!event.target.closest('button,.global-world-tag')) activate(event); });
     popup.addEventListener('toggle', () => toggle.setAttribute('aria-expanded', String(popup.matches(':popover-open'))));
-    popup.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); popup.hidePopover(); toggle.focus(); } });
-    container.parentElement?.addEventListener('scroll', () => { if (popup.matches(':popover-open')) popup.hidePopover(); });
+    popup.addEventListener('keydown', event => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); close(); toggle.focus(); } });
+    container.parentElement?.addEventListener('scroll', () => {
+        if (!popup.matches(':popover-open')) return;
+        // A soft keyboard can scroll the panel as it focuses the search field.
+        if (document.activeElement === search) position();
+        else close();
+    });
     sync(); filter();
 }
