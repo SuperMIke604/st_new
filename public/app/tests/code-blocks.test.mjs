@@ -46,6 +46,11 @@ test('HTML preview keeps CSS and embeds restrictive policy before user markup', 
     assert.ok(document.includes("new ResizeObserver"));
 });
 
+test('inline and remote HTML previews allow images from any HTTP or HTTPS host', () => {
+    for (const remote of [false, true]) {
+        assert.match(previewDocument('', {}, remote), /img-src data: blob: http: https:;/);
+    }
+});
 
 test('interactive HTML preserves native controls, handlers and scripts inside the preview', () => {
     const source = '<details><summary>展开</summary>内容</details><input id="name"><button onclick="document.querySelector(\'#name\').value=\'已点击\'">点击</button><script>document.body.dataset.ready="true"</script>';

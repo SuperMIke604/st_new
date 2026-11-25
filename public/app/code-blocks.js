@@ -179,7 +179,7 @@ export function previewDocument(source, context = {}, remote = false) {
     }
     if (context.scriptActions && !remote) source = adaptHtmlOrder(source);
     const cdn = remote ? ' https://testingcf.jsdelivr.net https://cdn.jsdelivr.net' : '';
-    const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob:${cdn}; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
+    const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob: http: https:; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
     const bridge = `<script>(()=>{
         window.alert=text=>parent.postMessage({type:'tavern-html-alert',text:String(text)},'*');
         window.triggerSlash=command=>{const match=String(command).match(/^\\/send\\s+([\\s\\S]*?)\\|\\/trigger\\s*$/);if(!match)throw Error('仅支持 /send 内容|/trigger');parent.postMessage({type:'tavern-html-send',text:match[1]},'*');};
