@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { LoadTimings, requestFailure } from '../load-timings.js';
 import { RequestLog } from '../request-log.js';
 import { sealedOpeningVariables } from '../html-opening.js';
+import { sendDelaySeconds } from '../reading.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
@@ -42,7 +43,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables,
+    const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables, sendDelaySeconds,
         $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, scriptSchema: {},
         nextPaint: () => Promise.resolve(), status: text => statuses.push(text),
@@ -107,11 +108,33 @@ test('composer submit immediately shows the card and waits five seconds before g
     assert.equal(f.input.value, '下一条草稿');
     assert.deepEqual(f.helperEvents, ['generation_started', 'message_sent']);
     assert.equal(f.requests(), 1);
+    assert.equal(f.scrollModes.at(-1), false, 'request start preserves the scroll position after the preview');
     f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复<UpdateVariable></UpdateVariable>' } }] }) });
     await running;
     assert.equal(f.state.chat.filter(message => message.is_user).length, 1);
     assert.equal(f.scrollModes.at(-1), 'top');
     assert.equal(f.requests(), 1);
+});
+
+test('composer honors custom delay and zero skips the timer', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    for (const sendDelay of [2, 0]) {
+        const f = fixture();
+        f.state.own.reading = { sendDelay };
+        f.prepared.resolve({ messages: [] });
+        const running = f.run(false, { delaySend: true });
+        assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
+        if (sendDelay) {
+            t.mock.timers.tick(1999);
+            await tick();
+            assert.equal(f.requests(), 0);
+            t.mock.timers.tick(1);
+        }
+        await tick();
+        assert.equal(f.requests(), 1);
+        f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复' } }] }) });
+        await running;
+    }
 });
 
 test('stopping or leaving during the delay keeps the user card and cancels model generation', async t => {

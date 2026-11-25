@@ -5,6 +5,15 @@ export const readingFields = [
     ['lineHeight', '行间距（倍）', 1.95, 1.2, 3.5, .05],
     ['paragraphSpacing', '段间距（px）', 10, 0, 60, 1],
 ];
+export const maxSendDelay = Math.floor(2147483647 / 1000);
+
+export function sendDelaySeconds(value, strict = false) {
+    const seconds = value == null || value === '' ? 5 : Number(value);
+    if (Number.isInteger(seconds) && seconds >= 0 && seconds <= maxSendDelay) return seconds;
+    if (strict) throw new Error('发送延迟须为有效的非负整数秒。');
+    return 5;
+}
+
 export function readingSettings(value = {}, strict = false) {
     const settings = Object.fromEntries(readingFields.map(([key, label, fallback, min, max]) => {
         const number = value[key] === '' || value[key] == null ? fallback : Number(value[key]);
@@ -19,6 +28,7 @@ export function readingSettings(value = {}, strict = false) {
     const validColor = /^#?(?:[\da-f]{3}|[\da-f]{6})$/i.test(color);
     if (strict && color && !validColor) throw new Error('对话文字颜色请填写 3 位或 6 位十六进制色号，例如 #68280f；留空跟随主题。');
     settings.dialogueColor = validColor ? `#${color.replace(/^#/, '').toLowerCase()}` : '';
+    settings.sendDelay = sendDelaySeconds(value.sendDelay, strict);
     return settings;
 }
 export function applyReading(value, root = document.documentElement) {

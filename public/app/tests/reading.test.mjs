@@ -4,7 +4,7 @@ import { readingSettings, applyReading } from '../reading.js';
 test('reading settings survive persisted values and support zero spacing', () => {
     const input = { fontSize: '96', letterSpacing: '0', lineHeight: '2.25', paragraphSpacing: '0' };
     const value = readingSettings(input, true);
-    assert.deepEqual(value, { fontSize: 96, inputFontSize: '', letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '' });
+    assert.deepEqual(value, { fontSize: 96, inputFontSize: '', letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '', sendDelay: 5 });
     assert.deepEqual(readingSettings(JSON.parse(JSON.stringify(value))), value);
     const style = new Map(); applyReading(value, { style: { setProperty: (key, value) => style.set(key, value) } });
     assert.equal(style.get('--reading-fontSize'), '96px'); assert.equal(style.get('--reading-lineHeight'), '2.25'); assert.equal(style.get('--reading-paragraphSpacing'), '0px');
@@ -42,4 +42,15 @@ test('invalid settings fall back safely on load and are rejected on save', () =>
     assert.equal(readingSettings({ fontSize: 'oops' }).fontSize, 15);
     assert.equal(readingSettings({ fontSize: 11 }).fontSize, 12);
     for (const value of [{ fontSize: 11 }, { fontSize: Infinity }, { letterSpacing: -1 }, { lineHeight: 0 }, { paragraphSpacing: -2 }]) assert.throws(() => readingSettings(value, true));
+});
+
+test('reading settings preserve immediate send and custom delays', () => {
+    for (const sendDelay of [0, 2, 10]) {
+        const value = readingSettings({ sendDelay: String(sendDelay) }, true);
+        assert.equal(readingSettings(JSON.parse(JSON.stringify(value))).sendDelay, sendDelay);
+    }
+    for (const sendDelay of [-1, 1.5, Infinity, 2147484]) {
+        assert.equal(readingSettings({ sendDelay }).sendDelay, 5);
+        assert.throws(() => readingSettings({ sendDelay }, true), /发送延迟/);
+    }
 });

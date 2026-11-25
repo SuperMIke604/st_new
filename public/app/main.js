@@ -41,7 +41,7 @@ import { renderGlobalWorldSelect } from './world-select.js';
 import { decorateCodeBlocks, refreshHtmlVariables } from './code-blocks.js';
 import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, importCharacterWorld } from './character-world.js';
-import { readingFields, readingSettings, applyReading } from './reading.js';
+import { readingFields, readingSettings, applyReading, sendDelaySeconds, maxSendDelay } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
 import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
@@ -574,9 +574,14 @@ function renderMessage(message, index, existing) {
     }
     const queuedUser = state.generation?.queuedUser;
     const depth = list.messages.length - index - 1 - Number(Boolean(queuedUser && message !== queuedUser));
-    if (node._text !== message.mes || node._preset !== state.preset || node._depth !== depth || node._userName !== names.user || node._charName !== names.char) {
+    const contentChanged = node._text !== message.mes || node._preset !== state.preset || node._userName !== names.user || node._charName !== names.char;
+    const displayText = contentChanged || node._depth !== depth
+        ? displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names)
+        : node._displayText;
+    // Committing a queued message changes history depth, but only changed output needs new DOM.
+    if (contentChanged || node._displayText !== displayText) {
         const body = node.querySelector('.message-content');
-        body.innerHTML = markdown(displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names));
+        body.innerHTML = markdown(displayText);
         const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, { acceptNode: text => text.parentElement.closest('pre,code,script,style,iframe,.dialogue-quote') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
         const texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
         for (const text of texts) {
@@ -606,9 +611,10 @@ function renderMessage(message, index, existing) {
         for (const image of body.querySelectorAll('img')) { image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; }
         for (const link of body.querySelectorAll('a')) link.rel = 'noopener noreferrer';
         node._text = message.mes;
-        node._preset = state.preset; node._depth = depth;
+        node._preset = state.preset; node._displayText = displayText;
         node._userName = names.user; node._charName = names.char;
     }
+    node._depth = depth;
     refreshHtmlVariables(node, message.variables?.[message.swipe_id || 0]);
     return node;
 }
@@ -3593,7 +3599,7 @@ async function resumeBackgroundChat({ discover = false } = {}) {
     await generate(false, job);
 }
 
-async function waitToSend(controller) {
+async function waitToSend(controller, seconds) {
     const { signal } = controller;
     signal.throwIfAborted();
     const onPageHide = () => controller.abort(new DOMException('pagehide', 'AbortError'));
@@ -3603,7 +3609,7 @@ async function waitToSend(controller) {
         await new Promise((resolve, reject) => {
             onAbort = () => reject(signal.reason);
             signal.addEventListener('abort', onAbort, { once: true });
-            timer = setTimeout(resolve, 5000);
+            timer = setTimeout(resolve, seconds * 1000);
         });
         signal.throwIfAborted();
     } finally {
@@ -3636,7 +3642,9 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
     if (!recovery) generationBody(connection(), state.preset, []);
     const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
-    let waitingToSend = delaySend;
+    const sendDelay = delaySend ? sendDelaySeconds(state.own.reading?.sendDelay) : 0;
+    const showQueuedUser = delaySend && !regenerate && !retry;
+    let waitingToSend = sendDelay > 0;
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController();
     let user, reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
@@ -3670,24 +3678,24 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
         if (user && openingVariables) user.variables = { 0: openingVariables };
         const requestChat = regenerate ? state.chat.slice(0, -1) : retry ? state.chat : [...state.chat, user];
         setReplyWaiting(recovery ? '正在恢复后台回复' : '正在准备发送');
-        if (waitingToSend) {
-            if (!regenerate && !retry) {
-                // Show the card without changing the chat snapshot seen by generation_started.
-                loadTimings.measureSync('挂载待发送消息卡片', 'generation', () => {
-                    state.generation.queuedUser = user;
-                    input.value = ''; resizeInput();
-                    list.setMessages(state.chat, { latest: true, appendPreview: true });
-                });
-                userCardMountedMs = loadTimings.now() - sendStarted;
-                if (!document.hidden) {
-                    const finishPaint = loadTimings.start('待发送消息卡片至下一次绘制机会', 'generation');
-                    void nextPaint().then(() => finishPaint(document.hidden ? 'cancelled' : 'success'));
-                }
+        if (showQueuedUser) {
+            // Show the card without changing the chat snapshot seen by generation_started.
+            loadTimings.measureSync('挂载待发送消息卡片', 'generation', () => {
+                state.generation.queuedUser = user;
+                input.value = ''; resizeInput();
+                list.setMessages(state.chat, { latest: true, appendPreview: true });
+            });
+            userCardMountedMs = loadTimings.now() - sendStarted;
+            if (!document.hidden) {
+                const finishPaint = loadTimings.start('待发送消息卡片至下一次绘制机会', 'generation');
+                void nextPaint().then(() => finishPaint(document.hidden ? 'cancelled' : 'success'));
             }
-            await loadTimings.measure('等待发送（5 秒）', 'generation', () => waitToSend(state.controller));
-            waitingToSend = false;
-            synchronizeScriptRuntime();
         }
+        if (waitingToSend) {
+            await loadTimings.measure(`等待发送（${sendDelay} 秒）`, 'generation', () => waitToSend(state.controller, sendDelay));
+            waitingToSend = false;
+        }
+        if (delaySend) synchronizeScriptRuntime();
         if (regenerate) {
             state.hiddenReply = state.chat.at(-1);
             list.setMessages(state.chat, { latest: list.follow });
@@ -3794,7 +3802,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             streamResponse: Number((response.headers.get('content-type') || '').includes('text/event-stream')),
         } }));
         try {
-            loadTimings.measureSync('请求期间刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: true }));
+            loadTimings.measureSync('请求期间刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: !showQueuedUser }));
             status(recovery ? '正在恢复后台回复…' : regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
         } catch (error) {
             controller.abort();
@@ -4016,10 +4024,12 @@ function toolsPanel() {
     const body = showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
     if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
+    const delay = field(body, '发送延迟（秒）', sendDelaySeconds(state.own.reading?.sendDelay), { type: 'number', hint: '默认 5 秒，设为 0 立即开始发送。等待期间可以停止发送。' });
+    delay.min = 0; delay.max = maxSendDelay; delay.step = 1; delay.required = true;
     const palette = field(body, '页面配色', frontendThemes.normalize(state.own.palette), { options: frontendThemes.options });
     palette.addEventListener('change', () => frontendThemes.apply(palette.value));
     const rememberReading = value => {
-        const settings = readingSettings(value, true);
+        const settings = readingSettings({ ...value, sendDelay: state.own.reading?.sendDelay }, true);
         state.own.reading = settings;
         applyReading(settings);
         resizeInput();
@@ -4062,7 +4072,8 @@ function toolsPanel() {
             readingInputs.get('inputFontSize').reportValidity();
             return;
         }
-        const reading = readingSettings(values(), true);
+        if (!delay.reportValidity()) return;
+        const reading = readingSettings({ ...values(), sendDelay: delay.value }, true);
         const selectedPalette = palette.value;
         await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
         try { localStorage.setItem(readingStorageKey(), JSON.stringify(reading)); } catch { /* Server save remains available. */ }
