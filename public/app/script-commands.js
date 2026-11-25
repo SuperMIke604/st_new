@@ -13,7 +13,11 @@ export function parseScriptCommands(source) {
     if (text.trim()) parts.push(text.trim());
     if (!parts.length || parts.length > 300) throw Error('脚本指令批次无效。');
     const unescape = value => value.replace(/\\([\\|{}])/g, '$1');
-    const commands = parts.map(part => {
+    const variableCommand = (type, key, value) => {
+        if (['__proto__', 'prototype', 'constructor'].includes(key)) throw Error('聊天变量指令无效。');
+        return { type, key, value };
+    };
+    const commands = parts.map((part, index) => {
         const match = /^\/(getentryfield|setentryfield)\s+([\s\S]*)$/.exec(part);
         if (match) {
             let rest = match[2], args = {};
@@ -33,15 +37,19 @@ export function parseScriptCommands(source) {
             }
             return { type: match[1], name: args.file, uid, field: args.field, value };
         }
+        const namedSend = index > 0 && /^\/setvar\s/.test(parts[0]) && /^\/send\s+value=("(?:\\.|[^"\\])*")$/.exec(part);
+        if (namedSend) return { type: 'send', text: JSON.parse(namedSend[1]), literal: true };
         const send = /^\/send\s+([\s\S]+)$/.exec(part);
         if (send) return { type: 'send', text: unescape(send[1]) };
         const draft = /^\/setinput\s+([\s\S]+)$/.exec(part);
         if (draft) return { type: 'setinput', text: unescape(draft[1]) };
         const variable = /^\/(getvar|setvar)\s+type=chat\s+(?:key=)?([\p{L}\p{N}_-]{1,200})(?:\s+([\s\S]*))?$/u.exec(part);
         if (variable) {
-            if (['__proto__', 'prototype', 'constructor'].includes(variable[2]) || variable[1] === 'getvar' && variable[3] !== undefined) throw Error('聊天变量指令无效。');
-            return { type: variable[1], key: variable[2], value: unescape(variable[3] || '') };
+            if (variable[1] === 'getvar' && variable[3] !== undefined) throw Error('聊天变量指令无效。');
+            return variableCommand(variable[1], variable[2], unescape(variable[3] || ''));
         }
+        const namedVariable = /^\/setvar\s+key=(?:"([\p{L}\p{N}_-]{1,200})"|([\p{L}\p{N}_-]{1,200}))\s+value=("(?:\\.|[^"\\])*")$/u.exec(part);
+        if (namedVariable) return variableCommand('setvar', namedVariable[1] ?? namedVariable[2], JSON.parse(namedVariable[3]));
         const sendas = /^\/sendas\s+name=("[^"]*"|\S+)\s+([\s\S]+)$/.exec(part);
         if (sendas) return { type: 'sendas', name: unescape(sendas[1].replace(/^"|"$/g, '')), text: unescape(sendas[2]) };
         if (/^\/trigger(?:\s+await=true)?$/.test(part)) return { type: 'trigger' };
@@ -55,6 +63,10 @@ export function parseScriptCommands(source) {
         const effects = commands.filter(command => command.type !== 'echo');
         if (commands.length === 1 && ['getvar', 'setvar', 'setinput'].includes(effects[0]?.type)) return commands;
         if (!effects.length || effects.length === 1 && effects[0].type === 'sendas' || effects.length === 2 && effects[0].type === 'send' && effects[1].type === 'trigger') return commands;
+        if (commands.length > 2 && commands.at(-2).type === 'send' && commands.at(-1).type === 'trigger') {
+            const changes = commands.slice(0, -2);
+            if (changes.every(command => command.type === 'setvar') && new Set(changes.map(command => command.key)).size === changes.length) return commands;
+        }
         throw Error('暂只支持发送一条用户指令后生成，或添加一条角色显示消息。');
     }
     return commands;

@@ -2181,6 +2181,18 @@ async function roleScriptAction(action, payload, identity, externalCheck = null)
     if (action === 'slash' && !/^\/(?:trigger(?:\s+await=true)?|hide\s+\d+)$/.test(payload?.command?.trim() || '')) {
         const commands = parseScriptCommands(payload?.command), macro = text => String(text).replace(/\{\{\s*(user|char)\s*\}\}/gi, (_, key) => key.toLowerCase() === 'user' ? persona().name : state.character.name);
         if (commands[0].type === 'setinput') return helperHostAction('set-draft', { scriptId: payload.scriptId, text: macro(commands[0].text) }, identity, externalCheck);
+        if (commands.length > 1 && commands[0].type === 'setvar') {
+            if ($('message-input').value.trim()) throw Error('请先发送或清空输入框中的内容。');
+            const sendCommand = commands.at(-2);
+            const text = sendCommand.literal ? sendCommand.text : macro(sendCommand.text);
+            const last = state.chat.at(-1);
+            if (last?.is_user && last.extra?.independentRoleScript && last.mes === text) throw Error('这条指令已经添加，请在聊天中检查或重试。');
+            const base = state.header?.chat_metadata?.variables || {};
+            const values = Object.fromEntries(commands.slice(0, -2).map(command => [command.key, command.value]));
+            const message = await appendRoleUserMessage(text, [{ type: 'chat', base, value: { ...base, ...values } }]);
+            if (state.chat.at(-1) !== message) throw Error('聊天最后一条消息已变化，请在聊天中检查或重试。');
+            return roleScriptAction('slash', { command: '/trigger' }, identity, externalCheck);
+        }
         if (['getvar', 'setvar'].includes(commands[0].type)) {
             const command = commands[0], base = copy(state.header?.chat_metadata?.variables || {});
             if (command.type === 'getvar') return { value: typeof base[command.key] === 'string' ? base[command.key] : JSON.stringify(base[command.key] ?? '') };
@@ -2225,9 +2237,9 @@ async function roleScriptAction(action, payload, identity, externalCheck = null)
     if ($('message-input').value.trim()) throw Error('请先发送或清空输入框中的内容。');
     if (action === 'create-messages') {
         const messages = payload?.messages, options = payload?.options || {};
-        if (!Array.isArray(messages) || messages.length !== 1 || messages[0]?.role !== 'user' || typeof messages[0].message !== 'string' || !messages[0].message.trim() || messages[0].message.length > 200000 || options.insert_at !== undefined || options.insert_before !== undefined) throw Error('当前只支持在聊天末尾添加一条用户指令。');
-        state.chat.push({ name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: messages[0].message, extra: { independentRoleScript: true } });
-        list.setMessages(state.chat, { latest: true }); await saveChat(); return { snapshot: scriptSnapshot(state) };
+        if (!Array.isArray(messages) || messages.length !== 1 || messages[0]?.role !== 'user' || options.insert_at !== undefined || options.insert_before !== undefined) throw Error('当前只支持在聊天末尾添加一条用户指令。');
+        await appendRoleUserMessage(messages[0].message);
+        return { snapshot: scriptSnapshot(state) };
     }
     const command = payload?.command?.trim();
     if (action !== 'slash') throw Error('不支持此角色脚本操作。');
@@ -2245,6 +2257,17 @@ async function roleScriptAction(action, payload, identity, externalCheck = null)
     if (!hide) throw Error('此环境只支持 /trigger 和 /hide 指令。');
     const message = state.chat[Number(hide[1])]; if (!message?.extra?.independentRoleScript || !message.is_user) throw Error('只允许隐藏角色脚本自己创建的指令。');
     message.is_system = true; list.update(Number(hide[1])); await saveChat(); return { value: '', snapshot: scriptSnapshot(state) };
+}
+async function appendRoleUserMessage(text, changes = null) {
+    if (typeof text !== 'string' || !text.trim() || text.length > 200000) throw Error('当前只支持在聊天末尾添加一条用户指令。');
+    if (changes && state.chatConflict) throw Error(state.chatConflict);
+    if (changes) [state.header] = patchHelperVariables([state.header], changes);
+    const message = { name: persona().name, is_user: true, is_system: false, send_date: new Date().toISOString(), mes: text, extra: { independentRoleScript: true } };
+    state.chat.push(message);
+    list.setMessages(state.chat, { latest: true });
+    if (changes) await saveChat({ incremental: true });
+    else await saveChat();
+    return message;
 }
 async function normalizeRoleMvu(data) {
     const schema = characterScriptPlan(state.settings, state.character).find(script => script.enabled && scriptSupport(script).adapter === 'mvu-schema');

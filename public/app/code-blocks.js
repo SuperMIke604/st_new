@@ -2,6 +2,7 @@ import { cardContextScript } from './html-card-context.js';
 import { remoteHtmlUrl, fetchRemoteHtml, remoteHtmlDocument } from './html-card-loader.js';
 import { adaptHtmlOpening, adaptMvuSealOpening } from './html-opening.js';
 import { adaptHtmlMvuReparse } from './html-mvu-reparse.js';
+import { adaptHtmlOrder } from './html-order.js';
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
 export function isHtmlPreview(source, language = '') {
@@ -176,6 +177,7 @@ export function previewDocument(source, context = {}, remote = false) {
     if (context.scriptActions && source.includes("document.querySelectorAll('.sys-btn')") && source.includes("triggerSlash('/setinput ' + command)")) {
         source = source.replace(/\}\.catch\(function \(\) \{\s*triggerSlash\('\/echo severity=info 已填入命令：' \+ command\);/, "}.catch(function (error) { window.alert(error.message || String(error));");
     }
+    if (context.scriptActions && !remote) source = adaptHtmlOrder(source);
     const cdn = remote ? ' https://testingcf.jsdelivr.net https://cdn.jsdelivr.net' : '';
     const policy = `default-src 'none'; script-src 'unsafe-inline'${cdn}; style-src 'unsafe-inline' https://fonts.googleapis.com${cdn}; img-src data: blob:${cdn}; font-src data: https://fonts.gstatic.com${cdn}; connect-src 'none'; form-action 'none'; base-uri 'none'`;
     const bridge = `<script>(()=>{

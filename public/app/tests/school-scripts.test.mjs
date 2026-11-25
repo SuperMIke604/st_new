@@ -36,6 +36,48 @@ test('send pipelines cannot smuggle extra generation, preserve escaped macros an
     assert.deepEqual(parseScriptCommands('/setinput 查看当前状态'), [{ type: 'setinput', text: '查看当前状态' }]);
     assert.throws(() => parseScriptCommands('/setinput 查看当前状态 | /trigger'));
 });
+test('phone order saves both chat variables with one message before triggering once', async () => {
+    const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
+    const fn = source.slice(source.indexOf('async function roleScriptAction('), source.indexOf('async function normalizeRoleMvu('));
+    const remarks = 'a="b | /trigger" \\ {{user}} ';
+    const text = `下单了“套餐”。\n备注：${remarks}`;
+    const command = `/setvar key="ordered_item" value="套餐" | /setvar key=order_remarks value=${JSON.stringify(remarks)} | /send value=${JSON.stringify(text)} | /trigger await=true`;
+    assert.throws(() => parseScriptCommands(command + ' | /trigger'));
+    assert.throws(() => parseScriptCommands(command.replace('order_remarks', 'ordered_item')));
+    assert.throws(() => parseScriptCommands(command.replace('order_remarks', '__proto__')));
+    const oldHeader = { chat_metadata: { integrity: 'keep', variables: { existing: 'keep' } } };
+    const state = { header: oldHeader, chat: [], character: { name: 'Card' } };
+    let writes = 0, generations = 0, failSave = true, draft = 'draft';
+    const context = vm.createContext({ state, panelDirty: false, parseScriptCommands, patchHelperVariables, assertSaved() {}, scriptIdentity: () => 'chat',
+        $: () => ({ value: draft }), persona: () => ({ name: 'User' }), list: { setMessages() {} }, scriptSnapshot: () => ({}),
+        saveChat: async options => {
+            writes++;
+            assert.equal(options.incremental, true);
+            assert.deepEqual(state.header.chat_metadata.variables, { existing: 'keep', ordered_item: '套餐', order_remarks: remarks });
+            assert.equal(state.header.chat_metadata.integrity, 'keep');
+            assert.equal(state.chat.at(-1).mes, text);
+            if (failSave) throw Error('failed to save');
+        },
+        generate: async () => { generations++; assert.equal(writes, 2); return { completed: true }; },
+    });
+    vm.runInContext(fn, context);
+    const order = () => context.roleScriptAction('slash', { command }, 'chat');
+    await assert.rejects(order(), /清空输入框/);
+    assert.equal(writes, 0);
+    draft = '';
+    await assert.rejects(order(), /failed to save/);
+    assert.equal(generations, 0);
+    assert.equal(state.chat.length, 1);
+    await assert.rejects(order(), /已经添加/);
+    state.chat.length = 0;
+    state.header = oldHeader;
+    failSave = false;
+    await order();
+    assert.equal(state.chat.length, 1);
+    assert.equal(generations, 1);
+    await assert.rejects(order(), /已经添加/);
+    assert.equal(writes, 2);
+});
 test('opening selection hydrates only a matching greeting and preserves every branch and unknown field', () => {
     const message = { mes: 'home', variables: { 0: { score: 1 } }, extra: { preserve: true }, custom: 42 }, records = [{ chat_metadata: { integrity: 'keep' } }, message];
     const patch = { message_id: 0, revision: helperMessageRevision(message), base: message.variables, swipe_id: 2 };

@@ -17,6 +17,7 @@
 - `/getentryfield` 与 `/setentryfield`：只读写当前角色关联世界书中已经存在的条目，字段限 `disable`、`constant`、`order`、`key`、`comment` 和 `content`。整批先解析校验，只接受同一本世界书的字段操作；写前再次核对原数据，写后回读，保留其他字段。不新增或删除条目。此字段接口扩展了旧的归档前缀限制；整本 `replaceWorldbook` 的归档限制不变。
 - `/send 文本 | /trigger`（可附 `/echo`）：只追加一条用户指令并发起一次正常生成，不允许重复生成链或任意命令执行。`{{user}}`、`{{char}}` 在发送文本中按当前人设展开。`/sendas name=当前角色 文本` 仅添加该角色的显示消息，不调用模型。
 - `/getvar type=chat 键`、`/setvar type=chat key=键 值`：支持手机的聊天记录与退群名单，只读写当前聊天变量。沿用原有旧值校验、保存队列及后端回读，拒绝原型键；不开放任意变量作用域或脚本执行。
+- `/setvar key=键 value="值"` 也可写入当前聊天变量，值使用 JSON 字符串。以一个或多个键各异的 `/setvar` 开头，后接单条 `/send` 与 `/trigger` 时，变量和用户消息使用同一次聊天保存，保存成功后才开始生成。此批次中的 `/send value="文本"` 使用 JSON 字符串传入完整消息。
 
 原未锁定版本的 StageDog 结构注册导入在运行副本中固定到 `a796a5da2cc5993182d2ed44ddefac156e11af1c`，执行[原始注册模块](https://github.com/StageDog/tavern_resource/blob/a796a5da2cc5993182d2ed44ddefac156e11af1c/dist/util/mvu_zod.js)和卡内结构，等待 ready 回调完成后再启动原 MVU。角色卡文件不改写；助手版本仍为 0.1.0，原 MVU 最低版本提示仍如实保留。外部音频、网络壁纸及播放器搜索尚未接入；本次不声称支持全部媒体功能或全部酒馆命令。
 
