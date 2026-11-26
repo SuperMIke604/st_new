@@ -28,7 +28,7 @@ test('extension prompts enter the counted history at their requested depth and a
 });
 
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const source = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('\nfunction variableManagerPanel('));
+const source = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('\nasync function variableManagerPanel('));
 function host() {
     const state = { character: {}, chat: [{ mes: 'kept' }], preset: {}, busy: false }, runtime = { frame: {}, epoch: 1, auxiliaryControllers: new Set(), extensionPrompts: new Map() };
     const input = { value: '', focus() {} }, calls = [];

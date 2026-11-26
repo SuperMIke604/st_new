@@ -478,13 +478,17 @@
     .field textarea,
     .field select,
     .select-control,
-    .home-character-search,
     .library-search,
     .request-log-filters input,
     .timing-copy
 ) {
     background-color: var(--card-field);
     border-color: var(--card-field-border);
+}
+
+:root[data-palette="ivory-cards"] .home-character-search {
+    --control-field-border: var(--line);
+    background-color: var(--card-field);
 }
 
 :root[data-palette="ivory-cards"] :is(.field select, .select-control):focus-visible {

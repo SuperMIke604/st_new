@@ -1,5 +1,31 @@
 import { ivoryIconPaths } from './ivory-icons.js';
 
+/*
+ * The import and export glyphs are Lucide's Log In and Log Out, derived from Feather.
+ * https://github.com/lucide-icons/lucide/blob/main/LICENSE
+ *
+ * The MIT License (MIT)
+ * Copyright (c) 2013-present Cole Bemis
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 // Inline line drawings. No icon font or external resource dependency.
 const paths = {
     components: "\n  <path d=\"M3 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M15 12l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 6l3 3l3 -3l-3 -3l-3 3\" />\n  <path d=\"M9 18l3 3l3 -3l-3 -3l-3 3\" />\n",
@@ -11,8 +37,8 @@ const paths = {
     code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
     autofill: '<path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3Z"/>',
-    import: '<path d="M4 14v6h16v-6M12 3v12m-5-5 5 5 5-5"/>',
-    export: '<path d="M4 14v6h16v-6M12 15V3m-5 5 5-5 5 5"/>',
+    import: '<path d="m10 17 5-5-5-5M15 12H3M14 21h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-5"/>',
+    export: '<path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
     left: '<path d="m15 5-7 7 7 7"/>',
     right: '<path d="m9 5 7 7-7 7"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',

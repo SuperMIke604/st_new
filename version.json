@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "7e95dfbc5d68503e9aac2a1c149c24de3baa3571e340a7d0116ac95a52807087",
-  "publishedAt": "2026-11-26T01:05:50.543299+00:00",
+  "revision": "55e46867a82ae8b22ed7c5571c00b9e15e5ca4f9c4d5a209515432c62001bcb7",
+  "publishedAt": "2026-11-26T10:07:04.851003+00:00",
   "files": {
     "public/app/api.js": "76afd43829e90bb3f84385a116de1d3e96ed8f405b511e4048e12fbe3fcad14d",
     "public/app/background-generation.js": "70d0c37a99296b9b7085dbe58f0f1bb246e0b5ae3c0517fb748fa6910ee40032",
@@ -36,19 +36,19 @@
     "public/app/html-mvu-reparse.js": "d0f9b929797a670be067bc6e37ce7c015a622591fc0e173c05173f4a2819e5b0",
     "public/app/html-opening.js": "28e6140889543a01fe6ee41445f07f2974de8a13efbd0feb22d630ecde737717",
     "public/app/html-order.js": "d3ec932041f80ba9bae6b0dbc4a660c779a0a1e9bbbda780683ec9f39202ae47",
-    "public/app/icons.js": "5010d7e9405c77e6be6c1658bbef748fc1343b4f87d7666644dbb9514c0e7863",
+    "public/app/icons.js": "b22aa577641f1837febe3a7f74a067705d961ae8c2e5123a4c62286a03eeaf36",
     "public/app/index.html": "a8ebca0fa135554396524a6f560a68344dd14c4eaac845fb2d360fbf348b8a5c",
-    "public/app/ivory-icons.js": "949568137ec1bf7975fa032abd41b82d68b714b82bfd383ed9aa80bc6062c20c",
+    "public/app/ivory-icons.js": "d6da739c2fe782b16dcac748275c4926b0209fb309cdc836cd4a17ff7bd85ed5",
     "public/app/library.js": "ba99831d72566c08046bc98e5270cee72996d4f52194c244af4319b24e4cad93",
     "public/app/load-timings.js": "4631d89e985d2393ae63408ecdaa7a2b7b033078c059a8cf465e24582d5281cb",
     "public/app/login.css": "b7d16ccb921a9d62e870e603e745b18956eba5514a0b2246456f38f91a37cecb",
     "public/app/login.html": "f4998bc5a0b2749658ff6f4daef371071eea18a2f10a20a306c3ece5da8382db",
     "public/app/login.js": "1dff84b3ed4d37772898d5b36d8a6fe2313c9a83b97b0f5ddad7464f33e834d9",
-    "public/app/main.js": "0caa70972e9b891ff7e183fc1716baa1885ecede1bdc897789cc25eeba254295",
+    "public/app/main.js": "d5e961d45fb07f3c9ebe5c08641f1504b9b1c0a2b176d5e35affde6758e0741e",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
-    "public/app/paper-cards.css": "25f1670c2ac17ff6d9e888adddcc562a121e6350f5e1c4d9eb11ce5f1a678342",
+    "public/app/paper-cards.css": "ca03943314b15dd3a83348ac28f0f1fb3820cdd06d5be27a27cb934f6035276a",
     "public/app/popover-toggle.js": "84addd951a81853cf08de8e0878d146fa864bd00a9affb3f3fc4dbcaa0df22da",
     "public/app/preset-editor.js": "e0294f345caa4ce2485902881179e9ea5e66cfaae152f81bb290b35be2d8b7f0",
     "public/app/preset-selection.js": "0517263dd6e950185cb690ea5f052a4d71c5470ecf5b3653bf9842853a6636f6",
@@ -98,7 +98,7 @@
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "c85e99210d249698445e4e4dc5a53fcdbf88321122c157f26e89fee4e166e014",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "ea52be4beb1aaad2359b6a4e7627a6115d1dd43b52e3ffd313979c247187b63e"
+    "public/app/version.js": "1cd12335bf7bdf33b967e8e1a17714ccab06a25d8b4971f246fcde498fd31025"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

@@ -206,7 +206,26 @@ function discloseProfileTools(bar, tools, button, label, groupLabel) {
     more.addEventListener('keydown', closeOnEscape);
     bar.after(extra);
 }
-function editName({ title, label, value = '', maxLength, returnFocus, save }) {
+function confirmAction({ title, message, confirmLabel = '确定', returnFocus = document.activeElement }) {
+    const dialog = el('dialog', 'compact-dialog');
+    const heading = el('h2', '', title); heading.id = 'action-confirm-title';
+    const description = el('p', '', message); description.id = 'action-confirm-description';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    dialog.setAttribute('aria-describedby', description.id);
+    const form = el('form'); form.method = 'dialog';
+    const actions = el('div', 'compact-dialog-actions');
+    const cancel = el('button', 'button', '取消'); cancel.value = 'cancel'; cancel.autofocus = true;
+    const confirmButton = el('button', 'button primary', confirmLabel); confirmButton.value = 'confirm';
+    actions.append(cancel, confirmButton); form.append(heading, description, actions); dialog.append(form);
+    return new Promise(resolve => {
+        dialog.addEventListener('close', () => {
+            dialog.remove(); returnFocus?.focus({ preventScroll: true });
+            resolve(dialog.returnValue === 'confirm');
+        }, { once: true });
+        document.body.append(dialog); dialog.showModal();
+    });
+}
+function editName({ title, label, value = '', message, maxLength, returnFocus, save }) {
     const panel = $('panel');
     const revision = panelRevision;
     const dialog = el('dialog', 'compact-dialog name-dialog');
@@ -224,7 +243,13 @@ function editName({ title, label, value = '', maxLength, returnFocus, save }) {
     const cancel = action('取消', () => dialog.close());
     const submit = el('button', 'button primary', '确定'); submit.type = 'submit';
     actions.append(cancel, submit);
-    form.append(heading, field, error, actions); dialog.append(form);
+    form.append(heading);
+    if (message) {
+        const description = el('p', '', message); description.id = 'name-dialog-description';
+        dialog.setAttribute('aria-describedby', description.id);
+        form.append(description);
+    }
+    form.append(field, error, actions); dialog.append(form);
     const showError = message => {
         error.textContent = message; error.hidden = false;
         input.setAttribute('aria-invalid', 'true'); input.focus();
@@ -823,28 +848,44 @@ function disposePanelWork() {
     $('panel').querySelector(':scope > .name-dialog[open]')?.close();
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
-function showPanel(title, kicker = '工作空间', className = '') {
+function panelNavigationBlocked() {
+    if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return true; }
+    if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return true; }
+    return false;
+}
+let confirmingPanelDiscard = false;
+async function confirmPanelDiscard(message = '放弃未保存的编辑？') {
+    if (confirmingPanelDiscard) return false;
+    const revision = panelRevision;
+    confirmingPanelDiscard = true;
+    try {
+        const accepted = await confirmAction({ title: '放弃未保存的编辑', message, confirmLabel: '放弃编辑' });
+        return accepted && revision === panelRevision;
+    } finally {
+        confirmingPanelDiscard = false;
+    }
+}
+async function showPanel(title, kicker = '工作空间', className = '', topPanel) {
     assertMessageEditClosed();
-    if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return null; }
-    if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return null; }
-    if ($('panel').open && panelDirty && !confirm('放弃未保存的编辑？')) return null;
+    if (panelNavigationBlocked()) return null;
+    if ($('panel').open && panelDirty && (!await confirmPanelDiscard() || panelNavigationBlocked())) return null;
     disposePanelWork();
     panelDirty = false; panelRevision++;
     $('panel-title').textContent = title; $('panel-kicker').textContent = kicker; $('panel-kicker').hidden = !kicker;
     $('panel').className = className; $('panel-body').replaceChildren(); $('panel-body').removeAttribute('aria-busy');
     if (!$('panel').open) { (matchMedia('(max-width:700px)').matches ? $('panel').show() : $('panel').showModal()); history.pushState({ appPanel: true }, ''); }
+    if (topPanel) setActiveTopPanel(topPanel);
     raiseNotification();
     return $('panel-body');
 }
-function closePanel() {
-    if (state.historySaving || state.databaseHistorySaving) { notify('正在保存聊天记录，请稍候', 'info'); return false; }
-    if (variablesSaving) { notify('正在保存变量，请稍候', 'info'); return false; }
-    if (panelDirty && !confirm('放弃未保存的编辑？')) return false;
+async function closePanel({ fromHistory = false } = {}) {
+    if (panelNavigationBlocked()) return false;
+    if (panelDirty && (!await confirmPanelDiscard() || panelNavigationBlocked())) return false;
     disposePanelWork();
     panelDirty = false; panelRevision++;
     setActiveTopPanel(null);
     $('panel').close();
-    if (history.state?.appPanel) history.back();
+    if (!fromHistory && history.state?.appPanel) history.back();
     return true;
 }
 function timingPanel() {
@@ -1060,7 +1101,7 @@ function saveChat({ incremental = false, signal, tailBase } = {}) {
 }
 async function chatsPanel(initialPage = 0) {
     if (!state.character) return navigation();
-    const body = showPanel('历史聊天', ''); if (!body) return;
+    const body = await showPanel('历史聊天', ''); if (!body) return;
     const revision = panelRevision, avatar = state.character.avatar;
     const chats = await api.post('/api/characters/chats', { avatar_url: avatar });
     if (revision !== panelRevision) return;
@@ -1084,7 +1125,7 @@ async function chatsPanel(initialPage = 0) {
     }
 
     function renderChat(chat) {
-        const row = action(chat.file_name.replace(/\.jsonl$/, ''), async () => { assertSaved(); if (closePanel()) await loadChat(chat.file_name.replace(/\.jsonl$/, '')); }, 'chat', 'resource-row');
+        const row = action(chat.file_name.replace(/\.jsonl$/, ''), async () => { assertSaved(); if (await closePanel()) await loadChat(chat.file_name.replace(/\.jsonl$/, '')); }, 'chat', 'resource-row');
         const preview = String(chat.mes || '')
             .replace(/(?:```|~~~)[\s\S]*?(?:```|~~~|$)/g, ' ')
             .replace(/<\/?[a-z][^>]*>/gi, ' ')
@@ -1146,7 +1187,7 @@ async function persistProfiles(next) {
 }
 async function connectionPanel(profileId = '', draft = null) {
     if (state.connectionPending) await connectionInitialization.catch(() => {});
-    const body = showPanel('连接与模型', ''); if (!body) return;
+    const body = await showPanel('连接与模型', '', '', connectionPanel); if (!body) return;
     if (!state.ready) { note(body, '正在读取保存的连接，请稍候再打开。'); return; }
     const revision = panelRevision;
     let current = draft || profileStore.profiles.find(item => item.id === profileId) || connection();
@@ -1158,9 +1199,19 @@ async function connectionPanel(profileId = '', draft = null) {
     const profileBar = el('div', 'connection-profile-bar connection-settings-bar');
     picker.value = current.id; profileBar.append(picker); body.append(profileBar);
     picker.addEventListener('change', () => run(async () => {
-        assertIdle(); const next = picker.value;
-        if (panelDirty && !confirm('放弃未保存的连接修改并切换？')) { picker.value = current.id; return; }
-        const updated = { ...profileStore, activeId: next }; await persistProfiles(updated); panelDirty = false; await connectionPanel(next);
+        const next = picker.value; picker.value = current.id;
+        if (next === current.id) return;
+        assertIdle();
+        if (panelDirty && !await confirmPanelDiscard('放弃未保存的连接修改并切换？')) return;
+        if (revision !== panelRevision) return;
+        assertIdle();
+        picker.disabled = true;
+        try {
+            await persistProfiles({ ...profileStore, activeId: next });
+            if (revision === panelRevision) { panelDirty = false; await connectionPanel(next); }
+        } finally {
+            picker.disabled = false;
+        }
     }));
     const profileTools = el('div', 'connection-profile-tools');
     const profileActions = el('div', 'profile-extra-tools');
@@ -1283,7 +1334,7 @@ let presetParametersCollapsed = false;
 try { presetParametersCollapsed = sessionStorage.getItem(presetParametersStorageKey) === 'true'; } catch { /* Keep the preference in memory. */ }
 
 async function presetPanel() {
-    const host = showPanel('生成预设', '', 'preset-panel'); if (!host) return;
+    const host = await showPanel('生成预设', '', 'preset-panel', presetPanel); if (!host) return;
     return loadPanelContent(host, '预设', (body, revision) => renderPresetPanel(body, revision), () => presetPanel());
 }
 async function renderPresetPanel(body, revision) {
@@ -1599,11 +1650,14 @@ async function renderPresetPanel(body, revision) {
         const url = URL.createObjectURL(blob); const link = el('a'); link.href = url; link.download = `${safeName(name.trim() || '预设')}.json`;
         document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, 'export');
-    toolbarButton('新增预设', () => {
-        if (panelDirty && !confirm('放弃未保存的修改并新建预设？')) return;
-        beginDraft(createPreset(), uniquePresetName('新预设', available.map(preset => preset.name)));
-    }, 'plus');
-    toolbarButton('复制预设', () => beginDraft(copy(draft), uniquePresetName(`${name.trim() || '预设'}（副本）`, available.map(preset => preset.name))), 'copy');
+    const nameNewPreset = (title, suggestedName, data, trigger, message) => editName({
+        title, label: '预设名称', value: uniquePresetName(suggestedName, available.map(preset => preset.name)), message,
+        returnFocus: presetTools.querySelector('[aria-expanded]') || trigger,
+        save: next => beginDraft(data, next),
+    });
+    const addPreset = toolbarButton('新增预设', () => nameNewPreset('新增预设', '新预设', createPreset(), addPreset,
+        panelDirty ? '确认后将放弃当前未保存的预设修改。' : ''), 'plus');
+    const copyPreset = toolbarButton('复制预设', () => nameNewPreset('复制预设', `${name.trim() || '预设'}（副本）`, copy(draft), copyPreset), 'copy');
     const deletePreset = toolbarButton('删除预设', async () => {
         assertIdle(); if (draftOnly) throw new Error('请先保存新预设。');
         if (available.length <= 1) throw new Error('至少保留一个预设，请先新增其他预设。');
@@ -1634,14 +1688,24 @@ async function renderPresetPanel(body, revision) {
         notify('预设已切换');
     }));
     const footer = el('div', 'editor-footer');
-    footer.append(action('保存并使用', async () => {
+    const savePreset = action('保存并使用', async () => {
         assertIdle(); const data = validatePreset(draft);
         if (!name.trim()) throw new Error('请输入预设名称。');
         const targetName = safeName(name.trim());
-        if (available.some(p => p.name === targetName) && !confirm('覆盖同名预设？')) return;
-        const result = await api.post('/api/presets/save', { apiId: 'openai', name: targetName, preset: data });
-        await saveOwn({ preset: result.name }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已保存'); await presetPanel();
-    }, 'edit', 'primary'));
+        if (available.some(p => p.name === targetName) && !await confirmAction({
+            title: '覆盖预设', message: `已存在名为「${targetName}」的预设，是否覆盖？`, confirmLabel: '覆盖', returnFocus: savePreset,
+        })) return;
+        if (revision !== panelRevision) return;
+        assertIdle();
+        savePreset.disabled = true;
+        try {
+            const result = await api.post('/api/presets/save', { apiId: 'openai', name: targetName, preset: data });
+            await saveOwn({ preset: result.name }); await reloadResources(); list.setMessages(state.chat, { reset: true }); panelDirty = false; notify('预设已保存'); await presetPanel();
+        } finally {
+            savePreset.disabled = false;
+        }
+    }, 'edit', 'primary');
+    footer.append(savePreset);
     body.append(footer); renderRows();
     if (!available.length) beginDraft(createPreset(), '新预设');
 }
@@ -1653,7 +1717,7 @@ async function regexPanel(scope = 'global', target = '') {
     if (reuse) {
         if (panelDirty && !confirm('放弃未保存的修改？')) return;
         panelDirty = false; panelRevision++; host = $('panel-body');
-    } else { host = showPanel('正则与脚本', '', 'regex-panel'); if (!host) return; }
+    } else { host = await showPanel('正则与脚本', '', 'regex-panel', regexPanel); if (!host) return; }
     return loadPanelContent(host, '正则与脚本', (body, revision, timing) => renderRegexPanel(body, revision, scope, target, timing), () => regexPanel(scope, target), { retainContent: reuse });
 }
 async function renderRegexPanel(body, revision, scope, target, timing) {
@@ -1720,7 +1784,7 @@ async function renderRegexPanel(body, revision, scope, target, timing) {
         const imported = Array.isArray(value) ? value : Array.isArray(value?.extensions?.regex_scripts) ? value.extensions.regex_scripts : Array.isArray(value?.regex_scripts) ? value.regex_scripts : value?.findRegex !== undefined ? [value] : null;
         if (!imported || imported.some(rule => !rule || typeof rule !== 'object' || Array.isArray(rule))) throw new Error('文件中没有可识别的正则规则。');
         rules.push(...copy(imported).map(rule => ({ ...rule, id: uuid() }))); dirty(); render(); notify(`已载入 ${imported.length} 条规则，保存后生效。`);
-    }, 'folder', 'icon-button');
+    }, 'import', 'icon-button');
     for (const button of [addRule, importRules]) {
         const label = button.textContent;
         button.title = label;
@@ -1964,10 +2028,10 @@ async function helperHostAction(operation, payload, identity, externalCheck = nu
         return { value: true, snapshot: scriptSnapshot(state) };
     } finally { variablesSaving = false; }
 }
-function variableManagerPanel() {
+async function variableManagerPanel() {
     assertSaved();
     if (!state.character || !state.header || !state.chat.length) throw Error('请先打开有消息的聊天。');
-    const identity = scriptIdentity(), body = showPanel('变量管理器', '', 'variable-panel'); if (!body) return;
+    const identity = scriptIdentity(), body = await showPanel('变量管理器', '', 'variable-panel'); if (!body) return;
     const revision = panelRevision, avatar = state.character.avatar, file = state.file, targets = new Map();
     const current = () => { if (identity !== scriptIdentity() || revision !== panelRevision) throw Error('聊天或面板已切换，请重新打开变量管理器。'); };
     const read = (scope,index) => {
@@ -2035,7 +2099,7 @@ async function openScriptWorkspace(diagnostics = true) {
     if (identity !== scriptIdentity()) return;
     const scripts = nativeScriptPlan(state.settings, state.character, state.preset), snapshot = scriptSnapshot(state);
     if (!preparation) preparation = !scripts.length ? '当前没有全局、预设或角色脚本。' : !scripts.some(script => script.enabled) ? '脚本已停用，请到“正则与脚本”启用。' : latestMvuData(snapshot).stat_data ? '已读取当前聊天变量。所有运行脚本共用酒馆伴侣接口。' : '酒馆伴侣接口已提供；当前聊天还没有 MVU 变量。';
-    if (diagnostics && $('panel').open && !closePanel()) return;
+    if (diagnostics && $('panel').open && !await closePanel()) return;
     await scriptRuntime.show({ scripts, snapshot, identity, preparation, diagnostics, actions: $('quick-replies') });
     const anchor = document.querySelector('.script-chat-anchor');
     if (anchor?.isConnected) scriptRuntime.bindChat(anchor, Number(anchor.dataset.messageId));
@@ -2360,7 +2424,7 @@ async function renderScriptManager(body, revision, scope, target, timing) {
         const imported = Array.isArray(value) ? value : Array.isArray(value.scripts) ? value.scripts : value.type === 'script' || value.type === 'folder' ? [value] : value.extensions?.tavern_helper?.scripts ?? value.data?.extensions?.tavern_helper?.scripts;
         validateScriptTree(imported);
         const items = copy(imported); for (const row of scriptRows(items)) row.script.id = uuid(); tree.push(...items); dirty(); render();
-    }, 'folder'), iconAction('导出脚本', () => downloadJson(tree, `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本`), 'export'));
+    }, 'import'), iconAction('导出脚本', () => downloadJson(tree, `${kind === 'global' ? '全局' : entity.name || '角色卡'}脚本`), 'export'));
     const footer = el('div', 'editor-footer'); footer.append(action('保存脚本', async () => {
         assertIdle();
         validateScriptTree(tree);
@@ -2439,10 +2503,10 @@ function renderRegexEditor(parent, rules, onDirty, opened = new Set()) {
 
 async function characterPanel(force = false) {
     if (state.bundle.displayTavern === 'display') {
-        const host = showPanel('展示版角色卡', '', 'library-panel'); if (!host) return;
+        const host = await showPanel('展示版角色卡', '', 'library-panel', characterPanel); if (!host) return;
         return loadPanelContent(host, '展示版角色卡', renderDisplayCharacterPanel, characterPanel);
     }
-    const host = showPanel('角色卡', '', 'library-panel'); if (!host) return;
+    const host = await showPanel('角色卡', '', 'library-panel', characterPanel); if (!host) return;
     return loadPanelContent(host, '角色卡', (body, revision, timing) => renderCharacterPanel(body, revision, force, timing), () => characterPanel(true));
 }
 async function renderDisplayCharacterPanel(body, revision, timing) {
@@ -2456,7 +2520,7 @@ async function renderDisplayCharacterPanel(body, revision, timing) {
         const query = search.value.trim().toLocaleLowerCase();
         for (const card of characters.filter(card => card.name.toLocaleLowerCase().includes(query))) {
             const file = el('article', 'character-file');
-            const cover = action(`进入 ${card.name} 最新聊天`, async () => { assertSaved(); if (closePanel()) await openCharacter(card.avatar, { latest: true }); }, null, 'card-cover');
+            const cover = action(`进入 ${card.name} 最新聊天`, async () => { assertSaved(); if (await closePanel()) await openCharacter(card.avatar, { latest: true }); }, null, 'card-cover');
             cover.setAttribute('aria-label', `进入 ${card.name} 最新聊天`); cover.append(image(card.avatar, 'avatar', true));
             const info = el('div', 'card-info'); info.append(el('h3', '', card.name));
             file.append(cover, info); cards.append(file);
@@ -2630,7 +2694,7 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
             file.addEventListener('dragstart', event => { const values = selected.has(card.avatar) ? [...selected] : [card.avatar]; event.dataTransfer.setData('application/x-tavern-cards', JSON.stringify(values)); event.dataTransfer.effectAllowed = 'move'; });
             const selection = el('input', 'card-selection'); selection.type = 'checkbox'; selection.checked = selected.has(card.avatar); selection.setAttribute('aria-label', `选择角色 ${card.name}`);
             selection.addEventListener('change', () => { if (selection.checked) selected.add(card.avatar); else selected.delete(card.avatar); file.classList.toggle('selected', selection.checked); updateSelection(); });
-            const enterChat = async () => { assertSaved(); if (closePanel()) await openCharacter(card.avatar, { latest: true }); };
+            const enterChat = async () => { assertSaved(); if (await closePanel()) await openCharacter(card.avatar, { latest: true }); };
             const cover = action(`进入 ${card.name} 最新聊天`, enterChat, null, 'card-cover'); cover.append(image(card.avatar, 'avatar', true));
             cover.setAttribute('aria-label', `进入 ${card.name} 最新聊天`); cover.title = '进入最新聊天';
             const info = el('div', 'card-info');
@@ -2735,8 +2799,8 @@ async function renderDisplayCardControl(container, avatar) {
     }
 }
 
-function displayPasswordPanel() {
-    const body = showPanel('展示密码', ''); if (!body) return;
+async function displayPasswordPanel() {
+    const body = await showPanel('展示密码', ''); if (!body) return;
     if (state.bundle.displayTavern !== 'owner' && !state.bundle.needsPrimaryPassword) {
         note(body, '当前运行的酒馆未启用展示密码功能。请确认 Termux 已加载新版更新插件，再重启酒馆。', true);
         return;
@@ -2775,14 +2839,14 @@ function displayPasswordPanel() {
                 password.value = '';
                 panelDirty = false;
                 notify('展示密码已保存');
-                closePanel();
+                await closePanel();
             } finally { save.disabled = false; }
         });
     });
 }
 
 async function characterEditor(avatar = state.character?.avatar) {
-    const body = showPanel(avatar ? '编辑角色卡' : '新建角色', '角色资料'); if (!body) return;
+    const body = await showPanel(avatar ? '编辑角色卡' : '新建角色', '角色资料'); if (!body) return;
     const revision = panelRevision;
     let editing = null;
     if (avatar) {
@@ -2808,7 +2872,7 @@ async function characterEditor(avatar = state.character?.avatar) {
     const upload = action('导入图片', async () => {
         const file = await pickFile('image/*'); if (!file) return;
         avatarFile = file; const url = URL.createObjectURL(file); portraitImage.onload = () => URL.revokeObjectURL(url); portraitImage.src = url; portraitImage.hidden = false; upload.classList.add('has-avatar'); panelDirty = true;
-    }, 'image', 'persona-avatar-upload'); upload.title = '点击更换图片'; upload.setAttribute('aria-label', '导入角色图片'); upload.classList.toggle('has-avatar', !!editing); upload.prepend(portraitImage); portrait.append(upload); body.prepend(portrait);
+    }, 'import', 'persona-avatar-upload'); upload.title = '点击更换图片'; upload.setAttribute('aria-label', '导入角色图片'); upload.classList.toggle('has-avatar', !!editing); upload.prepend(portraitImage); portrait.append(upload); body.prepend(portrait);
     const name = field(body, '名称', card.name || '');
     const folders = libraryState(state.own.characterLibrary);
     const category = field(body, '分类', editing ? folders.assignments[editing.avatar] || '' : '', { options: [['', '未分类'], ...folders.folders.map(folder => [folder.id, folder.name])] });
@@ -2873,7 +2937,7 @@ async function importCharacter() {
         });
         state.own = settingsOwn(state.settings);
     }
-    characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; closePanel();
+    characterCatalog.invalidate(); await loadCharacterCatalog(true); panelDirty = false; await closePanel();
     await openCharacter(avatar);
     if (worldResult) notify(worldResult.imported ? `角色卡及世界书「${worldResult.name}」已导入并关联` : '角色卡已导入');
 }
@@ -2892,7 +2956,7 @@ function themeDefaultAvatar(img, name) {
     });
 }
 async function personasPanel() {
-    const host = showPanel('用户设定', '', 'personas-panel'); if (!host) return;
+    const host = await showPanel('用户设定', '', 'personas-panel', personasPanel); if (!host) return;
     return loadPanelContent(host, '用户设定', (body, revision) => renderPersonasPanel(body, revision), () => personasPanel());
 }
 async function renderPersonasPanel(body, revision) {
@@ -2925,11 +2989,11 @@ async function renderPersonasPanel(body, revision) {
 }
 
 async function personaEditor(avatar = null) {
-    const body = showPanel(avatar ? '编辑用户设定' : '新增用户设定', '身份资料'); if (!body) return;
+    const body = await showPanel(avatar ? '编辑用户设定' : '新增用户设定', '身份资料'); if (!body) return;
     const power = state.settings.power_user || {}, saved = power.persona_descriptions?.[avatar] || {};
     let avatarFile = null;
     const portrait = el('div', 'character-portrait'), img = el('img'); themeDefaultAvatar(img, power.personas?.[avatar] || state.settings.username); img.alt = '用户头像'; img.hidden = !avatar; if (avatar) img.src = `/User%20Avatars/${encodeURIComponent(avatar)}?v=${avatarRevisions.get(avatar) || 0}`;
-    const upload = action('导入头像', async () => { const file = await pickFile('image/*'); if (!file) return; avatarFile = file; const url = URL.createObjectURL(file); img.onload = () => URL.revokeObjectURL(url); img.src = url; img.hidden = false; upload.classList.add('has-avatar'); panelDirty = true; }, 'image', 'persona-avatar-upload');
+    const upload = action('导入头像', async () => { const file = await pickFile('image/*'); if (!file) return; avatarFile = file; const url = URL.createObjectURL(file); img.onload = () => URL.revokeObjectURL(url); img.src = url; img.hidden = false; upload.classList.add('has-avatar'); panelDirty = true; }, 'import', 'persona-avatar-upload');
     upload.title = '点击更换头像'; upload.setAttribute('aria-label', '导入头像'); upload.classList.toggle('has-avatar', !!avatar); upload.prepend(img); portrait.append(upload); body.append(portrait);
     const name = field(body, '名称', avatar ? power.personas?.[avatar] || state.settings.username || '' : '');
     const nameError = el('small', 'persona-name-error'); nameError.hidden = true; nameError.id = `persona-name-error-${uuid()}`; nameError.setAttribute('role', 'alert'); name.setAttribute('aria-describedby', nameError.id); name.parentElement.append(nameError);
@@ -2977,7 +3041,7 @@ async function openCharacterWorld(avatar) {
     await worldsPanel(card.extensions?.world || '', null, character);
 }
 async function worldsPanel(target = '', initial = null, character = state.character) {
-    const host = showPanel('世界书', ''); if (!host) return;
+    const host = await showPanel('世界书', '', '', worldsPanel); if (!host) return;
     return loadPanelContent(host, '世界书', (body, revision, timing) => renderWorldPanel(body, revision, target, initial, character, timing), () => worldsPanel(target, initial, character));
 }
 async function renderWorldPanel(body, revision, target, initial, character, timing) {
@@ -3043,10 +3107,31 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
             name.value = value; dirty();
             select.options[select.selectedIndex].textContent = `${value}（未保存）`;
         } }), 'edit');
-    button('新增世界书', async () => {
-        if (panelDirty && !confirm('放弃未保存的修改并新建世界书？')) return;
-        panelDirty = false; await worldsPanel(uniquePresetName('新世界书', worlds.map(book => book.file_id)), { entries: {} }, character);
-    }, 'plus');
+    let draftOption;
+    const selectWorldDraft = title => {
+        if (!draftOption) {
+            draftOption = el('option'); draftOption.value = '__draft__'; select.append(draftOption);
+        }
+        draftOption.textContent = `${title}（未保存）`;
+        select.value = draftOption.value;
+    };
+    const nameNewWorld = (title, suggestedName, data, trigger, message) => editName({
+        title, label: '世界书名称', value: uniquePresetName(suggestedName, worlds.map(book => book.file_id)), message,
+        returnFocus: tools.querySelector('[aria-expanded]') || trigger,
+        save: next => {
+            bookRequest++;
+            panelLoads.delete(entries); entries.removeAttribute('aria-busy');
+            body._dispose();
+            draft = data; original = ''; savedBookName = undefined; name.value = next;
+            selectWorldDraft(next); previous = select.value;
+            remove.disabled = true; copyWorld.disabled = false;
+            dirty(); render(entries, null);
+        },
+    });
+    const addWorld = button('新增世界书', () => nameNewWorld('新增世界书', '新世界书', { entries: {} }, addWorld,
+        bookDirty ? '确认后将放弃当前世界书未保存的修改。' : ''), 'plus');
+    const copyWorld = button('复制世界书', () => nameNewWorld('复制世界书', `${name.value.trim() || '世界书'}（副本）`, worldDraft(draft), copyWorld), 'copy');
+    copyWorld.disabled = !original && !initial;
     button('导入世界书', async () => {
         if (panelDirty && !confirm('放弃未保存的修改并导入世界书？')) return;
         const file = await pickFile('.json'); if (!file) return;
@@ -3064,7 +3149,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
     }, 'trash', 'danger'); remove.disabled = !original;
     if (ivory) discloseProfileTools(bar, tools, button, '更多世界书操作', '世界书管理');
     if (initial || !worlds.length) {
-        const option = el('option', '', `${target || '新世界书'}（未保存）`); option.value = '__draft__'; select.append(option); select.value = '__draft__'; panelDirty = true;
+        selectWorldDraft(target || '新世界书'); panelDirty = true;
     }
     let previous = select.value, bookRequest = 0;
     let savedBookName;
@@ -3077,6 +3162,7 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
                 const loaded = await api.post('/api/worldinfo/get', { name: next }, { timing: trace });
                 if (request !== bookRequest || revision !== panelRevision) return;
                 original = next; name.value = next; draft = trace.measureSync('世界书 · 整理条目数据', 'data', () => worldDraft(loaded)); previous = next; bookDirty = false; panelDirty = false; remove.disabled = false; render(content, trace);
+                draftOption?.remove(); draftOption = undefined;
                 savedBookName = undefined;
             }, () => worldsPanel(next, null, character));
         } catch (error) { if (request === bookRequest) select.value = previous; throw error; }
@@ -3096,7 +3182,12 @@ async function renderWorldPanel(body, revision, target, initial, character, timi
                 const value = worldDraft(draft); value.name = targetName;
                 if (targetName !== original && targetName !== savedBookName) {
                     const current = await api.post('/api/worldinfo/list');
-                    if (current.some(book => book.file_id === targetName) && !confirm('覆盖同名世界书？')) return;
+                    if (revision !== panelRevision || request !== bookRequest || version !== editVersion) return;
+                    if (current.some(book => book.file_id === targetName) && !await confirmAction({
+                        title: '覆盖世界书', message: `已存在名为「${targetName}」的世界书，是否覆盖？`, confirmLabel: '覆盖',
+                        returnFocus: null,
+                    })) { saveButton.disabled = false; saveButton.focus({ preventScroll: true }); return; }
+                    if (revision !== panelRevision || request !== bookRequest || version !== editVersion) return;
                 }
                 await api.post('/api/worldinfo/edit', { name: targetName, data: value });
                 if (request === bookRequest) {
@@ -3226,7 +3317,7 @@ function databaseWriteGuard(index, { allowReload = false } = {}) {
 async function databasePanel() {
     assertViewable(); if (!state.character) throw new Error('请先打开一个角色的聊天。');
     const current = currentDatabase();
-    const body = showPanel('数据管理', '', 'database-panel'); if (!body) return;
+    const body = await showPanel('数据管理', '', 'database-panel'); if (!body) return;
     const identity = `${state.character.avatar}/${state.file}`;
     const chat = state.chat, header = state.header;
     const revision = panelRevision;
@@ -4014,15 +4105,15 @@ async function deleteEditedMessage(message) {
     list.setMessages(state.chat, { reset: true }); await saveChat();
 }
 
-function chatHistoryPanel() {
+async function chatHistoryPanel() {
     assertSaved(); if (!state.character) throw Error('请先打开聊天。');
-    const body = showPanel('聊天记录管理', '', 'chat-history-panel'); if (!body) return;
+    const body = await showPanel('聊天记录管理', '', 'chat-history-panel'); if (!body) return;
     const revision = panelRevision, identity = scriptIdentity(), source = state.chat;
     let original = copy(source), header = copy(state.header);
     renderChatHistoryManager(body, {
         chat: original, el, action, notify,
         dirty: value => { if (revision === panelRevision) { const previous = panelDirty; panelDirty = value; if (previous && !value) synchronize(); } },
-        jump: id => { assertSaved(); if (identity !== scriptIdentity()) throw Error('聊天已切换。'); if (closePanel()) list.jump(id); },
+        jump: async id => { assertSaved(); if (identity !== scriptIdentity()) throw Error('聊天已切换。'); if (await closePanel()) list.jump(id); },
         save: async (messages, start) => {
             assertSaved();
             if (state.databaseController) throw Error('请等待数据库更新完成后再保存聊天记录。');
@@ -4042,19 +4133,19 @@ function chatHistoryPanel() {
         },
     });
 }
-function databasePreviewPanel() {
- assertViewable();if(!state.character)throw new Error('请先打开聊天');const current=currentDatabase();const body=showPanel('数据预览','','database-panel');if(!body)return;
+async function databasePreviewPanel() {
+ assertViewable();if(!state.character)throw new Error('请先打开聊天');const body=await showPanel('数据预览','','database-panel');if(!body)return;const current=currentDatabase();
  const revision=panelRevision,write=databaseWriteGuard(current.index);
  const previousData = findDatabaseSnapshot(state.chat, state.header, { through: current.index - 1, structuredOnly: true })?.data ?? null;
  renderDatabasePreview(body,{el,field,action,dirty:value=>{if(revision===panelRevision)panelDirty=value;},data:current.data,index:current.index,archived:current.archived,previousData,settings:current.settings,notify,savePreferences:async patch=>{await saveOwn({database:{...currentDatabase().settings,...patch}});},
  saveData:async value=>{write.check();storeDatabase(state.chat,state.header,value,current.index,current.archived?current.meta:undefined);write.saved();await saveChat();},
- send:text=>{if(closePanel()){$('message-input').value=text;resizeInput();$('message-input').focus();}}
+ send:async text=>{if(await closePanel()){$('message-input').value=text;resizeInput();$('message-input').focus();}}
  });
 }
 const readingSettingsTitle = '阅读设置';
-function toolsPanel() {
-    const body = showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
-    if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (closePanel()) await generate('retry'); }, 'refresh'));
+async function toolsPanel() {
+    const body = await showPanel(readingSettingsTitle, '', 'reading-tools-panel'); if (!body) return;
+    if (state.chat.at(-1)?.is_user) body.append(action('重试最后一条消息的回复', async () => { if (await closePanel()) await generate('retry'); }, 'refresh'));
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
     const delay = field(body, '发送延迟（秒）', sendDelaySeconds(state.own.reading?.sendDelay), { type: 'number', hint: '默认 5 秒，设为 0 立即开始发送。等待期间可以停止发送。' });
     delay.min = 0; delay.max = maxSendDelay; delay.step = 1; delay.required = true;
@@ -4143,13 +4234,7 @@ function setActiveTopPanel(callback) {
 }
 $('panel').addEventListener('close', () => { if (!$('panel').open) setActiveTopPanel(null); });
 for (const [label, glyph, callback] of [['预设', 'tools', presetPanel], ['API', 'plug', connectionPanel], ['用户设定', 'user', personasPanel], ['世界书', 'book', worldsPanel], ['角色卡', 'card', characterPanel], ['正则与脚本', 'regex', regexPanel]]) {
-    const button = action(label, () => {
-        if ($('panel').open && activeTopPanel === callback) { closePanel(); return; }
-        const revision = panelRevision;
-        const result = callback();
-        if (panelRevision !== revision) setActiveTopPanel(callback);
-        return result;
-    }, glyph, 'icon-button top-shortcut');
+    const button = action(label, () => $('panel').open && activeTopPanel === callback ? closePanel() : callback(), glyph, 'icon-button top-shortcut');
     button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', 'false'); topPanelButtons.set(callback, button); $('top-actions').append(button);
 }
 for (const [id, glyph] of [['quick-replies-toggle', 'message'], ['tools-toggle', 'plus'], ['close-panel', 'close'], ['send-button', 'send'], ['stop-button', 'stop']]) $(id).prepend(icon(glyph));
@@ -4167,23 +4252,7 @@ function positionComposerMenu(menu, toggle) {
     menu.style.maxHeight = `${Math.max(60, rect.top - 8 - gap)}px`;
 }
 function confirmFrontendUpdate(question) {
-    const dialog = el('dialog', 'compact-dialog');
-    const heading = el('h2', '', '检查更新'); heading.id = 'frontend-update-confirm-title';
-    const description = el('p', '', question); description.id = 'frontend-update-confirm-description';
-    dialog.setAttribute('aria-labelledby', heading.id);
-    dialog.setAttribute('aria-describedby', description.id);
-    const form = el('form'); form.method = 'dialog';
-    const actions = el('div', 'compact-dialog-actions');
-    const cancel = el('button', 'button', '取消'); cancel.value = 'cancel'; cancel.autofocus = true;
-    const install = el('button', 'button primary', '更新'); install.value = 'install';
-    actions.append(cancel, install); form.append(heading, description, actions); dialog.append(form);
-    return new Promise(resolve => {
-        dialog.addEventListener('close', () => {
-            dialog.remove(); $('tools-toggle').focus({ preventScroll: true });
-            resolve(dialog.returnValue === 'install');
-        }, { once: true });
-        document.body.append(dialog); dialog.showModal();
-    });
+    return confirmAction({ title: '检查更新', message: question, confirmLabel: '更新', returnFocus: $('tools-toggle') });
 }
 const closeQuickReplies = () => { quickReplies.hidden = true; quickRepliesToggle.setAttribute('aria-expanded', 'false'); };
 quickRepliesToggle.addEventListener('click', () => {
@@ -4218,10 +4287,13 @@ const repositionComposerMenus = () => { if (!quickReplies.hidden) positionCompos
 window.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('resize', repositionComposerMenus); window.visualViewport?.addEventListener('scroll', repositionComposerMenus);
 document.addEventListener('click', event => { if (!composerTools.contains(event.target) && !$('tools-toggle').contains(event.target)) { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { composerTools.hidden = true; $('tools-toggle').setAttribute('aria-expanded', 'false'); } });
-$('close-panel').addEventListener('click', closePanel);
-$('panel').addEventListener('cancel', event => { event.preventDefault(); closePanel(); });
-$('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closePanel(); } });
-window.addEventListener('popstate', () => { if ($('panel').open) { if (state.historySaving || state.databaseHistorySaving) { history.pushState({ appPanel: true }, ''); notify('正在保存聊天记录，请稍候', 'info'); return; } if (variablesSaving) { history.pushState({ appPanel: true }, ''); notify('正在保存变量，请稍候', 'info'); return; } if (panelDirty && !confirm('放弃未保存的编辑？')) { history.pushState({ appPanel: true }, ''); return; } disposePanelWork(); panelDirty = false; panelRevision++; setActiveTopPanel(null); $('panel').close(); } });
+$('close-panel').addEventListener('click', () => run(closePanel));
+$('panel').addEventListener('cancel', event => { if (event.target === $('panel')) { event.preventDefault(); void run(closePanel); } });
+$('panel').addEventListener('click', event => { if (event.target === $('panel')) { const r = $('panel').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) void run(closePanel); } });
+window.addEventListener('popstate', () => run(async () => {
+    if (!$('panel').open) return;
+    if (!await closePanel({ fromHistory: true }) && $('panel').open && !history.state?.appPanel) history.pushState({ appPanel: true }, '');
+}));
 $('composer').addEventListener('submit', event => {
     event.preventDefault();
     if (!state.busy) void afterMessageEdit(() => generate(false, null, { delaySend: true }));

@@ -7,7 +7,7 @@ import { validateVariables } from '../variable-manager.js';
 import { scriptSnapshot } from '../scripts.js';
 import { LoadTimings } from '../load-timings.js';
 const main = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
-const hostSource = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('\nfunction variableManagerPanel('));
+const hostSource = main.slice(main.indexOf('function hasChatPanelDraft('), main.indexOf('\nasync function variableManagerPanel('));
 function fixture({ unpersisted = false, stored } = {}) {
     let records = [{ chat_metadata: { integrity: 'identity' } }, { mes: 'reply', swipe_id: 0, variables: { 0: { score: 2 } } }], settings = { extension_settings: { independentHelper: { keep: 42 } }, world_info_settings: { world_info: { globalSelect: ['Enabled'] } } }, writes = 0, paints = 0;
     const state = { character: { avatar: 'card.png', data: { extensions: { world: 'Allowed' } } }, file: 'chat', header: structuredClone(records[0]), chat: structuredClone(records.slice(1)), settings: structuredClone(settings) };
