@@ -12,7 +12,7 @@ const generate = source.slice(source.indexOf('function waitForPageVisibility('),
 const waitingPresentation = source.slice(source.indexOf('function setReplyWaiting('), source.indexOf('function synchronize('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, timeoutWhileWriting = false, intercept = body => body } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, androidSendDelay, timeoutWhileWriting = false, intercept = body => body } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], scrollModes = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
@@ -22,7 +22,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         setAttribute: (name, value) => stopAttributes.set(name, value),
     };
     const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
-    const window = new EventTarget();
+    const window = Object.assign(new EventTarget(), { stNewAndroidSendDelay: androidSendDelay });
     Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     const storage = new Map(), backgroundCalls = [], releases = [];
@@ -140,14 +140,21 @@ test('composer honors custom delay and zero skips the timer', async t => {
 test('stopping or leaving during the delay keeps the user card and cancels model generation', async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     for (const pageHidden of [false, true]) {
-        const f = fixture({ native: true });
+        let released = 0;
+        let ready;
+        const f = fixture({ native: true, androidSendDelay: (_delay, callback) => {
+            ready = callback;
+            return () => { released++; };
+        } });
         const message = '保留这条消息';
         f.input.value = message;
         const running = f.run(false, { delaySend: true });
         if (pageHidden) f.window.dispatchEvent(new Event('pagehide'));
         else f.state.controller.abort(new DOMException('user-stop', 'AbortError'));
         await running;
+        ready();
         t.mock.timers.tick(5000);
+        assert.equal(released, 1);
         assert.equal(f.state.busy, false);
         assert.equal(f.input.value, '');
         assert.deepEqual(f.notices, pageHidden ? [] : ['发送已取消']);
@@ -159,6 +166,33 @@ test('stopping or leaving during the delay keeps the user card and cancels model
         assert.notEqual(f.scrollModes.at(-1), 'top');
         assert.equal(f.requests(), 0);
     }
+});
+
+test('APK countdown can start one model request while the page remains hidden', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let ready;
+    let active = false;
+    const f = fixture({ androidSendDelay: (delay, callback) => {
+        assert.equal(delay, 5000);
+        ready = callback;
+        active = true;
+        return () => { active = false; };
+    } });
+    const running = f.run(false, { delaySend: true });
+    f.setVisibility('hidden');
+    f.prepared.resolve({ messages: [] });
+    await tick();
+    assert.equal(f.requests(), 0);
+    ready();
+    await tick();
+    assert.equal(f.requests(), 1);
+    assert.equal(active, true);
+    f.backgroundCalls[0].onStarted();
+    assert.equal(active, false);
+    t.mock.timers.tick(5000);
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复' } }] }) });
+    await running;
+    assert.equal(f.requests(), 1);
 });
 
 test('send stays busy through prompt preparation and first response, then clears the placeholder', async () => {

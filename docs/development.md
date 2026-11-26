@@ -39,6 +39,30 @@ node --test public/app/tests/*.test.mjs server/st-new-updater/updater.test.mjs
 - 验证记录需注明日期、源码基线和环境；最近一次整体梳理见 [项目现状](project-status.md)，历史文档通过数不代表当前执行。
 - 若 Windows 沙箱临时目录中的更新测试因目录重命名报 `EPERM`，可把当前测试进程的 `TEMP/TMP` 指向仓库内已忽略的 `.audit-tmp` 后复跑；先确保目录存在，只影响本进程，不修改系统环境。仍失败时保留实际错误，不能归为通过或直接跳过。
 
+### Android APK 与 MuMu 模拟器
+
+本地 APK 可以直接用已安装的 MuMu 模拟器验收。Windows 的 MuMu 5 可通过 `MuMuManager.exe` 启动实例并查询 ADB 地址。当前验收机的可执行文件与 `adb.exe` 同在 `D:\Program Files\Netease\MuMu\nx_main`，验收实例为 Android 15。使用实际返回的实例索引和 ADB 地址。
+
+```powershell
+$mumu = 'D:\Program Files\Netease\MuMu\nx_main'
+$manager = Join-Path $mumu 'MuMuManager.exe'
+$adb = Join-Path $mumu 'adb.exe'
+$index = 0
+& $manager info --vmindex all
+& $manager control --vmindex $index launch
+# 等 Android 启动完成，再取本次地址。
+$device = & $manager info --vmindex $index | ConvertFrom-Json
+$serial = "$($device.adb_host_ip):$($device.adb_port)"
+& $adb connect $serial
+& $adb -s $serial shell getprop ro.build.version.sdk
+```
+
+从待验收源码构建 APK，构建脚本可用 `-JavaHome` 和 `-SdkRoot` 指定 JDK 与 Android SDK。需要和现有安装并行时，在 `.audit-tmp` 暂存副本里给 Manifest 包名加测试后缀，保留 Activity 和 Service 的完整 Java 类名，再用 `adb -s $serial install -r <测试APK路径>` 安装。APK 连接 `127.0.0.1` 上的酒馆。使用 Windows 上的模拟后端时，可用 `adb -s $serial reverse tcp:<模拟器端口> tcp:<Windows端口>` 映射本机端口，并在 APK 的连接失败页设置对应端口。测试结束后移除本次 `reverse` 映射。使用本地模拟模型和测试聊天时，可以据服务器记录判断请求实际到达的时间和次数。
+
+验收发送延迟时，配置一个足够操作的延迟，点发送后立即上滑回 Android 桌面，也可用 `adb -s $serial shell input keyevent KEYCODE_HOME`。保持 APK 在后台，确认倒计时结束前模型请求数为 0、结束后为 1。重新进入后检查回复已显示且没有重复请求，再复测倒计时内点停止及从最近任务移除 APK，两种操作均应让尚未交给后端的发送停止。模拟器结果记录 Android 版本、包类型、后端和观测到的时点。手机省电策略和厂商后台行为另外用真机验证。
+
+2026-11-26 在 MuMu Android 15（API 35）使用独立调试包、实际前端与后台生成插件、本机模拟模型验收。配置 8 秒延迟，点发送后立即切回桌面，后端在点击后约 8.1 秒收到唯一一条模型请求。拉长页面计时器后单独复测原生计时，仍在约 8.1 秒送达。返回 APK 后回复正常显示，后端接手后前台服务结束。倒计时内点击停止或划掉最近任务，模型请求数均未增加。
+
 ## 分支、worktree 与并行
 
 开始先识别已有修改，禁止自动 reset、清理、stash 或把用户成果提交进当前任务。2026-10-26 建立文档时 main 已有远程助手相关未提交文件；后续以实时 Git 状态为准。

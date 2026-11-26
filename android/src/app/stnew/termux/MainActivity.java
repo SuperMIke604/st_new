@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
@@ -63,6 +65,9 @@ public final class MainActivity extends Activity {
     private WebMessagePort accountLoginPort;
     private boolean signingIn;
     private WebMessagePort shellPort;
+    private final Handler sendDelayHandler = new Handler(Looper.getMainLooper());
+    private Runnable sendDelayTimer;
+    private String pendingSendId;
     private String shellScript;
     private boolean checkingUpdate;
     private int port;
@@ -209,6 +214,10 @@ public final class MainActivity extends Activity {
                     applySystemBarColors(Color.parseColor(colors[1]), Color.parseColor(colors[2]));
                 } else if ("check-apk-update".equals(data)) {
                     checkApkUpdate();
+                } else if (data.startsWith("send-delay-start:")) {
+                    startSendDelay(port, data);
+                } else if (data.equals("send-delay-end:" + pendingSendId)) {
+                    endSendDelay();
                 } else if (data.startsWith("export-")) {
                     fileExports.onMessage(port, data);
                 }
@@ -225,11 +234,46 @@ public final class MainActivity extends Activity {
     }
 
     private void disconnectShell() {
+        endSendDelay();
         fileExports.cancelTransfer();
         if (shellPort != null) {
             shellPort.close();
             shellPort = null;
         }
+    }
+
+    private void startSendDelay(WebMessagePort port, String data) {
+        if (!data.matches("send-delay-start:[0-9]{1,15}:[0-9]{1,10}")) return;
+        String[] fields = data.split(":");
+        String id = fields[1];
+        long delay = Long.parseLong(fields[2]);
+        if (delay < 1 || delay > Integer.MAX_VALUE) return;
+        if (sendDelayTimer != null) sendDelayHandler.removeCallbacks(sendDelayTimer);
+        boolean startService = pendingSendId == null;
+        pendingSendId = id;
+        sendDelayTimer = () -> {
+            if (port == shellPort && id.equals(pendingSendId)) {
+                port.postMessage(new WebMessage("send-delay-ready:" + id));
+            }
+        };
+        sendDelayHandler.postDelayed(sendDelayTimer, delay);
+        if (startService) {
+            try {
+                // The user starts the delay from the activity. The service promotes itself
+                // immediately and can be stopped even if the page cancels before it starts.
+                startService(new Intent(this, PendingSendService.class));
+            } catch (IllegalStateException | SecurityException error) {
+                Log.w("ST New", "Unable to keep the pending send active", error);
+            }
+        }
+    }
+
+    private void endSendDelay() {
+        if (pendingSendId == null) return;
+        pendingSendId = null;
+        sendDelayHandler.removeCallbacks(sendDelayTimer);
+        sendDelayTimer = null;
+        stopService(new Intent(this, PendingSendService.class));
     }
 
     private void downloadFile(String url, String disposition, String mimeType) {

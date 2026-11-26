@@ -37,7 +37,7 @@ export async function releaseBackgroundGeneration(api, id) {
     await api.post(endpoint, { action: 'release', id }, { signal: AbortSignal.timeout(5000) });
 }
 
-export async function chatGenerationResponse(api, body, signal, { id, resume = false, recovery, onFallback } = {}) {
+export async function chatGenerationResponse(api, body, signal, { id, resume = false, recovery, onStarted, onFallback } = {}) {
     // The APK adds this menu item after connecting to the local st_new page.
     if (!resume && !usesBackgroundGeneration()) {
         return api.response(directEndpoint, body, { signal });
@@ -109,6 +109,7 @@ export async function chatGenerationResponse(api, body, signal, { id, resume = f
                 onFallback?.();
                 return api.response(directEndpoint, body, { signal });
             }
+            onStarted?.();
         }
         let snapshot = await read();
         if (!snapshot.status) {

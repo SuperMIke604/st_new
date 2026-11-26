@@ -1,5 +1,5 @@
 (() => {
-    function connectExports(port) {
+    function connectExports(port, onSendDelayReady) {
         const chunkSize = 48 * 1024;
         let exporting = false;
         let reply;
@@ -7,6 +7,8 @@
             if (data.startsWith('download:')) {
                 const { url, name } = JSON.parse(data.slice('download:'.length));
                 void exportFile(url, name);
+            } else if (data.startsWith('send-delay-ready:')) {
+                onSendDelayReady(data.slice('send-delay-ready:'.length));
             } else if (reply) {
                 reply(data === 'export-ok');
             }
@@ -84,7 +86,21 @@
         if (!event.isTrusted || event.source !== null || event.data !== 'st-new-android-shell' || !event.ports[0]) return;
         window.removeEventListener('message', connect);
         const port = event.ports[0];
-        connectExports(port);
+        let sendId = 0;
+        let pendingSend;
+        connectExports(port, id => {
+            if (id === pendingSend?.id) pendingSend.ready();
+        });
+        window.stNewAndroidSendDelay = (delay, ready) => {
+            const id = String(++sendId);
+            port.postMessage(`send-delay-start:${id}:${delay}`);
+            pendingSend = { id, ready };
+            return () => {
+                if (pendingSend?.id !== id) return;
+                pendingSend = null;
+                port.postMessage(`send-delay-end:${id}`);
+            };
+        };
         const theme = document.querySelector('meta[name="theme-color"]');
         const root = document.documentElement;
         const hexColor = /^#[0-9a-f]{6}$/i;

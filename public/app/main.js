@@ -3627,14 +3627,19 @@ async function waitToSend(controller, seconds) {
     signal.throwIfAborted();
     const onPageHide = () => controller.abort(new DOMException('pagehide', 'AbortError'));
     window.addEventListener('pagehide', onPageHide);
-    let timer, onAbort;
+    let timer, onAbort, releaseNativeDelay;
     try {
         await new Promise((resolve, reject) => {
             onAbort = () => reject(signal.reason);
             signal.addEventListener('abort', onAbort, { once: true });
             timer = setTimeout(resolve, seconds * 1000);
+            releaseNativeDelay = window.stNewAndroidSendDelay?.(seconds * 1000, resolve);
         });
         signal.throwIfAborted();
+        return releaseNativeDelay;
+    } catch (error) {
+        releaseNativeDelay?.();
+        throw error;
     } finally {
         clearTimeout(timer);
         signal.removeEventListener('abort', onAbort);
@@ -3668,6 +3673,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
     const sendDelay = delaySend ? sendDelaySeconds(state.own.reading?.sendDelay) : 0;
     const showQueuedUser = delaySend && !regenerate && !retry;
     let waitingToSend = sendDelay > 0;
+    let releaseNativeDelay;
     state.busy = true; state.generation = { regenerate, reply: null }; state.controller = new AbortController();
     let user, reply = null; let replyIndex = -1; let pendingUser = false; let userSaved = false; let completed = false;
     let finishFirstText, finishModelResponse, finishRequest;
@@ -3715,7 +3721,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             }
         }
         if (waitingToSend) {
-            await loadTimings.measure(`等待发送（${sendDelay} 秒）`, 'generation', () => waitToSend(state.controller, sendDelay));
+            releaseNativeDelay = await loadTimings.measure(`等待发送（${sendDelay} 秒）`, 'generation', () => waitToSend(state.controller, sendDelay));
             waitingToSend = false;
         }
         if (delaySend) synchronizeScriptRuntime();
@@ -3801,6 +3807,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             return chatGenerationResponse(api, request, signal, {
                 id: backgroundJob?.id,
                 recovery: backgroundJob,
+                onStarted: releaseNativeDelay,
                 onFallback: () => {
                     if (backgroundJob) forgetBackgroundJob(backgroundJob);
                     backgroundJob = null;
@@ -3833,6 +3840,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             throw error;
         }
         const response = await pendingResponse;
+        releaseNativeDelay?.();
         let responseReasoning;
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
             const result = await response.json();
@@ -3882,6 +3890,7 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             notifyGeneration(state.error, true);
         }
     } finally {
+        releaseNativeDelay?.();
         if (!completed) {
             state.hiddenReply = null;
             setReplyWaiting();

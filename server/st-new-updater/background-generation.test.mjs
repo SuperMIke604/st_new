@@ -111,11 +111,13 @@ test('APK generation reads completed results after suspension and relays model f
     t.after(() => { globalThis.document = oldDocument; });
 
     let jobId;
+    let startAcknowledged = false;
     const origin = `http://127.0.0.1:${server.address().port}`;
     const api = {
         async post(...args) { return (await this.response(...args)).json(); },
         async response(path, body, { signal } = {}) {
             if (body.action === 'start') jobId = body.id;
+            if (body.action === 'read') assert.equal(startAcknowledged, true);
             const response = await fetch(origin + path, {
                 method: 'POST', body: JSON.stringify(body), signal,
                 headers: { 'x-csrf-token': 'fixture-token', authorization: 'Basic fixture', cookie: 'session=fixture' },
@@ -128,7 +130,9 @@ test('APK generation reads completed results after suspension and relays model f
     const id = 'a'.repeat(32);
     const recovery = { id, avatar: 'fixture.png', file: 'fixture', base: 'b'.repeat(64), regenerate: false, started: '' };
     // Drop the first page before it consumes the stream or persists the job ID.
-    await chatGenerationResponse(api, { stream: true }, new AbortController().signal, { id, recovery });
+    await chatGenerationResponse(api, { stream: true }, new AbortController().signal, {
+        id, recovery, onStarted: () => { startAcknowledged = true; },
+    });
     assert.deepEqual(await findBackgroundGeneration(api), recovery);
     await new Promise(resolve => setTimeout(resolve, 30));
     const forbidden = await fetch(origin + '/api/plugins/st-new-updater/generate-background', {
