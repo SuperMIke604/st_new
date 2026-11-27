@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { embeddedWorld, importCharacterWorld } from '../character-world.js';
+import { embeddedWorld, hasEmbeddedWorld, importCharacterWorld, saveCharacterWorldBinding } from '../character-world.js';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { filterCards, libraryState, moveCards } from '../library.js';
@@ -64,4 +64,38 @@ test('missing named lore can be recovered from embedded entries; cards without l
     const api = { post: async path => { assert.equal(path, '/api/characters/get'); return character; } };
     const result = await importCharacterWorld(api, 'card.png', name => name);
     assert.equal(result.imported, false); assert.equal(embeddedWorld(character), null);
+});
+
+test('binding and replacing lore update only the role link; explicit unbinding preserves but disables embedded lore', async () => {
+    const book = { entries: [{ keys: ['猫'], content: '背景' }] };
+    const character = { data: { extensions: { future: { keep: true } }, character_book: book } };
+    const updates = [];
+    const api = { async post(path, body) {
+        if (path === '/api/characters/get') {
+            assert.equal(body.avatar_url, 'card.png');
+            return structuredClone(character);
+        }
+        assert.equal(path, '/api/characters/merge-attributes');
+        assert.equal(body.avatar, 'card.png');
+        updates.push(body.data);
+        Object.assign(character.data.extensions, body.data.extensions);
+    } };
+    for (const world of ['第一次绑定', '替换']) {
+        const saved = await saveCharacterWorldBinding(api, 'card.png', world);
+        assert.deepEqual(updates.at(-1), { extensions: { world } });
+        assert.equal(saved.data.extensions.world, world);
+    }
+    const saved = await saveCharacterWorldBinding(api, 'card.png', '', { disableEmbedded: true });
+    assert.equal(saved.data.extensions.world, '');
+    assert.deepEqual(saved.data.extensions.future, { keep: true });
+    assert.deepEqual(saved.data.character_book, book);
+    assert.equal(hasEmbeddedWorld(saved.data), false);
+    assert.equal((await importCharacterWorld(api, 'card.png', String)).imported, false);
+});
+
+test('a write rejected by the host or missing from readback does not report a saved binding', async () => {
+    const rejected = { post: async () => { throw new Error('write failed'); } };
+    await assert.rejects(saveCharacterWorldBinding(rejected, 'card.png', 'new'), /write failed/);
+    const unchanged = { post: async () => ({ data: { extensions: { world: 'old' } } }) };
+    await assert.rejects(saveCharacterWorldBinding(unchanged, 'card.png', 'new'), /回读核验失败/);
 });

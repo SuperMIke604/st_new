@@ -1,13 +1,14 @@
 {
   "schema": 1,
-  "revision": "55e46867a82ae8b22ed7c5571c00b9e15e5ca4f9c4d5a209515432c62001bcb7",
-  "publishedAt": "2026-11-26T10:07:04.851003+00:00",
+  "revision": "d0cee45b3a92b462c93cf2163fc38249768b79e4669f0a74853744044c9e53d8",
+  "publishedAt": "2026-11-27T01:02:30.030738+00:00",
   "files": {
     "public/app/api.js": "76afd43829e90bb3f84385a116de1d3e96ed8f405b511e4048e12fbe3fcad14d",
     "public/app/background-generation.js": "70d0c37a99296b9b7085dbe58f0f1bb246e0b5ae3c0517fb748fa6910ee40032",
     "public/app/category-select.js": "66825f8ec6611bbdef8b61803e489debec8a250e8a035003090391c726966ce9",
     "public/app/character-catalog.js": "cee65dca5dc82a26a59b848217953a6ba034578483450e3bd734f65f364cfbad",
-    "public/app/character-world.js": "7d6a9d4fea5315550281e71b0cd36153d2a2ed16fa5595ca371430dbd9b99c52",
+    "public/app/character-world-dialog.js": "8b572fe68d0b57ce3fed1d84b3a1ffa1264b0a1f0ef94772d313438e4c6e3e72",
+    "public/app/character-world.js": "c4d55e53f9db8402cbec396eedf838e847eec25146034be6ddc13ebfdadd97bb",
     "public/app/chat-delta.js": "ae443a49a3f2cdf375243824807e94117892b9b02373303cdbf6724e89cfa677",
     "public/app/chat-history.js": "81a83b4a67924004a6ad3523b71d0442955bd2bd39213f3067c84cc5b96b4249",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
@@ -44,7 +45,7 @@
     "public/app/login.css": "b7d16ccb921a9d62e870e603e745b18956eba5514a0b2246456f38f91a37cecb",
     "public/app/login.html": "f4998bc5a0b2749658ff6f4daef371071eea18a2f10a20a306c3ece5da8382db",
     "public/app/login.js": "1dff84b3ed4d37772898d5b36d8a6fe2313c9a83b97b0f5ddad7464f33e834d9",
-    "public/app/main.js": "d5e961d45fb07f3c9ebe5c08641f1504b9b1c0a2b176d5e35affde6758e0741e",
+    "public/app/main.js": "255fef5b84c3cc9a30c53e7f641c8b647989fc8898c6ebb69897969e3e022261",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -76,7 +77,7 @@
     "public/app/script-schema.js": "4fafcf2c094225532483d518154dbb3e90e3660dc5fa6aae00e643c2eb619eac",
     "public/app/scripts.js": "df5d566634820ac9a07ddc83c3529a939ee633b89d33c7f7432141c40ab6ce25",
     "public/app/select.js": "36a47af53eb58868b06589056ad728eec3dce5213b4abc80748c2fa35cb007d5",
-    "public/app/style.css": "f2b875a8b5b25c5ca01ec1cec6583e3490bd45214e7c348f63ddbe000953471b",
+    "public/app/style.css": "c7dcc85148aca5812f813a8ce5498d726503a3ac67c29d73ea55cea8f440ca8d",
     "public/app/theme-init.js": "f3cbae8bbff218ce5b8a05f94bd640f2a84482c377142e82b8e38126e0340fa3",
     "public/app/toast.js": "7ff1909c74909d3cb404d7f2cd6a0291fc1d3f72301e7d7249440f42218c8251",
     "public/app/typography.css": "6f5ad613501af4b0821a68881225b34d254d17c322308e80caa91f34d6a6a915",
@@ -98,7 +99,7 @@
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "c85e99210d249698445e4e4dc5a53fcdbf88321122c157f26e89fee4e166e014",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "1cd12335bf7bdf33b967e8e1a17714ccab06a25d8b4971f246fcde498fd31025"
+    "public/app/version.js": "6dd7fdc61b23d313e850b4d4c9424af7d65cceb20dc8c1917bcedc41f92c6851"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",

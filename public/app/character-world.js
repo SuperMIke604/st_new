@@ -1,3 +1,20 @@
+// Keep the embedded book in the card for export, even after explicitly unbinding it.
+export function hasEmbeddedWorld(card) {
+    return !!card?.character_book?.entries && card.extensions?.independent_world_unbound !== true;
+}
+
+export async function saveCharacterWorldBinding(api, avatar, name, { disableEmbedded = false } = {}) {
+    const extensions = { world: name };
+    if (disableEmbedded) extensions.independent_world_unbound = true;
+    await api.post('/api/characters/merge-attributes', { avatar, data: { extensions } });
+    const character = await api.post('/api/characters/get', { avatar_url: avatar }, { signal: AbortSignal.timeout(15000) });
+    const saved = (character.data || character).extensions;
+    if ((saved?.world || '') !== name || (disableEmbedded && saved?.independent_world_unbound !== true)) {
+        throw new Error('世界书绑定回读核验失败，请重试。');
+    }
+    return character;
+}
+
 export function embeddedWorld(character) {
     const card = character.data || character, book = card.character_book;
     if (!book?.entries) return null;
@@ -21,7 +38,7 @@ export function embeddedWorld(character) {
 
 export async function importCharacterWorld(api, avatar, safeName) {
     const character = await api.post('/api/characters/get', { avatar_url: avatar });
-    const card = character.data || character, book = embeddedWorld(character);
+    const card = character.data || character, book = hasEmbeddedWorld(card) ? embeddedWorld(character) : null;
     if (!book) return { character, name: card.extensions?.world || '', imported: false };
     const available = await api.post('/api/worldinfo/list');
     if (card.extensions?.world && available.some(item => item.file_id === card.extensions.world)) return { character, name: card.extensions.world, imported: false };

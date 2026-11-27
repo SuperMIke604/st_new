@@ -351,6 +351,9 @@ dialog.timing-panel{width:min(850px,calc(100vw - 24px))}.timing-body{padding:20p
 .compact-dialog h2{margin:0 0 16px}
 .compact-dialog-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .compact-dialog{background:var(--surface);border:1px solid var(--line);border-radius:var(--control-radius)}
+.card-world-action{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:pan-y}
+.world-binding-dialog [hidden]{display:none}
+.world-binding-dialog .note{overflow-wrap:anywhere}
 dialog.variable-panel{width:min(850px,calc(100vw - 24px))}
 .variable-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .variable-toolbar .field{margin:0}

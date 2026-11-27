@@ -40,7 +40,8 @@ import { worldDraft, renderWorldEntries } from './world-editor.js';
 import { renderGlobalWorldSelect } from './world-select.js';
 import { decorateCodeBlocks, refreshHtmlVariables } from './code-blocks.js';
 import { messageMarkdown, displayNameMacros } from './message-markdown.js';
-import { embeddedWorld, importCharacterWorld } from './character-world.js';
+import { embeddedWorld, hasEmbeddedWorld, importCharacterWorld, saveCharacterWorldBinding } from './character-world.js';
+import { installWorldBindingGesture, showWorldBindingDialog } from './character-world-dialog.js';
 import { readingFields, readingSettings, applyReading, sendDelaySeconds, maxSendDelay } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
 import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
@@ -846,6 +847,7 @@ async function initializeConnections(connectionsRequest) {
 
 function disposePanelWork() {
     $('panel').querySelector(':scope > .name-dialog[open]')?.close();
+    $('panel').querySelector(':scope > .world-binding-dialog[open]')?.close();
     $('panel-body').querySelector(':scope > .panel-content')?._dispose?.();
 }
 function panelNavigationBlocked() {
@@ -2344,7 +2346,7 @@ async function prepareRoleMvu(generation = false, rawReply = null) {
         let seed = state.header?.chat_metadata?.independentMvuSeed;
         if (!seed) {
             const card = state.character?.data || state.character, name = card?.extensions?.world;
-            const book = name ? await roleWorldbook(name, identity) : card?.character_book;
+            const book = name ? await roleWorldbook(name, identity) : hasEmbeddedWorld(card) ? card.character_book : null;
             seed = initialVariablesFromBook(book);
         }
         if (identity !== scriptIdentity()) throw Error('聊天已切换，变量未写入。');
@@ -2700,7 +2702,9 @@ async function renderCharacterPanel(body, revision, force = false, timing) {
             const info = el('div', 'card-info');
             info.append(el('h3', '', card.name), el('small', 'card-category', library.folders.find(item => item.id === library.assignments[card.avatar])?.name || '未分类'));
             const actions = el('div', 'card-actions');
-            actions.append(action('聊天', enterChat, 'chat'), action('编辑', () => characterEditor(card.avatar), 'edit'), action('世界书', () => openCharacterWorld(card.avatar), 'book'));
+            const world = action('世界书', () => openCharacterWorld(card.avatar), 'book', 'card-world-action');
+            installWorldBindingGesture(world, () => run(() => manageCharacterWorld(card, world)));
+            actions.append(action('聊天', enterChat, 'chat'), action('编辑', () => characterEditor(card.avatar), 'edit'), world);
             actions.append(action('导出', async () => {
                 const response = await api.response('/api/characters/export', { avatar_url: card.avatar, format: 'png' });
                 const url = URL.createObjectURL(await response.blob()), link = el('a'); link.href = url; link.download = `${safeName(card.name || '角色卡')}.png`;
@@ -2857,8 +2861,8 @@ async function characterEditor(avatar = state.character?.avatar) {
     if (revision !== panelRevision) return;
     const card = editing?.data || editing || {};
     if (editing) {
-        note(body, `关联世界书：${card.extensions?.world || (card.character_book?.entries ? '内嵌世界书（尚未提取）' : '未关联')}`);
-        if (card.extensions?.world || card.character_book?.entries) body.append(action('查看角色世界书', async () => {
+        note(body, `关联世界书：${card.extensions?.world || (hasEmbeddedWorld(card) ? '内嵌世界书（尚未提取）' : '未关联')}`);
+        if (card.extensions?.world || hasEmbeddedWorld(card)) body.append(action('查看角色世界书', async () => {
             if (panelDirty && !confirm('放弃未保存的角色修改并查看世界书？')) return;
             panelDirty = false; await openCharacterWorld(editing.avatar);
         }, 'book'));
@@ -3025,12 +3029,45 @@ async function personaEditor(avatar = null) {
     if (!avatar) name.focus();
 }
 
+function manageCharacterWorld(card, trigger) {
+    const panel = $('panel');
+    if (panel.querySelector(':scope > .world-binding-dialog[open]')) return;
+    const { avatar } = card;
+    const fresh = () => ({ signal: AbortSignal.timeout(15000) });
+    let disableEmbedded = false;
+    showWorldBindingDialog({
+        panel, trigger, characterName: card.name, el, action,
+        load: async () => {
+            const [character, worlds] = await Promise.all([
+                api.post('/api/characters/get', { avatar_url: avatar }, fresh()),
+                api.post('/api/worldinfo/list', {}, fresh()),
+            ]);
+            disableEmbedded = hasEmbeddedWorld(character.data || character);
+            return { character, worlds };
+        },
+        save: async name => {
+            if (name) {
+                const worlds = await api.post('/api/worldinfo/list', {}, fresh());
+                if (!worlds.some(book => book.file_id === name)) throw new Error('这本世界书已不存在，请重新打开弹窗后选择。');
+            }
+            assertIdle();
+            const character = await saveCharacterWorldBinding(api, avatar, name, { disableEmbedded: !name && disableEmbedded });
+            if (state.character?.avatar === avatar) {
+                state.character = character;
+                generationPreload.invalidate();
+                synchronizeScriptRuntime();
+            }
+            notify(name ? '世界书绑定已保存' : '世界书已解绑');
+        },
+    });
+}
+
 async function openCharacterWorld(avatar) {
     assertIdle();
     let character = await api.post('/api/characters/get', { avatar_url: avatar });
     let card = character.data || character;
-    if (!card.extensions?.world && !card.character_book?.entries) throw new Error('这个角色没有关联或内嵌世界书。');
-    if (card.character_book?.entries) {
+    if (!card.extensions?.world && !hasEmbeddedWorld(card)) throw new Error('这个角色没有关联世界书。长按世界书按钮可以绑定。');
+    if (hasEmbeddedWorld(card)) {
         const result = await importCharacterWorld(api, avatar, safeName); character = result.character; card = character.data || character;
         if (state.character?.avatar === avatar) state.character = character;
         if (result.imported) { characterCatalog.invalidate(); await loadCharacterCatalog(true); notify('角色世界书已提取并关联'); }
@@ -3222,7 +3259,7 @@ async function loadBooks(options) {
     const books = await Promise.all([...names].filter(Boolean).map(name => api.post('/api/worldinfo/get', { name }, options)));
     // Native imports can materialize the embedded book into a named world.
     // Prefer that editable named world instead of injecting the same book twice.
-    if (card.character_book?.entries && !names.has(linked)) {
+    if (hasEmbeddedWorld(card) && !names.has(linked)) {
         books.push(embeddedWorld(state.character));
     }
     return books;
