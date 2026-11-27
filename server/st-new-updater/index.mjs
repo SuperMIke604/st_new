@@ -966,13 +966,12 @@ export async function init(router, { root = process.cwd(), pluginFile = fileURLT
                 return response.json(recent.map(item => ({ ...item, avatar: aliases.get(item.avatar), characterName: names.get(item.avatar) || item.characterName })));
             }
             const recent = await listRecentCharacters(directories, io, display ? isDisplayCard : undefined);
-            if (display && recent.length) {
-                const recentAvatars = new Set(recent.map(item => item.avatar));
-                const names = new Map((await catalog(directories.characters, 'characters', name => recentAvatars.has(name)))
-                    .map(card => [card.avatar, card.name]));
-                return response.json(recent.filter(item => names.has(item.avatar)).map(item => ({ ...item, characterName: names.get(item.avatar) })));
-            }
-            return response.json(recent);
+            if (!recent.length) return response.json(recent);
+            const recentAvatars = new Set(recent.map(item => item.avatar));
+            const names = new Map((await catalog(directories.characters, 'characters', name => recentAvatars.has(name)))
+                .map(card => [card.avatar, card.name]));
+            return response.json(recent.filter(item => !display || names.has(item.avatar))
+                .map(item => ({ ...item, characterName: names.get(item.avatar) || item.characterName })));
         }
         catch (error) { response.status(500).json({ error: error.message }); }
     });

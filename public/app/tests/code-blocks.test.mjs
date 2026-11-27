@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { codeLanguage, codeTokens, previewDocument, isHtmlPreview, decorateCodeBlocks } from '../code-blocks.js';
 
 test('complete imported HTML documents render even when their fences say text or test', () => {
@@ -78,6 +79,38 @@ test('sample card send bridge compiles and preserves multiline form content', ()
     assert.doesNotThrow(()=>new Function(script));
     assert.ok(script.includes('triggerSlash'));
     assert.ok(html.includes('https://fonts.googleapis.com'));
+});
+
+test('opening send forwards literal form data and is scoped to the opening preview', async () => {
+    const originalDocument = globalThis.document, originalWindow = globalThis.window;
+    const source = `<script>
+async function submit(body){var sent=sendBody(body);return sent;}
+function sendBody(text){
+  const d2=parent.document;
+  d2.getElementById('send_textarea').value=text;
+  d2.getElementById('send_but').click();
+}
+function archItems(){}
+</script>`;
+    let frame;
+    const code = { textContent: source, classList: ['language-html'], parentElement: { replaceWith(value) { frame = value; } } };
+    globalThis.document = { createElement() { return { setAttribute() {}, addEventListener() {} }; } };
+    globalThis.window = { addEventListener() {} };
+    try {
+        const action = (...args) => args;
+        decorateCodeBlocks({ querySelectorAll: () => [code] }, { messageId: 0, scriptAction: action });
+        assert.match(frame.srcdoc, /"openingSend":true/);
+        const calls = [];
+        const context = { window: { __sendOpening: async body => calls.push(body) } };
+        const script = [...frame.srcdoc.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+        vm.runInNewContext(script, context);
+        const body = '第一行 | 台词\n第二行';
+        assert.equal(await context.submit(body), true);
+        assert.deepEqual(calls, [body]);
+        assert.deepEqual(frame._scriptAction('send-opening', { text: body }), ['send-opening', { text: body }]);
+        decorateCodeBlocks({ querySelectorAll: () => [code] }, { messageId: 1, scriptAction: action });
+        assert.throws(() => frame._scriptAction('send-opening', { text: body }), /不支持/);
+    } finally { globalThis.document = originalDocument; globalThis.window = originalWindow; }
 });
 
 test('multiple data-driven cards keep separate block ordinals within their owning message', () => {

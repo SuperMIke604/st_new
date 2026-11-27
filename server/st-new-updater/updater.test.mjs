@@ -400,6 +400,25 @@ test('recent role index uses directory metadata only and returns six unique role
     assert.equal(result.length, 6); assert.equal(result[0].avatar, 'role7.png'); assert.equal(result[0].file_name, 'new.jsonl'); assert.equal(stats, 16);
 });
 
+test('recent home route reflects a saved character name while preserving the chat link', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'st-recent-name-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const directories = { characters: path.join(root, 'characters'), chats: path.join(root, 'chats') };
+    const avatar = 'original.png', chat = 'session.jsonl';
+    const card = path.join(directories.characters, avatar), folder = path.join(directories.chats, 'original');
+    await Promise.all([fs.mkdir(directories.characters), fs.mkdir(folder, { recursive: true })]);
+    const writeCard = name => fs.writeFile(card, Buffer.concat([signature, header, text('chara', { name: '旧名字', data: { name } }), chunk('IEND', Buffer.alloc(0))]));
+    await writeCard('旧名字');
+    await fs.writeFile(path.join(folder, chat), 'unread chat');
+    const routes = new Map();
+    await init({ post: (route, handler) => routes.set(route, handler) });
+    const list = () => routes.get('/recent')({ user: { directories } }, { json: value => value, status: code => assert.fail(`unexpected ${code}`) });
+    const [before] = await list();
+    assert.equal(before.characterName, '旧名字');
+    await writeCard('改名后的角色');
+    assert.deepEqual(await list(), [{ ...before, avatar, file_name: chat, characterName: '改名后的角色' }]);
+});
+
 test('display reads and writes selected shared settings without routing private resources to the owner', async t => {
     const { registerSharedDisplayConfig } = await import('./index.mjs');
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'st-display-shared-'));

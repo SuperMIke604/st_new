@@ -15,7 +15,15 @@ export class RecentCharacters {
         try { return await this.api.post('/api/plugins/st-new-updater/recent', {}, { signal: AbortSignal.timeout(10000), fallbackStatuses: [404] }); }
         catch (error) {
             if (error.status !== 404) throw error;
-            return this.api.post('/api/chats/recent', { max: 12 }, { signal: AbortSignal.timeout(15000) });
+            const recent = await this.api.post('/api/chats/recent', { max: 12 }, { signal: AbortSignal.timeout(15000) });
+            if (!Array.isArray(recent)) return recent;
+            const avatars = [...new Set(recent.map(chat => chat?.avatar).filter(Boolean))].slice(0, 6);
+            const cards = await Promise.allSettled(avatars.map(avatar_url => this.api.post('/api/characters/get', { avatar_url }, { signal: AbortSignal.timeout(5000) })));
+            const names = new Map(avatars.map((avatar, index) => {
+                const card = cards[index].value;
+                return [avatar, card?.data?.name || card?.name];
+            }));
+            return recent.map(chat => names.get(chat?.avatar) ? { ...chat, characterName: names.get(chat.avatar) } : chat);
         }
     }
 }

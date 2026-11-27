@@ -84,7 +84,8 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
 test('composer submit immediately shows the card and waits five seconds before generation', async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const f = fixture({ native: true });
-    const running = f.run(false, { delaySend: true });
+    let queued = 0;
+    const running = f.run(false, { delaySend: true, onQueued: () => { queued++; } });
     assert.equal(f.input.value, '');
     assert.equal(f.renders.at(-1).at(-1).text, '测试消息');
     assert.equal(f.scrollModes.at(-1), true);
@@ -102,6 +103,7 @@ test('composer submit immediately shows the card and waits five seconds before g
     assert.deepEqual(f.saveOptions, []);
     assert.deepEqual(f.promptHistory, []);
     assert.equal(f.requests(), 0);
+    assert.equal(queued, 1, 'the card submission is acknowledged once before the delayed request');
     t.mock.timers.tick(1);
     f.prepared.resolve({ messages: [] });
     await tick();
@@ -109,6 +111,7 @@ test('composer submit immediately shows the card and waits five seconds before g
     assert.deepEqual(f.helperEvents, ['generation_started', 'message_sent']);
     assert.equal(f.requests(), 1);
     assert.equal(f.scrollModes.at(-1), false, 'request start preserves the scroll position after the preview');
+    assert.equal(f.state.generation.pendingDisplayUser, f.state.chat.at(-2), 'history keeps its display depth until a reply is visible');
     f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复<UpdateVariable></UpdateVariable>' } }] }) });
     await running;
     assert.equal(f.state.chat.filter(message => message.is_user).length, 1);

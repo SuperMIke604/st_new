@@ -3,6 +3,24 @@ import { remoteHtmlUrl, fetchRemoteHtml, remoteHtmlDocument } from './html-card-
 import { adaptHtmlOpening, adaptMvuSealOpening } from './html-opening.js';
 import { adaptHtmlMvuReparse } from './html-mvu-reparse.js';
 import { adaptHtmlOrder } from './html-order.js';
+import { adaptMazeSend } from './html-maze-send.js';
+
+function adaptOpeningSend(source) {
+    // Keep the form and its generated text. Replace only the send path.
+    if (source.includes('var sent=sendBody(body);') && source.includes("d2.getElementById('send_textarea')") && source.includes("d2.getElementById('send_but')")) {
+        const nativeSend = /function sendBody\(text\)\{[\s\S]*?\n\}(?=\s*function archItems\()/;
+        if (nativeSend.test(source)) return source
+            .replace(nativeSend, 'async function sendBody(text){\n  try{await window.__sendOpening(text);return true;}catch(error){window.alert(error.message);return false;}\n}')
+            .replace('var sent=sendBody(body);', 'var sent=await sendBody(body);');
+    }
+    const legacySend = /triggerSlash\(`\/send \$\{txt\.replace\(\/\\n\/g,' '\)\} \| \/trigger`\);/;
+    if (source.includes('function sub(){') && legacySend.test(source)) {
+        return source.replace('function sub(){', 'async function sub(){')
+            .replace(legacySend, 'await window.__sendOpening(txt.replace(/\\n/g,\' \'));')
+            .replace('alert("错误");console.error(e);', 'alert(e.message);console.error(e);');
+    }
+    return null;
+}
 const aliases = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', htm: 'html', xml: 'html' };
 export function codeLanguage(value = '') { const language = value.toLowerCase().replace(/^language-/, '').split(/\s/)[0]; return aliases[language] || language; }
 export function isHtmlPreview(source, language = '') {
@@ -208,11 +226,16 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const canOpen = messageId === 0 && role === 'assistant' && scriptAction;
             const seal = canOpen ? adaptMvuSealOpening(source) : null;
             const opening = seal || (canOpen ? adaptHtmlOpening(source) : null);
+            const openingSend = canOpen && !opening ? adaptOpeningSend(source) : null;
             const reparse = Number.isSafeInteger(messageId) && messageId > 0 && role === 'assistant' && scriptAction ? adaptHtmlMvuReparse(source) : null;
+            const mazeSend = Number.isSafeInteger(messageId) && messageId >= 0 && role === 'assistant' && scriptAction && !opening && !openingSend && !reparse
+                ? adaptMazeSend(source, messageId === 0) : null;
             const frame = document.createElement('iframe'); frame.className = 'html-message'; frame.title = 'HTML 内容';
             if (Number.isInteger(messageId) && messageId >= 0) frame.name = `TH-message--${messageId}--preview`;
             frame._send = send; frame._notify = notify; frame._edit = edit;
             frame._scriptAction = (operation, payload) => {
+                if (operation === 'send-opening' && !openingSend) throw Error('此消息不支持直接发送开局。');
+                if (operation === 'send-card-message' && !mazeSend) throw Error('此消息不支持直接发送指令。');
                 if (operation.startsWith('opening-') && (!opening || operation.startsWith('opening-seal') !== !!seal)) throw Error('此消息不支持该开局操作。');
                 if (operation.startsWith('mvu-') && !reparse) throw Error('此消息不支持重填 MVU 变量。');
                 return scriptAction?.(operation, payload);
@@ -229,7 +252,9 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const context = { messageId: Number.isInteger(messageId) ? messageId : 0, message, name: messageName, role, personaName, blockIndices, variables, helper: frame._helper, scriptActions: !!scriptAction, opening: !!opening, swipes: Array.isArray(swipes) && JSON.stringify(swipes).length <= 500000 ? swipes : undefined };
             const remote = remoteHtmlUrl(source);
             context.mvuReparse = !!reparse;
-            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? reparse ?? source, context);
+            context.openingSend = !!openingSend && !remote;
+            context.cardSend = !!mazeSend && !remote;
+            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? openingSend ?? reparse ?? mazeSend ?? source, context);
             pre.replaceWith(frame); registerPreview(frame);
             if (remote) void fetchRemoteHtml(remote).then(html => {
                 if (frame.isConnected) frame.srcdoc = previewDocument(remoteHtmlDocument(html), context, true);

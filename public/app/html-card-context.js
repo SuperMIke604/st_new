@@ -12,7 +12,7 @@ export function htmlCardContext(snapshot) {
     const clone = value => JSON.parse(JSON.stringify(value));
     let requestId = 0; const pendingRequests = new Map();
     const request = (operation, payload) => new Promise((resolve, reject) => {
-        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' ? 600000 : operation.startsWith('opening-') || operation === 'mvu-reparse' ? 90000 : 20000);
+        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' || operation === 'send-opening' ? 600000 : operation.startsWith('opening-') || operation === 'mvu-reparse' ? 90000 : 20000);
         pendingRequests.set(id, { resolve, reject, timer }); parent.postMessage({ type: 'tavern-html-request', id, operation, payload }, '*');
     });
     if (snapshot.scriptActions) {
@@ -20,6 +20,8 @@ export function htmlCardContext(snapshot) {
         window.setChatMessages = messages => request('set-messages', { messages });
     }
     if (snapshot.opening) window.__companionOpening = (operation, payload) => request('opening-' + operation, payload);
+    if (snapshot.openingSend) window.__sendOpening = text => request('send-opening', { text });
+    if (snapshot.cardSend) window.__sendCardMessage = text => request('send-card-message', { text });
     if (snapshot.mvuReparse) window.__companionMvu = async (operation, payload) => {
         const result = await request('mvu-' + operation, payload);
         if (operation === 'reparse') snapshot.variables = clone(result.data);
@@ -30,6 +32,10 @@ export function htmlCardContext(snapshot) {
     const ready = callback => {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true });
         else queueMicrotask(callback);
+    };
+    if (snapshot.cardSend && snapshot.helper) window.__whenHtmlHelperReady = callback => {
+        if (helperLoaded) ready(callback);
+        else helperReady.push(() => ready(callback));
     };
     window.getCurrentMessageId = () => snapshot.messageId;
     window.getChatMessages = id => Number(id) === snapshot.messageId ? [{

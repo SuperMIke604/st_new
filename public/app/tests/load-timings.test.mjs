@@ -166,15 +166,16 @@ test('optional updater 404s are compatibility records while native fallbacks sti
     globalThis.fetch = async path => {
         paths.push(path);
         if (path.startsWith('/api/plugins/')) return new Response('not installed', { status: 404 });
+        if (path === '/api/characters/get') return new Response(JSON.stringify({ name: '测试角色' }));
         return new Response(JSON.stringify(path === '/api/settings/get' ? { settings: '{}' } : [{ avatar: 'test.png' }]));
     };
     try {
         const api = new TavernAPI();
         await api.bootstrapSettings();
-        assert.equal((await new RecentCharacters(api).load())[0].avatar, 'test.png');
-        assert.deepEqual(paths, ['/api/plugins/st-new-updater/bootstrap', '/api/settings/get', '/api/plugins/st-new-updater/recent', '/api/chats/recent']);
+        assert.deepEqual((await new RecentCharacters(api).load())[0], { avatar: 'test.png', characterName: '测试角色' });
+        assert.deepEqual(paths, ['/api/plugins/st-new-updater/bootstrap', '/api/settings/get', '/api/plugins/st-new-updater/recent', '/api/chats/recent', '/api/characters/get']);
         const records = loadTimings.snapshot();
-        assert.deepEqual(records.map(entry => entry.status), ['fallback', 'success', 'fallback', 'success']);
+        assert.deepEqual(records.map(entry => entry.status), ['fallback', 'success', 'fallback', 'success', 'success']);
         assert.equal(records[0].httpStatus, 404);
         assert.equal(timingStatusText(records[0]), '兼容回退');
         assert.match(timingDetailText(records[0]), /HTTP 404.*兼容接口/);

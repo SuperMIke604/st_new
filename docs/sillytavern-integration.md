@@ -69,7 +69,7 @@
 
 ## 可选自有插件与升级核验
 
-`server/st-new-updater/index.mjs` 是本项目代码，不是官方后端修改。`recent` 扫描文件名和 mtime；`bootstrap` 读取当前用户设置和 OpenAI 预设；`status/install` 管理共享前端与插件更新。
+`server/st-new-updater/index.mjs` 是本项目代码，不是官方后端修改。`recent` 按聊天文件的 mtime 找到最近角色，再从入选角色卡的目录缓存中读取显示名。`bootstrap` 读取当前用户设置和 OpenAI 预设。`status/install` 管理共享前端与插件更新。
 
 `bootstrap`、`recent`、轻量角色目录 `characters` 和世界书列表 `worlds` 的 404 可回退原生接口；目录接口缺失在本 API 实例内记忆，更新插件并重启后刷新前端即可重新探测。配置文件首次不存在也有特定处理。认证失败、超时或损坏响应不得静默当作默认配置覆盖。
 

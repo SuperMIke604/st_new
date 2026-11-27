@@ -520,6 +520,9 @@ function messageAtNode(node) {
 function renderMessage(message, index, existing) {
     const node = existing || el('article', 'message');
     const names = { user: persona().name, char: state.character?.name || 'Assistant' };
+    const queuedUser = state.generation?.queuedUser || state.generation?.pendingDisplayUser;
+    const historyLength = queuedUser && list.messages.at(-1) === queuedUser ? list.messages.length - 1 : null;
+    const depth = (historyLength !== null && message !== queuedUser ? historyLength : list.messages.length) - index - 1;
     node._message = message;
     node.classList.toggle('from-user', !!message.is_user);
     if (!existing) {
@@ -546,7 +549,7 @@ function renderMessage(message, index, existing) {
         visibility?.remove();
     }
     let switches = node.querySelector('.message-swipe-buttons');
-    if (!message.is_user && index === state.chat.length - 1) {
+    if (!message.is_user && index === (historyLength ?? state.chat.length) - 1) {
         if (!switches) { switches = el('div','message-swipe-buttons');
             for (const [delta,label,glyph] of [[-1,'上一条回复','left'],[1,'下一条回复或重新生成','right']]) switches.append(action(label, async () => { assertIdle(); if(state.dirty) await saveChat(); assertSaved(); const current=state.chat[index]; const next=(Number(current.swipe_id)||0)+delta; if(next<0)return; if(next>=(current.swipes?.length||1)) {if(index !== 0) await generate(true);return;} current.swipe_id=next;current.mes=current.swipes[next];if(current.swipe_info?.[next])Object.assign(current,copy(current.swipe_info[next]));invalidateDatabases(state.chat,index);list.update(index);await saveChat(); }, glyph)); const bottom=node.querySelector('.message-jumps-bottom'); bottom.append(switches); }
         for (const [i, label] of (index === 0 ? ['上一条开场白', '下一条开场白'] : ['上一条回复', '下一条回复或重新生成']).entries()) { switches.children[i].setAttribute('aria-label', label); switches.children[i].title = label; }
@@ -563,7 +566,10 @@ function renderMessage(message, index, existing) {
             reasoning = el('details', 'message-reasoning'); reasoning.append(el('summary', '', '思考过程'), el('pre'));
             node.querySelector('.message-content').before(reasoning);
         }
-        reasoning.querySelector('pre').textContent = displayNameMacros(regexText(message.extra.reasoning, 6, { phase: 'display', depth: state.chat.length - index - 1 }), names);
+        const reasoningDepth = historyLength === null ? state.chat.length - index - 1 : depth;
+        const renderedReasoning = displayNameMacros(regexText(message.extra.reasoning, 6, { phase: 'display', depth: reasoningDepth }), names);
+        const reasoningText = reasoning.querySelector('pre');
+        if (reasoningText.textContent !== renderedReasoning) reasoningText.textContent = renderedReasoning;
     } else reasoning?.remove();
     node.querySelector('.message-name').textContent = message.name || (message.is_user ? persona().name : state.character?.name || 'Assistant');
     const floor = node.querySelector('.message-number');
@@ -598,13 +604,11 @@ function renderMessage(message, index, existing) {
         queueMicrotask(() => { if (anchor.isConnected) scriptRuntime.bindChat(anchor, index); });
         return node;
     }
-    const queuedUser = state.generation?.queuedUser;
-    const depth = list.messages.length - index - 1 - Number(Boolean(queuedUser && message !== queuedUser));
     const contentChanged = node._text !== message.mes || node._preset !== state.preset || node._userName !== names.user || node._charName !== names.char;
     const displayText = contentChanged || node._depth !== depth
         ? displayNameMacros(regexText(message.mes, message.is_user ? 1 : 2, { phase: 'display', depth }), names)
         : node._displayText;
-    // Committing a queued message changes history depth, but only changed output needs new DOM.
+    // Keep mounted HTML when a depth change produces the same display text.
     if (contentChanged || node._displayText !== displayText) {
         const body = node.querySelector('.message-content');
         body.innerHTML = markdown(displayText);
@@ -625,6 +629,30 @@ function renderMessage(message, index, existing) {
             swipes: index === 0 && message.mes === (state.character?.data || state.character)?.first_mes && !message.swipes?.length ? [(state.character?.data || state.character).first_mes, ...((state.character?.data || state.character).alternate_greetings || [])] : message.swipes,
             scriptAction: async (operation, payload) => {
                 previewCheck();
+                if (operation === 'send-opening' || operation === 'send-card-message') {
+                    assertSaved();
+                    if (message.is_user || (operation === 'send-opening' && index !== 0) || (index === 0 && state.chat.length !== 1)) throw Error('仅可在只有开场白的聊天中发送开局。');
+                    const text = payload?.text;
+                    if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Error('卡片指令为空或过大。');
+                    if (usesBackgroundGeneration() && pendingBackgroundJob()) throw Error('请先恢复当前聊天的后台回复。');
+                    const input = $('message-input');
+                    if (input.value.trim()) throw Error('请先发送或清空输入框中的内容。');
+                    input.value = text;
+                    resizeInput();
+                    if (operation === 'send-card-message') return new Promise((resolve, reject) => {
+                        let queued = false;
+                        const fail = error => {
+                            if (queued) { notify(error.message, true); return; }
+                            if (input.value === text) { input.value = ''; resizeInput(); }
+                            reject(error);
+                        };
+                        void generate(false, null, { delaySend: true, onQueued: () => { queued = true; resolve(true); } })
+                            .then(() => { if (!queued) fail(Error('卡片指令未进入发送队列。')); }, fail);
+                    });
+                    const result = await generate(false, null, { delaySend: true });
+                    if (!result?.completed) throw Error('开局发送未完成，请在聊天中检查待发送内容或重试回复。');
+                    return true;
+                }
                 if (operation.startsWith('opening-') && index === 0 && !message.is_user) return htmlOpeningAction(operation, payload, message, previewIdentity, previewCheck);
                 if (operation.startsWith('mvu-') && index > 0 && !message.is_user) return htmlMvuAction(operation, payload, index, message, previewIdentity, previewCheck);
                 if (operation === 'slash') return (await roleScriptAction('slash', payload, previewIdentity, previewCheck))?.value;
@@ -720,6 +748,7 @@ function welcome() {
     };
     const cacheKey = homeRecentCacheKey();
     let cached = null; try { if (cacheKey) cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch {}
+    welcome.addEventListener('character-name-updated', () => drawRecent(recentChats));
     if (Array.isArray(cached)) drawRecent(cached);
     if (recentRequest) void recentRequest.then(chats => {
         try { if (cacheKey) sessionStorage.setItem(cacheKey, JSON.stringify(chats.slice(0, 100).map(chat => ({ avatar: chat.avatar, file_name: chat.file_name, characterName: state.characters.find(item => item.avatar === chat.avatar)?.name || chat.characterName })))); } catch {}
@@ -2898,9 +2927,10 @@ async function characterEditor(avatar = state.character?.avatar) {
         const data = { name: name.value.trim(), description: description.value, first_mes: first.value, alternate_greetings: greetingInputs.map(input => input.value) };
         let savedAvatar;
         if (editing) {
-            await api.post('/api/characters/merge-attributes', { avatar: editing.avatar, data: { ...data, data: { alternate_greetings: data.alternate_greetings } } });
+            await api.post('/api/characters/merge-attributes', { avatar: editing.avatar, ...data, data });
             if (avatarFile) { const form = new FormData(); form.append('avatar', avatarFile); form.append('avatar_url', editing.avatar); await api.post('/api/characters/edit-avatar', form, { form: true }); avatarRevisions.set(editing.avatar, Date.now()); }
             editing = await api.post('/api/characters/get', { avatar_url: editing.avatar });
+            if (editing.name !== data.name) throw Error('角色名称保存后核验失败，请重新打开角色卡再试。');
             savedAvatar = editing.avatar;
             if (state.character?.avatar === editing.avatar) state.character = editing;
         } else {
@@ -2908,12 +2938,19 @@ async function characterEditor(avatar = state.character?.avatar) {
             if (avatarFile) { const form = new FormData(); for (const [key, value] of Object.entries(payload)) form.append(key, value); form.append('avatar', avatarFile); savedAvatar = await api.post('/api/characters/create', form, { form: true }); }
             else savedAvatar = await api.post('/api/characters/create', payload);
             if (typeof savedAvatar !== 'string' || !savedAvatar.endsWith('.png')) throw new Error('创建角色失败。');
-            await api.post('/api/characters/merge-attributes', { avatar: savedAvatar, data: { data: { alternate_greetings: data.alternate_greetings } } });
+            await api.post('/api/characters/merge-attributes', { avatar: savedAvatar, data: { alternate_greetings: data.alternate_greetings } });
             editing = await api.post('/api/characters/get', { avatar_url: savedAvatar });
         }
         state.settings = await api.patchSettings(settings => { const own = settingsOwn(settings); own.characterLibrary = moveCards(own.characterLibrary, [savedAvatar], category.value); }); state.own = state.settings.independent_frontend;
         avatarFile = null;
-        characterCatalog.invalidate(); state.characters = [...state.characters.filter(item => item.avatar !== savedAvatar), { ...editing, avatar: savedAvatar }]; panelDirty = false; synchronize(); notify('角色已保存');
+        characterCatalog.invalidate(); state.characters = [...state.characters.filter(item => item.avatar !== savedAvatar), { ...editing, avatar: savedAvatar }];
+        const recentKey = homeRecentCacheKey();
+        if (recentKey) try {
+            const recent = JSON.parse(sessionStorage.getItem(recentKey) || 'null');
+            if (Array.isArray(recent)) sessionStorage.setItem(recentKey, JSON.stringify(recent.map(chat => chat.avatar === savedAvatar ? { ...chat, characterName: editing.name } : chat)));
+        } catch { /* The live home list still uses the saved card. */ }
+        $('message-list').querySelector('.welcome')?.dispatchEvent(new Event('character-name-updated'));
+        panelDirty = false; synchronize(); notify('角色已保存');
         await characterPanel();
     }, 'edit', 'primary'));
     footer.append(action('取消', () => { panelDirty = false; return characterPanel(); }));
@@ -3775,7 +3812,7 @@ async function waitToSend(controller, seconds) {
     }
 }
 
-async function generate(mode = false, recovery = null, { delaySend = false } = {}) {
+async function generate(mode = false, recovery = null, { delaySend = false, onQueued } = {}) {
     assertIdle(); if (state.chatConflict) throw new Error(state.chatConflict);
     if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
     if (!recovery && usesBackgroundGeneration() && pendingBackgroundJob()) return resumeBackgroundChat();
@@ -3839,10 +3876,12 @@ async function generate(mode = false, recovery = null, { delaySend = false } = {
             // Show the card without changing the chat snapshot seen by generation_started.
             loadTimings.measureSync('挂载待发送消息卡片', 'generation', () => {
                 state.generation.queuedUser = user;
+                if (waitingToSend) state.generation.pendingDisplayUser = user;
                 input.value = ''; resizeInput();
                 list.setMessages(state.chat, { latest: true, appendPreview: true });
             });
             userCardMountedMs = loadTimings.now() - sendStarted;
+            onQueued?.();
             if (!document.hidden) {
                 const finishPaint = loadTimings.start('待发送消息卡片至下一次绘制机会', 'generation');
                 void nextPaint().then(() => finishPaint(document.hidden ? 'cancelled' : 'success'));
