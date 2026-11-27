@@ -9,7 +9,7 @@ import { scriptTrees, scriptRows, scriptSupport, characterScriptPlan, nativeScri
 import { ScriptRuntime } from './script-runtime.js';
 import { validateExtensionPrompt } from './script-prompts.js';
 import { parseScriptCommands, patchScriptWorldFields } from './script-commands.js';
-import { openingVariableData, openingWorldCommands, sealedOpeningVariables } from './html-opening.js';
+import { deploymentOpeningStat, openingVariableData, openingWorldCommands, sealedOpeningVariables } from './html-opening.js';
 import { isReparseMvuData, previousMvuSource, reparseMvuBase } from './html-mvu-reparse.js';
 import { helperMessageRevision, patchHelperVariables, patchHelperMessages } from './helper-state.js';
 import { initialVariablesFromBook, messageMvuPatch, prepareValidatedMvuSnapshots } from './mvu-compat.js';
@@ -653,7 +653,7 @@ function renderMessage(message, index, existing) {
                     if (!result?.completed) throw Error('开局发送未完成，请在聊天中检查待发送内容或重试回复。');
                     return true;
                 }
-                if (operation.startsWith('opening-') && index === 0 && !message.is_user) return htmlOpeningAction(operation, payload, message, previewIdentity, previewCheck);
+                if ((operation.startsWith('opening-') || operation === 'write-opening-stat') && index === 0 && !message.is_user) return htmlOpeningAction(operation, payload, message, previewIdentity, previewCheck);
                 if (operation.startsWith('mvu-') && index > 0 && !message.is_user) return htmlMvuAction(operation, payload, index, message, previewIdentity, previewCheck);
                 if (operation === 'slash') return (await roleScriptAction('slash', payload, previewIdentity, previewCheck))?.value;
                 if (operation !== 'set-messages' || !Array.isArray(payload?.messages) || payload.messages.length !== 1 || payload.messages[0].message_id !== index) throw Error('消息界面只能修改所属楼层。');
@@ -2177,6 +2177,16 @@ async function htmlOpeningAction(operation, payload, message, identity, previewC
         await helperHostAction('save-variables', { changes: [{ type: 'message', message_id: 0, revision: helperMessageRevision(message), base, value }] }, identity, () => check(true));
         scriptRuntime.refresh(scriptSnapshot(state), identity);
     };
+    if (operation === 'write-opening-stat') {
+        checkDraft();
+        const base = copy(message.variables || {}), swipe = message.swipe_id || 0, current = base[swipe] || {};
+        const initial = current.stat_data || await roleMvuSeed(identity);
+        if (!initial) throw Error('找不到当前角色的 InitVar 或开场白变量。');
+        const stat_data = await normalizeRoleMvu(deploymentOpeningStat(initial, payload?.fields));
+        const value = copy(base); value[swipe] = { ...current, stat_data };
+        await saveOpening(base, value);
+        return true;
+    }
     if (operation === 'opening-seal') {
         checkDraft();
         if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Error('开局命牒为空或过大。');
@@ -2368,16 +2378,18 @@ async function normalizeRoleMvu(data) {
     const schema = characterScriptPlan(state.settings, state.character).find(script => script.enabled && scriptSupport(script).adapter === 'mvu-schema');
     return schema ? scriptSchema.validate(schema, data, scriptIdentity()) : copy(data);
 }
+async function roleMvuSeed(identity) {
+    const seed = state.header?.chat_metadata?.independentMvuSeed;
+    if (seed) return seed;
+    const card = state.character?.data || state.character, name = card?.extensions?.world;
+    const book = name ? await roleWorldbook(name, identity) : hasEmbeddedWorld(card) ? card.character_book : null;
+    return initialVariablesFromBook(book);
+}
 async function prepareRoleMvu(generation = false, rawReply = null) {
     if (!usesMvuCompat(state.settings, state.character)) return { changed: false, message: '此卡未启用 MVU 兼容脚本。' };
     const identity = scriptIdentity(); if (!generation) assertSaved();
     return loadTimings.measure('角色卡 MVU 变量更新', 'generation', async () => {
-        let seed = state.header?.chat_metadata?.independentMvuSeed;
-        if (!seed) {
-            const card = state.character?.data || state.character, name = card?.extensions?.world;
-            const book = name ? await roleWorldbook(name, identity) : hasEmbeddedWorld(card) ? card.character_book : null;
-            seed = initialVariablesFromBook(book);
-        }
+        const seed = await roleMvuSeed(identity);
         if (identity !== scriptIdentity()) throw Error('聊天已切换，变量未写入。');
         if (!generation) assertSaved();
         if (generation && state.controller?.signal.aborted) throw new DOMException('变量更新已取消', 'AbortError');

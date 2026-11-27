@@ -12,7 +12,7 @@ export function htmlCardContext(snapshot) {
     const clone = value => JSON.parse(JSON.stringify(value));
     let requestId = 0; const pendingRequests = new Map();
     const request = (operation, payload) => new Promise((resolve, reject) => {
-        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' || operation === 'send-opening' ? 600000 : operation.startsWith('opening-') || operation === 'mvu-reparse' ? 90000 : 20000);
+        const id = ++requestId, timer = setTimeout(() => { pendingRequests.delete(id); reject(Error('消息脚本操作超时。')); }, operation === 'slash' || operation === 'send-opening' ? 600000 : operation.startsWith('opening-') || operation === 'write-opening-stat' || operation === 'mvu-reparse' ? 90000 : 20000);
         pendingRequests.set(id, { resolve, reject, timer }); parent.postMessage({ type: 'tavern-html-request', id, operation, payload }, '*');
     });
     if (snapshot.scriptActions) {
@@ -21,6 +21,7 @@ export function htmlCardContext(snapshot) {
     }
     if (snapshot.opening) window.__companionOpening = (operation, payload) => request('opening-' + operation, payload);
     if (snapshot.openingSend) window.__sendOpening = text => request('send-opening', { text });
+    if (snapshot.deployment) window.__writeOpeningStat = fields => request('write-opening-stat', { fields });
     if (snapshot.cardSend) window.__sendCardMessage = text => request('send-card-message', { text });
     if (snapshot.mvuReparse) window.__companionMvu = async (operation, payload) => {
         const result = await request('mvu-' + operation, payload);

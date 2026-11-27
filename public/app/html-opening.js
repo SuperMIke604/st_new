@@ -9,6 +9,46 @@ const draftResult = /      if \(pushToInput\(brief\)\)[^\n]*\n      else \{[^\n]
 const variableWriter = 'const put = async (path, val) => { writes.push(!!(await setVar(path, val))); };';
 const sealRead = /    const M = mvu\(\);\s+const create = api\('createChatMessages'\);[\s\S]*?    const data = clone\(await M\.getMvuData\(floor\) \|\| \{\}\);/;
 const sealSubmit = /    await M\.replaceMvuData\(data, floor\);[\s\S]*?    await trigger\('\/trigger'\);\s+    notice\([^\r\n]+\);/;
+const deploymentWriter = /async function writeStat\(mutator\)\{[\s\S]*?await M\.replaceMvuData\(d,opt\);[\s\S]*?\n\}(?=\s*function applyStat\()/;
+
+export function adaptDeploymentVariables(source) {
+    if (!source.includes('deployBody(d,written)') || !source.includes('【部署信息】') || !deploymentWriter.test(source)) return null;
+    return source.replace(deploymentWriter, `async function writeStat(mutator){
+  try {
+    const fields = {};
+    mutator(fields);
+    await window.__writeOpeningStat(fields);
+    return true;
+  } catch (error) {
+    window.alert('开局变量未保存：' + error.message);
+    return false;
+  }
+}`);
+}
+
+export function deploymentOpeningStat(base, fields) {
+    const data = validateVariables(base);
+    const changes = validateVariables(fields);
+    const sections = {
+        世界: { 当前时间: 'string', 当前地点: 'string' },
+        主角: { 姓名: 'string', 性别: 'string', 国籍: 'string', 生日: 'string', 年龄: 'number', 职业: 'string', 外貌: 'string' },
+        财务: { 钱财: 'number' },
+    };
+    if (Object.keys(changes).length !== Object.keys(sections).length) throw Error('通告单的开局变量结构无效。');
+    for (const [section, types] of Object.entries(sections)) {
+        const values = changes[section];
+        if (!values || typeof values !== 'object' || Array.isArray(values)) throw Error('通告单缺少开局变量。');
+        if (Object.keys(values).some(key => !Object.hasOwn(types, key)) || Object.entries(types).some(([key, type]) => {
+            if (key === '外貌' && !Object.hasOwn(values, key)) return false;
+            const value = values[key];
+            return typeof value !== type || (type === 'string' && (!value.trim() || value.length > 12000));
+        })) throw Error('通告单的开局变量值无效。');
+        const current = data[section];
+        if (current != null && (typeof current !== 'object' || Array.isArray(current))) throw Error('当前聊天的变量结构与通告单不匹配。');
+        data[section] = { ...current, ...values };
+    }
+    return validateVariables(data);
+}
 
 export function adaptHtmlOpening(source) {
     if (!source.includes("bind('go', start);") || !source.includes("pd().querySelector('#send_textarea')") || !source.includes(variableWriter) ||

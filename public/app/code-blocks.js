@@ -1,6 +1,6 @@
 import { cardContextScript } from './html-card-context.js';
 import { remoteHtmlUrl, fetchRemoteHtml, remoteHtmlDocument } from './html-card-loader.js';
-import { adaptHtmlOpening, adaptMvuSealOpening } from './html-opening.js';
+import { adaptDeploymentVariables, adaptHtmlOpening, adaptMvuSealOpening } from './html-opening.js';
 import { adaptHtmlMvuReparse } from './html-mvu-reparse.js';
 import { adaptHtmlOrder } from './html-order.js';
 import { adaptMazeSend } from './html-maze-send.js';
@@ -227,6 +227,7 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const seal = canOpen ? adaptMvuSealOpening(source) : null;
             const opening = seal || (canOpen ? adaptHtmlOpening(source) : null);
             const openingSend = canOpen && !opening ? adaptOpeningSend(source) : null;
+            const deployment = openingSend && adaptDeploymentVariables(openingSend);
             const reparse = Number.isSafeInteger(messageId) && messageId > 0 && role === 'assistant' && scriptAction ? adaptHtmlMvuReparse(source) : null;
             const mazeSend = Number.isSafeInteger(messageId) && messageId >= 0 && role === 'assistant' && scriptAction && !opening && !openingSend && !reparse
                 ? adaptMazeSend(source, messageId === 0) : null;
@@ -235,6 +236,7 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             frame._send = send; frame._notify = notify; frame._edit = edit;
             frame._scriptAction = (operation, payload) => {
                 if (operation === 'send-opening' && !openingSend) throw Error('此消息不支持直接发送开局。');
+                if (operation === 'write-opening-stat' && !deployment) throw Error('此消息不支持保存通告单变量。');
                 if (operation === 'send-card-message' && !mazeSend) throw Error('此消息不支持直接发送指令。');
                 if (operation.startsWith('opening-') && (!opening || operation.startsWith('opening-seal') !== !!seal)) throw Error('此消息不支持该开局操作。');
                 if (operation.startsWith('mvu-') && !reparse) throw Error('此消息不支持重填 MVU 变量。');
@@ -253,8 +255,9 @@ export function decorateCodeBlocks(container, { icon, notify, send, edit, messag
             const remote = remoteHtmlUrl(source);
             context.mvuReparse = !!reparse;
             context.openingSend = !!openingSend && !remote;
+            context.deployment = !!deployment && !remote;
             context.cardSend = !!mazeSend && !remote;
-            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? openingSend ?? reparse ?? mazeSend ?? source, context);
+            frame.srcdoc = previewDocument(remote ? '<p role="status">正在加载 HTML 页面…</p>' : opening ?? (deployment || openingSend) ?? reparse ?? mazeSend ?? source, context);
             pre.replaceWith(frame); registerPreview(frame);
             if (remote) void fetchRemoteHtml(remote).then(html => {
                 if (frame.isConnected) frame.srcdoc = previewDocument(remoteHtmlDocument(html), context, true);

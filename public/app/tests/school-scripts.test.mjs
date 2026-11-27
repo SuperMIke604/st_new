@@ -9,7 +9,7 @@ import { roleScriptContent } from '../role-script-adapters.js';
 import { scriptDocument } from '../script-runtime.js';
 import { SCHEMA_MODULE_REVISION, MVU_MODULE_URL } from '../script-modules.js';
 import { htmlCardContext } from '../html-card-context.js';
-import { adaptHtmlOpening, adaptMvuSealOpening, openingVariableData, openingWorldCommands, sealedOpeningVariables } from '../html-opening.js';
+import { adaptHtmlOpening, adaptMvuSealOpening, deploymentOpeningStat, openingVariableData, openingWorldCommands, sealedOpeningVariables } from '../html-opening.js';
 import { isReparseMvuData, previousMvuSource, reparseMvuBase } from '../html-mvu-reparse.js';
 import { messageMvuPatch } from '../mvu-compat.js';
 import { scriptLayoutNodes } from '../script-layout.js';
@@ -217,6 +217,31 @@ test('seal RPC rejects stale opening variables, preserves drafts and never reque
     assert.deepEqual(calls, ['save-variables', 'set-draft', 'set-draft']);
     input.value = '';
     await assert.rejects(run('opening-seal', { text: 'Other draft' }), /已经落契/);
+});
+
+test('deployment opening writes validated form data into the selected greeting using the seed', async () => {
+    const source = main.slice(main.indexOf('async function htmlOpeningAction('), main.indexOf('async function scriptWorldbook('));
+    const message = { mes: 'opening', swipes: ['other', 'opening'], swipe_id: 1, variables: { 0: { keep: true }, 1: { schema: {} } } };
+    const fields = { 世界: { 当前时间: '2000-01-01', 当前地点: '剧场' }, 主角: { 姓名: '测试', 性别: '女', 国籍: '测试', 生日: '1980-01-01', 年龄: 20, 职业: '演员' }, 财务: { 钱财: 100 } };
+    const input = { value: '原有草稿' };
+    const context = vm.createContext({ state: { chat: [message] }, panelDirty: false, assertSaved() {}, assertMessageEditClosed() {}, copy: structuredClone,
+        helperMessageRevision, deploymentOpeningStat, $: () => input, roleMvuSeed: async () => ({ 主角: { 外貌: '初始外貌' }, 叙事: { 引言: '' } }),
+        normalizeRoleMvu: async data => data, scriptRuntime: { refresh() {} }, scriptSnapshot() {},
+        async helperHostAction(action, args, _identity, check) {
+            assert.equal(action, 'save-variables'); check();
+            message.variables = patchHelperVariables([{}, message], args.changes)[1].variables;
+        },
+    });
+    vm.runInContext(source, context);
+    const save = fields => context.htmlOpeningAction('write-opening-stat', { fields }, message, 'chat', () => {});
+    await assert.rejects(save(fields), /已有草稿/);
+    input.value = '';
+    await assert.rejects(save({ ...fields, 财务: { 钱财: Infinity } }), /有限数值/);
+    await assert.rejects(save({ ...fields, 其他字段: {} }), /结构无效/);
+    assert.equal(await save(fields), true);
+    assert.deepEqual(message.variables[0], { keep: true });
+    assert.deepEqual(message.variables[1], { schema: {}, stat_data: { ...fields, 主角: { 外貌: '初始外貌', ...fields.主角 }, 叙事: { 引言: '' } } });
+    assert.equal(message.mes, 'opening');
 });
 
 test('reparse saves only the selected branch and requires a fresh preceding snapshot', async () => {

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": "9452522568548db7be04187f4f2f46e2da8000b4d4792bf27e1b5c64e5b867d0",
-  "publishedAt": "2026-11-27T08:57:53.143882+00:00",
+  "revision": "75db2a12b21065834d69940e3c81292ba94f1dbdc110ed0b0d3a84bc1a5f2822",
+  "publishedAt": "2026-11-27T09:25:12.611309+00:00",
   "files": {
     "public/app/api.js": "76afd43829e90bb3f84385a116de1d3e96ed8f405b511e4048e12fbe3fcad14d",
     "public/app/aurora-glass.css": "7b23e27336d900a7a95fcd1fc8b48987ac63df3ddd04770e546c84ab6ad1448b",
@@ -13,7 +13,7 @@
     "public/app/chat-delta.js": "ae443a49a3f2cdf375243824807e94117892b9b02373303cdbf6724e89cfa677",
     "public/app/chat-history.js": "81a83b4a67924004a6ad3523b71d0442955bd2bd39213f3067c84cc5b96b4249",
     "public/app/chat-save-body.js": "b5c7d593c503a0831d7f19f1c15f73557486e9f29961d2f260db84fbd0bd6f6a",
-    "public/app/code-blocks.js": "f7a26e04040a112ad4628d84de6404443f366373c6af9576831508ac8188d444",
+    "public/app/code-blocks.js": "d9f3562e652236d05432698c74fd83cb02bebe19e6b743fcfc13b6b868ebe80a",
     "public/app/connection.js": "c94ae1d3b5703b51fe302a91f12f71a3c54792b405e374eb58d9d9dfe34b25b9",
     "public/app/controls.css": "db44f016519a1672bf8862f7e4cf9058e5699bffa37c694662d2f4468aafe51d",
     "public/app/database-defaults.js": "1cfe7da47489f42512d6892fc325e5cd5bfbfe7a8ad65a11426545408c7c6f21",
@@ -33,11 +33,11 @@
     "public/app/helper-state.js": "a4a6ed59c38755ab209cf70c07b78daf5fd37f9c2d8d69f7ccb43bcea6c2df8e",
     "public/app/history-regex-cache.js": "a04a7021ef0f2229e1b45b89da3148a8e6a1319b25ff0372c357e626657fd7ec",
     "public/app/home-data.js": "14d29106643c5a9a1336bbfb307cddfd86ed48ea0bdc912fa31a272f7bcf85d8",
-    "public/app/html-card-context.js": "cb8f12b23ed8778f7a2d4535f3b1982ea708a13769e4f503d5f2b9bc87092bd1",
+    "public/app/html-card-context.js": "ce66dc4ea8c0741e54cd8f328f6fe970f2800ca873ac25f4569fb02057aa43bb",
     "public/app/html-card-loader.js": "7ed9a89135acd88a8a704af094a9b58b5d32238cc160b70e500514ea81f63898",
     "public/app/html-maze-send.js": "dae971ff8fd253bc26440a3a78c00ec64ec64c27e9d57f9e052fcb24ea13988d",
     "public/app/html-mvu-reparse.js": "d0f9b929797a670be067bc6e37ce7c015a622591fc0e173c05173f4a2819e5b0",
-    "public/app/html-opening.js": "28e6140889543a01fe6ee41445f07f2974de8a13efbd0feb22d630ecde737717",
+    "public/app/html-opening.js": "85fcbbb7e48a8639b20502d869e481cf70a575f46ac656f2fc64ce431e568fa2",
     "public/app/html-order.js": "d3ec932041f80ba9bae6b0dbc4a660c779a0a1e9bbbda780683ec9f39202ae47",
     "public/app/icons.js": "b22aa577641f1837febe3a7f74a067705d961ae8c2e5123a4c62286a03eeaf36",
     "public/app/index.html": "176c30fc8752fe89f44650e4263ce80ebcede9542119026022d36754e0f0eeb7",
@@ -47,7 +47,7 @@
     "public/app/login.css": "b7d16ccb921a9d62e870e603e745b18956eba5514a0b2246456f38f91a37cecb",
     "public/app/login.html": "f4998bc5a0b2749658ff6f4daef371071eea18a2f10a20a306c3ece5da8382db",
     "public/app/login.js": "1dff84b3ed4d37772898d5b36d8a6fe2313c9a83b97b0f5ddad7464f33e834d9",
-    "public/app/main.js": "d1802ce4c33c82f9e58de81b172284a0a38719bace3a52d4915500e1b002bfa6",
+    "public/app/main.js": "f0f118bb9075761e40fdfb414801fcff451f8fea79eed0227fafef59f57c914d",
     "public/app/message-edit.js": "dcf4eeb8e956997e6291c9195260ce49173efc47ee1c5b66ac92f6b394e2f0a8",
     "public/app/message-markdown.js": "e0cedf0ca085f3c27535cd9d7d78f46b85262275b7ac43981a5672f131a60d33",
     "public/app/mvu-compat.js": "29d48e8941fb10b400d6f8c03492b7bc611954ad9c74b0e6efc9dfe6007cbcb8",
@@ -101,7 +101,7 @@
     "public/app/world-editor.js": "0423e5388caa88b077f28f7ded185d5742306239ab64226850ed22c8693d4194",
     "public/app/world-select.js": "c85e99210d249698445e4e4dc5a53fcdbf88321122c157f26e89fee4e166e014",
     "public/app/world-settings.js": "2e42f92fb0582f450c4c98b204f02a969a6aec2ae4ab50c4f12ae8f0e8351a8f",
-    "public/app/version.js": "ba7602dbfee20f7adea5fd9e58b6e93f2d75c58da52f89fdbdbd8d3e8b08973b"
+    "public/app/version.js": "de50de6dfc34c872a3ff2507d8abccd61891b9715f1e8951eaffb9746d814766"
   },
   "backend": {
     "file": "server/st-new-updater/index.mjs",
