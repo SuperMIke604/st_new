@@ -1,0 +1,270 @@
+:root[data-theme="aurora-glass"] {
+    --paper: #e9eafa;
+    --surface: #f7f7fd;
+    --ink: #20213a;
+    --muted: #545a76;
+    --line: #c8cce3;
+    --soft: #e7e6f8;
+    --green: #5342ad;
+    --card-selected: #e2defa;
+    --card-hover: #423287;
+    --card-field: #fcfcff;
+    --card-field-border: #777a9a;
+    --card-message: #f9f9ff;
+    --card-user-message: #eeeaff;
+    --card-user-border: #cac0eb;
+    --card-quiet-border: #b2b9d5;
+    --card-dialogue: #483b98;
+    --card-on-accent: #fff;
+    --theme-accent-text: var(--card-on-accent);
+    --plain-surface: var(--surface);
+    --text-editor-surface: var(--card-field);
+    --theme-danger: #a1274e;
+    --theme-danger-hover: #fae4eb;
+    --theme-error: #a1274e;
+    --theme-warning: #775014;
+    --glass-background-start: #bfb5f4;
+    --glass-background-side: #c5dcfa;
+    --glass-background-end: #bfe7e5;
+    --glass-glint: rgb(255 255 255 / 90%);
+    --glass-rim: rgb(255 255 255 / 80%);
+    --glass-shade: rgb(48 46 99 / 17%);
+}
+
+:root[data-theme="ivory-glass"] {
+    --glass-background-start: color-mix(in srgb, var(--soft) 38%, #d7bfa5);
+    --glass-background-side: #f5e4c9;
+    --glass-background-end: #ddc9b4;
+    --glass-glint: rgb(255 252 244 / 92%);
+    --glass-rim: rgb(255 252 244 / 84%);
+    --glass-shade: rgb(100 70 42 / 18%);
+}
+
+/* Keep the reading surface steady. Reserve blurred glass for floating controls. */
+:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) {
+    --glass-frost: color-mix(in srgb, var(--surface) 72%, transparent);
+    --glass-depth: inset 0 1px 0 var(--glass-glint), 0 1px 2px var(--glass-shade),
+        0 8px 24px var(--glass-shade);
+    --glass-column: 840px;
+    --card-radius: 24px;
+    --control-radius: 14px;
+    --card-bar-height: calc(70px + env(safe-area-inset-top));
+    --card-bar-inset: 4px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+        radial-gradient(ellipse 75% 56% at 10% 2%, var(--glass-background-start), transparent 100%),
+        radial-gradient(ellipse 86% 66% at 100% 17%, var(--glass-background-side), transparent 100%),
+        radial-gradient(ellipse 78% 65% at 92% 100%, var(--glass-background-end), transparent 100%),
+        var(--paper);
+    background-size: 100% 100dvh;
+    background-repeat: no-repeat;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+    background: var(--surface);
+    border: 1px solid var(--glass-rim);
+    box-shadow: var(--glass-depth);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+        background: linear-gradient(155deg, color-mix(in srgb, var(--glass-glint) 24%, transparent), transparent 70%),
+            var(--glass-frost);
+        backdrop-filter: blur(20px) saturate(145%);
+    }
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions {
+    border-radius: 999px;
+    padding: 4px;
+    gap: 4px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut {
+    border-radius: 999px;
+    color: var(--ink);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut[aria-pressed="true"] {
+    background: var(--card-selected);
+    color: var(--green);
+    box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+
+@media (min-width: 701px) {
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions {
+        flex: 0 1 auto;
+        width: fit-content;
+    }
+
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut {
+        display: inline-flex;
+        flex: 0 0 auto;
+        width: auto;
+        max-width: none;
+        padding-inline: 14px;
+        gap: 8px;
+    }
+
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut > span {
+        display: inline;
+    }
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .message-list-frame,
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer {
+    width: min(100%, var(--glass-column));
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #message-list > .message {
+    --message-border-color: var(--glass-rim);
+    background-image: linear-gradient(155deg, var(--glass-frost), transparent 120px);
+    box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #message-list > .message.from-user {
+    --message-border-color: var(--card-user-border);
+    margin-inline-start: clamp(12px, 7%, 64px);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(.message-name, .message-content a) {
+    color: var(--green);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer {
+    border-radius: 28px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer #message-input {
+    padding-inline: 14px;
+    border-radius: 21px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer #message-input::placeholder {
+    color: var(--muted);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer :is(#tools-toggle, #send-button, #stop-button),
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #back-latest {
+    border-radius: 999px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer button:focus-visible,
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions button:focus-visible {
+    outline-offset: -3px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog) {
+    border-color: var(--glass-rim);
+    border-radius: 28px;
+    box-shadow: inset 0 1px 0 var(--glass-glint), 0 20px 56px var(--glass-shade);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, .timing-panel, .script-runtime-dialog) > .panel-header {
+    background: linear-gradient(125deg, var(--soft), var(--surface) 70%);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, .timing-panel, .script-runtime-dialog) .panel-header .icon-button {
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(.select-menu, .card-action-menu, .chat-history-menu) {
+    border-radius: 18px;
+    box-shadow: var(--glass-depth);
+}
+
+:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-view .welcome {
+    width: min(100% - 8px, 680px);
+    margin-inline: auto;
+    padding: clamp(16px, 4vw, 32px);
+    background: var(--glass-frost);
+    border: 1px solid var(--glass-rim);
+    border-radius: 28px;
+    box-shadow: inset 0 1px 0 var(--glass-glint), 0 4px 16px var(--glass-shade);
+}
+
+:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-character-search {
+    border-radius: 999px;
+    padding-inline: 16px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-character-grid .home-character {
+    border-color: var(--line);
+    border-radius: 18px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-character .portrait-missing {
+    background: linear-gradient(135deg, var(--soft), var(--card-selected));
+}
+
+@media (max-width: 700px) {
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) {
+        --card-bar-height: calc(64px + env(safe-area-inset-top));
+        --card-radius: 20px;
+    }
+
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions { gap: 2px; }
+
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
+    :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog)[open] {
+        border-color: var(--glass-rim);
+        border-radius: 26px 26px 0 0;
+    }
+
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
+    :is(#panel, .timing-panel, .script-runtime-dialog) > .panel-header {
+        background: linear-gradient(125deg, var(--soft), var(--surface) 70%);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root[data-theme="aurora-glass"] {
+        color-scheme: dark;
+        --paper: #18182e;
+        --surface: #24263e;
+        --ink: #f2f2ff;
+        --muted: #bec1d9;
+        --line: #4a4f6f;
+        --soft: #333555;
+        --green: #c3b7ff;
+        --card-selected: #45406e;
+        --card-hover: #ddd4ff;
+        --card-field: #1c1f34;
+        --card-field-border: #777da3;
+        --card-message: #22243a;
+        --card-user-message: #302a4d;
+        --card-user-border: #5a507b;
+        --card-quiet-border: #5d6384;
+        --card-dialogue: #d1c6ff;
+        --card-on-accent: #241b48;
+        --theme-danger: #ffb4ce;
+        --theme-danger-hover: #502b45;
+        --theme-error: #ffb4ce;
+        --theme-warning: #f3ca88;
+        --glass-background-start: #362659;
+        --glass-background-side: #23375b;
+        --glass-background-end: #1d444c;
+        --glass-glint: rgb(223 229 255 / 24%);
+        --glass-rim: rgb(204 214 255 / 31%);
+        --glass-shade: rgb(8 10 27 / 42%);
+    }
+
+    [data-theme="aurora-glass"] .code-keyword { color: #dfbaf4; }
+    [data-theme="aurora-glass"] .code-number { color: #efbf9d; }
+    [data-theme="aurora-glass"] .code-tag { color: #a9dee8; }
+
+    [data-theme="aurora-glass"] #notification .toast-item[data-type="error"] {
+        background: #442d46;
+        border-color: #906480;
+        color: var(--theme-error) !important;
+    }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) { --glass-frost: var(--surface); }
+
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+        backdrop-filter: none;
+    }
+}
