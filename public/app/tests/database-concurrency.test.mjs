@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { RequestLog } from '../request-log.js';
-import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, findDatabaseSnapshot, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
+import { defaultDatabase, sourceHash, storeDatabase, databaseForChat, emptyDatabaseFromTemplate, findDatabaseSnapshot, databaseSettings, databaseSummaryTriggered, messageSummaryRange, parseUpdate, DatabaseFormatError } from '../database.js';
 
 import { databaseSummaryHistory, deleteDatabaseSummaryHistory } from '../database-overview.js';
 import { DatabaseWriteError, startDatabaseLog, finishDatabaseLog, clearDatabaseLog, databaseLogText, databaseLogExport, retainMalformedDatabaseResponse } from '../database-log.js';
@@ -19,7 +19,7 @@ function fixture() {
     let resolveResponse, rejectResponse, requestSignal, panelContext;
     const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
     const context = vm.createContext({ state, requestLog: new RequestLog(), assertMessageEditClosed() {}, variablesSaving: false, panelDirty: false, panelRevision: 1, AbortController, DOMException,
-        sourceHash, storeDatabase, findDatabaseSnapshot, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, template), settings }),
+        sourceHash, storeDatabase, emptyDatabaseFromTemplate, findDatabaseSnapshot, deleteDatabaseSummaryHistory, databaseSummaryTriggered, messageSummaryRange, DatabaseWriteError, startDatabaseLog, finishDatabaseLog, retainMalformedDatabaseResponse, DatabaseFormatError, readEvents, copy: structuredClone, currentDatabase: () => ({ ...databaseForChat(state.chat, state.header, settings.template), settings }),
         databaseConnection: () => ({}), generationBody: (_config, _preset, messages) => ({ messages }), databaseWorlds: async () => [],
         profileStore: { profiles: [] }, persona: () => ({ name: 'User' }), referenceDatabaseText: () => '', sheetText: () => '',
         fillMessages: (...args) => { requests.push(args); return []; }, expand: text => text,
@@ -43,6 +43,18 @@ function fixture() {
         fail: rejectResponse };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('the first message summary starts from template headers and saves only the new record', async () => {
+    const f = fixture();
+    f.settings.template.sheet_0.content.push([null, '', null]);
+    f.context.parseUpdate = parseUpdate;
+    const pending = f.run("runDatabaseUpdate(0, 1, false, 'message', {})");
+    await tick();
+    assert.deepEqual(f.requests[0][1].sheet_0.content, [[null, '项目', '内容']]);
+    f.finish('<dataUpdate>{"operations":[{"action":"insert","sheet":"sheet_0","data":{"0":"地点","1":"书店"}}]}</dataUpdate>');
+    await pending;
+    assert.deepEqual(f.writes[0][1].TavernDB_ACU_Data.sheet_0.content, [[null, '项目', '内容'], [null, '地点', '书店']]);
+});
 
 test('database progress stays 16 pixels below the measured toolbar and releases its listeners', () => {
     let appbarBottom = 66, actionsBottom = 61, reposition, disconnected = false, stopped = false;

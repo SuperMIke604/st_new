@@ -44,7 +44,7 @@ import { embeddedWorld, hasEmbeddedWorld, importCharacterWorld, saveCharacterWor
 import { installWorldBindingGesture, showWorldBindingDialog } from './character-world-dialog.js';
 import { readingFields, readingSettings, applyReading, sendDelaySeconds, maxSendDelay, sendTokenLimit } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
-import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
+import { databaseSettings, databaseForChat, emptyDatabaseFromTemplate, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
 import { renderDatabasePanel } from './database-ui.js';
 import { presetCatalog, presetDraft, promptRows, promptOrder, markerLabels, movePrompt, addPrompt, removePrompt, validatePreset, createPreset, uniquePresetName } from './preset-editor.js';
@@ -3533,7 +3533,7 @@ async function runDatabaseUpdate(from, to, automatic, kind, log) {
     log.stage = '准备填表数据';
     const chat = copy(state.chat);
     const baseline = summarizing ? current : findDatabaseSnapshot(chat, state.header, { through: aiIndices[0], structuredOnly: true });
-    let result = copy(baseline?.data ?? settings.template);
+    let result = baseline?.data ? copy(baseline.data) : emptyDatabaseFromTemplate(settings.template);
     const sourceDatabase = summarizing ? JSON.stringify(current.data) : null;
     const previousMeta = current.meta;
     let reference = '', lastResponse, finishRequest, requestText;

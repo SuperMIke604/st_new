@@ -24,6 +24,11 @@ export function validateDatabase(value) {
     return result;
 }
 export function parseDatabase(text) { return validateDatabase(typeof text === 'string' ? JSON.parse(text.replace(/^\uFEFF/, '')) : text); }
+export function emptyDatabaseFromTemplate(template) {
+    const data = validateDatabase(template);
+    for (const [, table] of sheets(data)) table.content.length = 1;
+    return data;
+}
 export function databaseSettings(value = {}) {
     let source = value || {}; if (!Object.keys(source).length) source=structuredClone(DEFAULT_SETTINGS);
     if (source.charCardPrompts && !source.presets) {
@@ -116,7 +121,7 @@ export function databaseForChat(chat, header, template = defaultDatabase()) {
         return { data: archived ? data : validateDatabase(data), index, meta, archived, legacy: !meta, updatedAt: meta?.updatedAt };
     }
     const seed = header?.chat_metadata?.independentDatabase?.seed;
-    return { data: validateDatabase(seed || template), index: -1, legacy: false };
+    return { data: seed ? validateDatabase(seed) : emptyDatabaseFromTemplate(template), index: -1, legacy: false };
 }
 export function storeDatabase(chat, header, data, index = chat.findLastIndex(message => !message.is_user), metadata = {}) {
     const value = validateDatabase(data);

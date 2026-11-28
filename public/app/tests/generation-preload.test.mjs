@@ -82,7 +82,7 @@ test('blocked keywords only suppress their own trigger in the selected chat and 
         table.injection = { mode: 'keyword', columns: [1] };
         table.content.push(table.content[0].map((_, column) => column === 1 ? '周老师、Zhao' : column === 2 ? `record-${key}` : null));
     }
-    const metadata = { blockedKeywords: { sheet_0: ['周老师', 'ZHAO'] } };
+    const metadata = { seed: template, blockedKeywords: { sheet_0: ['周老师', 'ZHAO'] } };
     const header = { chat_metadata: { independentDatabase: metadata } };
     const config = { template, inject: true };
     const chat = [{ mes: '周老师', is_user: true }];
@@ -93,7 +93,7 @@ test('blocked keywords only suppress their own trigger in the selected chat and 
     assert.match(blocked.databaseText, /record-sheet_1/);
     assert.equal(blocked.databaseMacros.sheet_0, '');
     assert.match(blocked.databaseMacros.tabledata, /record-sheet_0/);
-    assert.match(cache.get(chat, {}, config).databaseText, /record-sheet_0/);
+    assert.match(cache.get(chat, { chat_metadata: { independentDatabase: { seed: template } } }, config).databaseText, /record-sheet_0/);
     metadata.blockedKeywords = { sheet_0: ['周老师'] };
     assert.match(cache.get([{ mes: '周老师和Zhao', is_user: true }], header, config).databaseText, /record-sheet_0/);
     delete metadata.blockedKeywords;
@@ -112,7 +112,7 @@ test('Chinese keyword matches are selected by relevance and emitted in original 
         [null, '旧仓院', '', 'nonconsecutive'],
         [null, '旧港仓禁', '', 'blocked-hit'],
     );
-    const header = { chat_metadata: { independentDatabase: { blockedKeywords: { sheet_1: ['旧港仓禁'] } } } };
+    const header = { chat_metadata: { independentDatabase: { seed: template, blockedKeywords: { sheet_1: ['旧港仓禁'] } } } };
     const chat = [{ mes: '赵月在门口' }, { is_user: true, mes: '去旧港仓找银钥匙' }];
     const resources = generationDatabaseResources(chat, header, { template, inject: true });
     const ordered = ['exact-current', 'three-character-hit', 'two-keyword-hit', 'two-character-hit'];
@@ -138,7 +138,7 @@ test('an enabled source column links exact keywords in other tables for one hop'
             [null, '物品', '信息'], [null, '银钥匙', 'second-hop'],
         ] },
     };
-    const header = { chat_metadata: { independentDatabase: { blockedKeywords: { sheet_1: ['李微'] } } } };
+    const header = { chat_metadata: { independentDatabase: { seed: template, blockedKeywords: { sheet_1: ['李微'] } } } };
     const send = mes => generationDatabaseResources([{ mes, is_user: true }], header, { template, inject: true });
     const { databaseText, databaseMacros, databaseKeywordRows } = send('去旧港');
     assert.match(databaseMacros.sheet_1, /周凛/);
@@ -166,7 +166,7 @@ test('keyword budget ranks within each table, reserves high priority current hit
     };
     const chat = [{ mes: '赵月、王平、李强' }, { is_user: true, mes: '陈澄问周凛，陈澄再次开口。' }];
     const config = { template, inject: true, keywordInjectionTokens: 2 };
-    const resources = generationDatabaseResources(chat, {}, config);
+    const resources = generationDatabaseResources(chat, {}, config, template);
     assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-old') < resources.databaseMacros.sheet_0.indexOf('row-multi-new'));
     assert.ok(resources.databaseMacros.sheet_0.indexOf('row-multi-new') < resources.databaseMacros.sheet_0.indexOf('row-single'));
     assert.doesNotMatch(resources.databaseMacros.sheet_0, /row-history/);

@@ -245,6 +245,28 @@
     box-shadow: inset 0 1px 0 var(--glass-glint), 0 4px 16px var(--glass-shade);
 }
 
+:root[data-theme="ivory-glass"] .home-view {
+    --ivory-home-width: 680px;
+    --ivory-home-gutter: 16px;
+}
+
+:root[data-theme="ivory-glass"] .home-view :is(.appbar, #conversation) {
+    padding-inline: max(var(--ivory-home-gutter), env(safe-area-inset-left))
+                    max(var(--ivory-home-gutter), env(safe-area-inset-right));
+}
+
+:root[data-theme="ivory-glass"] .home-view :is(#top-actions, .message-list-frame) {
+    width: min(100%, var(--ivory-home-width));
+}
+
+:root[data-theme="ivory-glass"] .home-view #top-actions {
+    flex: 0 1 auto;
+}
+
+:root[data-theme="ivory-glass"] .home-view .welcome {
+    width: 100%;
+}
+
 :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-character-search {
     border-radius: 999px;
     padding-inline: 16px;
@@ -260,6 +282,10 @@
 }
 
 @media (max-width: 700px) {
+    :root[data-theme="ivory-glass"] .home-view {
+        --ivory-home-gutter: 9px;
+    }
+
     :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) {
         --card-bar-height: calc(64px + env(safe-area-inset-top));
         --card-radius: 20px;

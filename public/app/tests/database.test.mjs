@@ -33,6 +33,20 @@ test('the latest valid archive at a newer floor is used until that floor has a c
 const messages = () => [{ name: '角色', is_user: false, mes: '开场白', extra: {} }, { name: '用户', is_user: true, mes: '时间是早上。' }, { name: '角色', is_user: false, mes: '我们到了书店。', extra: {} }];
 const filled = () => applyOperations(defaultDatabase(), [{ action: 'insert', sheet: 'sheet_0', data: { 0: '地点', 1: '书店' } }]);
 
+test('a chat without saved data starts with template headers and no records', () => {
+    const template = filled();
+    template.sheet_0.content.push([null, '', null]);
+    template.sheet_0.injection = { mode: 'keyword', columns: [1] };
+    const header = {}, chat = [{ mes: 'Greeting', is_user: false }];
+    const initial = databaseForChat(chat, header, template);
+    assert.equal(initial.index, -1);
+    assert.deepEqual(initial.data.sheet_0, { ...template.sheet_0, content: [template.sheet_0.content[0]] });
+    assert.equal(template.sheet_0.content.length, 3);
+    assert.deepEqual(header, {});
+    storeDatabase(chat, header, template, -1);
+    assert.deepEqual(databaseForChat(chat, header, template).data, template);
+});
+
 test('summary bindings survive editor selection, round trips, and deleted presets', () => {
     const value = databaseSettings({ autoHideMessages: true, unknown: { keep: true }, presets: [
         { id: 'messages', messages: [{ role: 'user', content: '消息 $1' }] },
