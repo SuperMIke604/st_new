@@ -4461,7 +4461,9 @@ window.addEventListener('popstate', () => run(async () => {
 }));
 $('composer').addEventListener('submit', event => {
     event.preventDefault();
-    if (!state.busy) void afterMessageEdit(() => generate(false, null, { delaySend: true, confirmContext: true }));
+    if (!state.busy) void afterMessageEdit(() => {
+        if (!state.busy) return generate(false, null, { delaySend: true, confirmContext: true });
+    });
 });
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);
