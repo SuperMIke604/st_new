@@ -5,14 +5,14 @@ import vm from 'node:vm';
 import { LoadTimings, requestFailure } from '../load-timings.js';
 import { RequestLog } from '../request-log.js';
 import { sealedOpeningVariables } from '../html-opening.js';
-import { sendDelaySeconds } from '../reading.js';
+import { sendDelaySeconds, sendTokenLimit } from '../reading.js';
 
 const source = await fs.readFile(new URL('../main.js', import.meta.url), 'utf8');
 const generate = source.slice(source.indexOf('function waitForPageVisibility('), source.indexOf('\nfunction beginMessageEdit('));
 const waitingPresentation = source.slice(source.indexOf('function setReplyWaiting('), source.indexOf('function synchronize('));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, androidSendDelay, timeoutWhileWriting = false, intercept = body => body } = {}) {
+function fixture({ native = false, hideAfterReplyEvent = false, conflict = false, background = false, androidSendDelay, timeoutWhileWriting = false, intercept = body => body, processPrompt, countPrompt } = {}) {
     const prepared = deferred(), response = deferred(), statuses = [], renders = [], scrollModes = [], notices = [], postGeneration = [];
     const state = { character: { name: '角色', avatar: 'fixture.png' }, file: 'fixture', settings: {}, chat: [{ name: '角色', mes: '原来的回复', extra: {} }], preset: {}, own: {}, dirty: false };
     const input = { value: '测试消息' };
@@ -26,7 +26,7 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
     Object.defineProperty(document, 'hidden', { get: () => document.visibilityState === 'hidden' });
     const setVisibility = visibility => { document.visibilityState = visibility; document.dispatchEvent(new Event('visibilitychange')); };
     const storage = new Map(), backgroundCalls = [], releases = [];
-    let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [];
+    let requests = 0; const mvuCalls = [], helperEvents = [], saved = [], promptHistory = [], saveOptions = [], sentBodies = [], confirmations = [];
     const scriptRuntime = { generate: (body, { signal, fetch }) => fetch(intercept(body), signal), helperReady: native, frame: native ? {} : null, identity: 'test', auxiliaryControllers: new Map(), refresh() {}, dispatch: async (event, args) => {
         helperEvents.push(event);
         if (native && event === 'message_received') {
@@ -43,8 +43,14 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         return native;
     } };
     const timings = new LoadTimings();
-    const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables, sendDelaySeconds,
-        $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }), generationBody: () => ({ stream: true }),
+    const context = vm.createContext({ state, document, window, requestLog: new RequestLog(), loadTimings: timings, requestFailure, copy: structuredClone, AbortController, AbortSignal, DOMException, setTimeout, clearTimeout, streamFrame: 0, sealedOpeningVariables, sendDelaySeconds, sendTokenLimit,
+        $: id => id === 'stop-button' ? stop : input, persona: () => ({ name: '用户' }), connection: () => ({ model: 'test' }),
+        generationBody: (connection, _preset, messages) => ({ ...connection, messages: structuredClone(messages), stream: true }),
+        confirmAction: options => {
+            const decision = deferred();
+            confirmations.push({ ...options, accept: decision.resolve });
+            return decision.promise;
+        },
         assertIdle() { assert.ok(!state.busy); }, assertSaved() {}, synchronize() {}, scriptSchema: {},
         nextPaint: () => Promise.resolve(), status: text => statuses.push(text),
         regexText: text => native ? text.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/g, '') : text, resizeInput() {},
@@ -56,7 +62,9 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         } },
         api: {
             chatBase: { avatar: state.character.avatar, file: state.file, lines: [] },
-            response() { requests++; return response.promise; },
+            response(_path, body) { requests++; sentBodies.push(body); return response.promise; },
+            processPrompt,
+            post: countPrompt,
         },
         localStorage: { getItem: key => storage.get(key), removeItem: key => storage.delete(key) },
         usesBackgroundGeneration: () => background,
@@ -78,8 +86,52 @@ function fixture({ native = false, hideAfterReplyEvent = false, conflict = false
         rememberChat: async () => {}, autoUpdateDatabase: async () => { postGeneration.push('database'); }, notify: text => notices.push(text),
     });
     vm.runInContext(waitingPresentation + generate, context);
-    return { state, input, window, storage, backgroundCalls, releases, prepared, response, statuses, renders, scrollModes, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, requestLog: context.requestLog, setVisibility, requests: () => requests, run: (mode, options) => context.generate(mode, null, options) };
+    return { state, input, window, storage, backgroundCalls, releases, prepared, response, statuses, renders, scrollModes, notices, postGeneration, mvuCalls, helperEvents, saved, promptHistory, saveOptions, timings, stopClasses, stopAttributes, sentBodies, confirmations, requestLog: context.requestLog, setVisibility, requests: () => requests, run: (mode, options) => context.generate(mode, null, options) };
 }
+
+test('cancelling an oversized assembled context leaves the draft and the saved chat intact', async () => {
+    const f = fixture();
+    f.state.own.reading = { sendDelay: 0, sendTokenLimit: 40 };
+    const running = f.run(false, { delaySend: true, confirmContext: true });
+    f.prepared.resolve({ messages: [{ role: 'system', content: '预设' }, { role: 'assistant', content: '历史' }, { role: 'user', content: f.renders.at(-1).at(-1).text }], tokens: 120 });
+    await tick();
+    assert.match(f.confirmations[0].message, /120 Token.*40 Token/);
+    assert.equal(f.requests(), 0);
+    assert.equal(f.saved.length, 0);
+    f.input.value = '新草稿';
+    f.confirmations[0].accept(false);
+    await running;
+    assert.equal(f.input.value, '测试消息\n\n新草稿');
+    assert.equal(f.state.chat.length, 1);
+    assert.equal(f.saved.length, 0);
+    assert.equal(f.requests(), 0);
+});
+
+test('confirmation counts script-modified, post-processed messages and sends the same request once', async () => {
+    const messages = [{ role: 'system', content: '脚本加入的上下文' }, { role: 'user', content: '测试消息' }];
+    const processed = [{ role: 'user', content: '后处理拼接的上下文' }];
+    const counted = [];
+    const f = fixture({
+        intercept: body => ({ ...body, messages, custom_prompt_post_processing: 'merge' }),
+        processPrompt: async body => { assert.equal(body.messages, messages); return processed; },
+        countPrompt: async (path, body) => { counted.push({ path, body }); return { token_count: 75 }; },
+    });
+    f.state.own.reading = { sendDelay: 0, sendTokenLimit: 40 };
+    const running = f.run(false, { delaySend: true, confirmContext: true });
+    f.prepared.resolve({ messages: [{ role: 'user', content: '测试消息' }], tokens: 15 });
+    await tick();
+    assert.deepEqual(counted, [{ path: '/api/tokenizers/openai/count?model=test', body: processed }]);
+    assert.match(f.confirmations[0].message, /75 Token/);
+    assert.equal(f.requests(), 0);
+    f.confirmations[0].accept(true);
+    await tick();
+    assert.equal(f.requests(), 1);
+    assert.equal(f.sentBodies[0].messages, messages);
+    assert.equal(f.sentBodies[0].custom_prompt_post_processing, 'merge');
+    f.response.resolve({ headers: new Headers(), json: async () => ({ choices: [{ message: { content: '模拟回复' } }] }) });
+    await running;
+    assert.equal(f.requests(), 1);
+});
 
 test('composer submit immediately shows the card and waits five seconds before generation', async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });

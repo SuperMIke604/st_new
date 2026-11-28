@@ -207,7 +207,8 @@ function discloseProfileTools(bar, tools, button, label, groupLabel) {
     more.addEventListener('keydown', closeOnEscape);
     bar.after(extra);
 }
-function confirmAction({ title, message, confirmLabel = '确定', cancelLabel = '取消', returnFocus = document.activeElement }) {
+function confirmAction({ title, message, confirmLabel = '确定', cancelLabel = '取消', returnFocus = document.activeElement, signal }) {
+    if (signal?.aborted) return Promise.resolve(false);
     const dialog = el('dialog', 'compact-dialog');
     const heading = el('h2', '', title); heading.id = 'action-confirm-title';
     const description = el('p', '', message); description.id = 'action-confirm-description';
@@ -219,7 +220,10 @@ function confirmAction({ title, message, confirmLabel = '确定', cancelLabel = 
     const confirmButton = el('button', 'button primary', confirmLabel); confirmButton.value = 'confirm';
     actions.append(cancel, confirmButton); form.append(heading, description, actions); dialog.append(form);
     return new Promise(resolve => {
+        const abort = () => dialog.close();
+        signal?.addEventListener('abort', abort, { once: true });
         dialog.addEventListener('close', () => {
+            signal?.removeEventListener('abort', abort);
             dialog.remove(); returnFocus?.focus({ preventScroll: true });
             resolve(dialog.returnValue === 'confirm');
         }, { once: true });
@@ -3824,43 +3828,22 @@ async function waitToSend(controller, seconds) {
     }
 }
 
-let composerSendPending = false;
-async function sendComposerMessage() {
-    if (composerSendPending || state.busy) return;
-    const input = $('message-input');
-    const draft = input.value;
-    const text = draft.trim();
-    const limit = sendTokenLimit(state.own.reading?.sendTokenLimit);
-    if (limit && text && !(usesBackgroundGeneration() && pendingBackgroundJob())) {
-        assertIdle();
-        const chat = state.chat;
-        const model = connection().model || 'gpt-4';
-        const current = () => state.chat === chat && !state.loading && !state.busy && !inlineEdit
-            && input.value === draft && (connection().model || 'gpt-4') === model;
-        composerSendPending = true;
-        try {
-            const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, [{ role: 'user', content: text }], {
-                signal: AbortSignal.timeout(5000),
-            }).catch(() => null);
-            if (!current()) return;
-            const count = result?.token_count;
-            const counted = Number.isSafeInteger(count) && count > 0;
-            if ((!counted || count > limit) && !await confirmAction({
-                title: counted ? '消息超过发送确认阈值' : '无法统计消息 Token',
-                message: counted ? `本条消息为 ${count} Token，超过设定的 ${limit} Token。要继续发送吗？` : '暂时无法统计本条消息的 Token。要继续发送吗？',
-                confirmLabel: '继续发送',
-                cancelLabel: '取消发送',
-                returnFocus: input,
-            })) return;
-            if (!current()) return;
-        } finally {
-            composerSendPending = false;
+async function outgoingContextTokens(request, prepared, model, signal) {
+    if (!request.custom_prompt_post_processing && request.model === model
+        && JSON.stringify(request.messages) === JSON.stringify(prepared.messages)) return prepared.tokens;
+    const countSignal = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+    try {
+        const messages = request.custom_prompt_post_processing ? await api.processPrompt(request, countSignal) : request.messages;
+        if (Array.isArray(messages)) {
+            const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(request.model)}`, messages, { signal: countSignal });
+            return result?.token_count;
         }
+    } catch {
+        signal.throwIfAborted();
     }
-    return generate(false, null, { delaySend: true });
 }
 
-async function generate(mode = false, recovery = null, { delaySend = false, onQueued } = {}) {
+async function generate(mode = false, recovery = null, { delaySend = false, onQueued, confirmContext = false } = {}) {
     assertIdle(); if (state.chatConflict) throw new Error(state.chatConflict);
     if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
     if (!recovery && usesBackgroundGeneration() && pendingBackgroundJob()) return resumeBackgroundChat();
@@ -3884,6 +3867,8 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
     const sendStarted = loadTimings.now();
     const finishGeneration = loadTimings.start(regenerate ? '重新生成' : '发送消息', 'generation');
     const sendDelay = delaySend ? sendDelaySeconds(state.own.reading?.sendDelay) : 0;
+    const contextLimit = confirmContext && !recovery ? sendTokenLimit(state.own.reading?.sendTokenLimit) : 0;
+    let contextDeclined = false;
     const showQueuedUser = delaySend && !regenerate && !retry;
     let waitingToSend = sendDelay > 0;
     let releaseNativeDelay;
@@ -3979,29 +3964,65 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
             prepared = await loadTimings.measure('准备生成上下文', 'generation', () => preparePrompt(requestChat, true));
             body = loadTimings.measureSync('组装模型请求', 'generation', () => generationBody(connection(), state.preset, prepared.messages));
             if (state.controller.signal.aborted) return;
-            if (!regenerate && !retry && !pendingUser) await persistUser();
+            if (!contextLimit && !regenerate && !retry && !pendingUser) await persistUser();
             if (state.controller.signal.aborted) return;
-            if (usesBackgroundGeneration() && state.chatUnpersisted) await saveChat();
+            if (!contextLimit && usesBackgroundGeneration() && state.chatUnpersisted) await saveChat();
         }
         if (state.controller.signal.aborted) {
             if (recovery) throw state.controller.signal.reason;
             return;
         }
-        if (regenerate) {
-            const old = state.chat.at(-1);
-            reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
-            delete reply.gen_finished; delete reply.extra.reasoning;
-            if (reply.TavernDB_ACU_Data) (reply.extra.independentDatabase ||= {}).stale = true;
-            reply.swipes = old.swipes?.length ? [...old.swipes] : [old.mes];
-            reply.swipe_info = old.swipe_info ? copy(old.swipe_info) : [{ extra: copy(old.extra || {}) }];
-            reply.swipe_id = reply.swipes.length; reply.swipes.push(''); state.chat[state.chat.length - 1] = reply;
-        } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
-        if (recovery?.started) reply.gen_started = recovery.started;
-        replyIndex = state.chat.length - 1;
-        state.generation.reply = reply;
-        state.hiddenReply = reply;
+        const addReply = () => {
+            if (regenerate) {
+                const old = state.chat.at(-1);
+                reply = { ...copy(old), mes: '', gen_started: new Date().toISOString(), extra: { ...(old.extra || {}) } };
+                delete reply.gen_finished; delete reply.extra.reasoning;
+                if (reply.TavernDB_ACU_Data) (reply.extra.independentDatabase ||= {}).stale = true;
+                reply.swipes = old.swipes?.length ? [...old.swipes] : [old.mes];
+                reply.swipe_info = old.swipe_info ? copy(old.swipe_info) : [{ extra: copy(old.extra || {}) }];
+                reply.swipe_id = reply.swipes.length; reply.swipes.push(''); state.chat[state.chat.length - 1] = reply;
+            } else { reply = { name: state.character.name, is_user: false, is_system: false, send_date: new Date().toISOString(), mes: '', gen_started: new Date().toISOString(), extra: {} }; state.chat.push(reply); }
+            if (recovery?.started) reply.gen_started = recovery.started;
+            replyIndex = state.chat.length - 1;
+            state.generation.reply = reply;
+            state.hiddenReply = reply;
+        };
+        if (!contextLimit) addReply();
         const controller = state.controller;
+        const markWaitingForReply = () => {
+            loadTimings.measureSync('请求期间刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: !showQueuedUser }));
+            status(recovery ? '正在恢复后台回复…' : regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
+        };
+        const startModelTimers = () => {
+            finishFirstText = loadTimings.start('模型请求至首段文本（含思考）', 'generation');
+            finishModelResponse = loadTimings.start('模型请求至回复接收完成', 'generation');
+        };
         const fetchReply = async (request, signal) => {
+            if (contextLimit) {
+                const count = await loadTimings.measure('统计发送上下文 Token', 'generation', () => outgoingContextTokens(request, prepared, body.model, signal));
+                signal.throwIfAborted();
+                const counted = Number.isSafeInteger(count) && count > 0;
+                if (!counted || count > contextLimit) {
+                    releaseNativeDelay?.();
+                    releaseNativeDelay = undefined;
+                    setReplyWaiting('等待确认发送');
+                    status('等待确认发送…');
+                    const accepted = await confirmAction({
+                        title: counted ? '发送上下文超过确认阈值' : '无法统计发送上下文 Token',
+                        message: counted ? `本次发送的上下文为 ${count} Token，超过设定的 ${contextLimit} Token。要继续发送吗？` : '暂时无法统计本次发送的上下文。要继续发送吗？',
+                        confirmLabel: '继续发送', cancelLabel: '取消发送', returnFocus: input, signal,
+                    });
+                    signal.throwIfAborted();
+                    if (!accepted) {
+                        contextDeclined = true;
+                        throw new DOMException('context-confirmation-declined', 'AbortError');
+                    }
+                }
+                if (!regenerate && !retry && !pendingUser) await persistUser();
+                if (usesBackgroundGeneration() && state.chatUnpersisted) await saveChat();
+                signal.throwIfAborted();
+                addReply();
+            }
             const base = api.chatBase;
             if (usesBackgroundGeneration() && base?.avatar === state.character.avatar && base.file === state.file) {
                 const job = {
@@ -4019,7 +4040,8 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
             finishRequest = requestLog.start('chat', request, signal, api, keywordRows, keywordRows && prepared.databaseKeywordMacros);
             requestStarted ??= loadTimings.now();
             setReplyWaiting('正在等待回复');
-            return chatGenerationResponse(api, request, signal, {
+            if (contextLimit) startModelTimers();
+            const response = chatGenerationResponse(api, request, signal, {
                 id: backgroundJob?.id,
                 recovery: backgroundJob,
                 onStarted: releaseNativeDelay,
@@ -4028,10 +4050,18 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
                     backgroundJob = null;
                 },
             });
+            if (contextLimit) {
+                try { markWaitingForReply(); }
+                catch (error) {
+                    controller.abort();
+                    void response.catch(() => {});
+                    throw error;
+                }
+            }
+            return response;
         };
         let requestedStream;
-        finishFirstText = loadTimings.start('模型请求至首段文本（含思考）', 'generation');
-        finishModelResponse = loadTimings.start('模型请求至回复接收完成', 'generation');
+        if (!contextLimit) startModelTimers();
         const pendingResponse = loadTimings.measure('模型请求至响应头', 'generation', () => recovery
             ? chatGenerationResponse(api, null, controller.signal, { id: recovery.id, resume: true })
             : scriptRuntime.generate(body, {
@@ -4047,8 +4077,7 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
             streamResponse: Number((response.headers.get('content-type') || '').includes('text/event-stream')),
         } }));
         try {
-            loadTimings.measureSync('请求期间刷新消息列表', 'generation', () => list.setMessages(state.chat, { latest: !showQueuedUser }));
-            status(recovery ? '正在恢复后台回复…' : regenerate ? '正在重新生成，等待回复…' : '消息已发送，等待回复…');
+            if (!contextLimit) markWaitingForReply();
         } catch (error) {
             controller.abort();
             void pendingResponse.catch(() => {});
@@ -4098,7 +4127,7 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
         finishFirstText?.(failure.status, failure);
         finishModelResponse?.(failure.status, failure);
         if (error.name === 'AbortError') {
-            if (error.message !== 'pagehide') notifyGeneration(waitingToSend ? '发送已取消' : '生成已停止，已收到的内容会保存', 'info');
+            if (!contextDeclined && error.message !== 'pagehide') notifyGeneration(waitingToSend ? '发送已取消' : '生成已停止，已收到的内容会保存', 'info');
         }
         else {
             state.error = resumeLater ? '暂时无法读取后台回复，点击发送可继续恢复' : error.message;
@@ -4112,6 +4141,12 @@ async function generate(mode = false, recovery = null, { delaySend = false, onQu
         }
         finishModelResponse?.(completed ? 'success' : 'cancelled');
         if (streamFrame) { clearTimeout(streamFrame); streamFrame = 0; }
+        if (contextDeclined && state.generation.queuedUser) {
+            state.generation.queuedUser = null;
+            input.value = input.value ? `${draft}\n\n${input.value}` : draft;
+            resizeInput();
+            list.setMessages(state.chat, { latest: list.follow });
+        }
         if (state.generation.queuedUser) appendUser();
         state.generation = null;
         let rawSaved = false;
@@ -4274,7 +4309,7 @@ async function toolsPanel() {
     const delay = field(body, '发送延迟（秒）', sendDelaySeconds(state.own.reading?.sendDelay), { type: 'number', hint: '默认 5 秒，设为 0 立即开始发送。等待期间可以停止发送。' });
     delay.min = 0; delay.max = maxSendDelay; delay.step = 1; delay.required = true;
     const tokenLimit = field(body, '发送确认阈值（Token）', sendTokenLimit(state.own.reading?.sendTokenLimit), {
-        type: 'number', hint: '本条输入超过此数值时，发送前会询问是否继续。设为 0 关闭提醒。',
+        type: 'number', hint: '整次发送的上下文（含历史和提示词）超过此数值时，发送前会询问是否继续。设为 0 关闭提醒。',
     });
     tokenLimit.min = 0; tokenLimit.max = Number.MAX_SAFE_INTEGER; tokenLimit.step = 1; tokenLimit.required = true;
     const palette = field(body, '页面配色', frontendThemes.normalize(state.own.palette), { options: frontendThemes.options });
@@ -4426,7 +4461,7 @@ window.addEventListener('popstate', () => run(async () => {
 }));
 $('composer').addEventListener('submit', event => {
     event.preventDefault();
-    if (!state.busy && !composerSendPending) void afterMessageEdit(sendComposerMessage);
+    if (!state.busy) void afterMessageEdit(() => generate(false, null, { delaySend: true, confirmContext: true }));
 });
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);

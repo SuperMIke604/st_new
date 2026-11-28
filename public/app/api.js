@@ -28,9 +28,9 @@ export class TavernAPI {
         }
         return response;
     }
-    async processPrompt({ messages, custom_prompt_post_processing: type, char_name, user_name, group_names }) {
+    async processPrompt({ messages, custom_prompt_post_processing: type, char_name, user_name, group_names }, signal = AbortSignal.timeout(5000)) {
         const response = await this.response('/api/backends/chat-completions/process', { messages, type, char_name, user_name, group_names }, {
-            signal: AbortSignal.timeout(5000), fallbackStatuses: [404, 405],
+            signal, fallbackStatuses: [404, 405],
         });
         return (await response.json()).messages;
     }
