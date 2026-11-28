@@ -9,6 +9,7 @@ const frontendThemes = (() => {
         dark: { label: '深色', color: '#171a20' },
         'aurora-glass': { label: '极光玻璃', color: '#e9eafa', darkColor: '#18182e' },
         'ivory-glass': { label: '象牙玻璃', color: '#f3eee4' },
+        'ivory-hybrid': { label: '象牙卡片·磨砂', color: '#f3eee4' },
     };
     const storageKey = 'independent-palette';
     const systemDark = matchMedia('(prefers-color-scheme: dark)');

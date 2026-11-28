@@ -35,16 +35,27 @@
     --glass-background-start: color-mix(in srgb, var(--soft) 38%, #d7bfa5);
     --glass-background-side: #f5e4c9;
     --glass-background-end: #ddc9b4;
+}
+
+:root:is([data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) {
     --glass-glint: rgb(255 252 244 / 92%);
     --glass-rim: rgb(255 252 244 / 84%);
     --glass-shade: rgb(100 70 42 / 18%);
 }
 
+:root[data-theme="ivory-hybrid"] {
+    --glass-gradient-direction: to bottom;
+    background-image: linear-gradient(to bottom, #fff9ee, var(--paper) 76%);
+}
+
 /* Keep the reading surface steady. Reserve blurred glass for floating controls. */
-:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) {
+:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) {
     --glass-frost: color-mix(in srgb, var(--surface) 72%, transparent);
     --glass-depth: inset 0 1px 0 var(--glass-glint), 0 1px 2px var(--glass-shade),
         0 8px 24px var(--glass-shade);
+}
+
+:root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) {
     --glass-column: 840px;
     --card-radius: 24px;
     --control-radius: 14px;
@@ -60,32 +71,36 @@
     background-repeat: no-repeat;
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
     background: var(--surface);
     border: 1px solid var(--glass-rim);
     box-shadow: var(--glass-depth);
 }
 
 @supports (backdrop-filter: blur(1px)) {
-    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
-        background: linear-gradient(155deg, color-mix(in srgb, var(--glass-glint) 24%, transparent), transparent 70%),
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+        background: linear-gradient(var(--glass-gradient-direction, 155deg), color-mix(in srgb, var(--glass-glint) 24%, transparent), transparent 70%),
             var(--glass-frost);
         backdrop-filter: blur(20px) saturate(145%);
     }
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #top-actions {
     border-radius: 999px;
     padding: 4px;
     gap: 4px;
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut {
+[data-theme="ivory-hybrid"] #top-actions {
+    box-shadow: inset 0 1px 0 var(--glass-glint), 0 2px 7px color-mix(in srgb, var(--glass-shade) 45%, transparent);
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #top-actions .top-shortcut {
     border-radius: 999px;
     color: var(--ink);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions .top-shortcut[aria-pressed="true"] {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #top-actions .top-shortcut[aria-pressed="true"] {
     background: var(--card-selected);
     color: var(--green);
     box-shadow: inset 0 1px 0 var(--glass-glint);
@@ -116,9 +131,9 @@
     width: min(100%, var(--glass-column));
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #message-list > .message {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #message-list > .message {
     --message-border-color: var(--glass-rim);
-    background-image: linear-gradient(155deg, var(--glass-frost), transparent 120px);
+    background-image: linear-gradient(var(--glass-gradient-direction, 155deg), var(--glass-frost), transparent 120px);
     box-shadow: inset 0 1px 0 var(--glass-glint);
 }
 
@@ -127,16 +142,23 @@
     margin-inline-start: clamp(12px, 7%, 64px);
 }
 
+[data-theme="ivory-hybrid"] #message-list > .message.from-user {
+    --message-border-color: var(--card-user-border);
+}
+
 :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(.message-name, .message-content a) {
     color: var(--green);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #composer {
     border-radius: 28px;
 }
 
 :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer #message-input {
     padding-inline: 14px;
+}
+
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #composer #message-input {
     border-radius: 21px;
 }
 
@@ -144,34 +166,73 @@
     color: var(--muted);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer :is(#tools-toggle, #send-button, #stop-button),
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #composer :is(#tools-toggle, #send-button, #stop-button),
 :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #back-latest {
     border-radius: 999px;
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #composer button:focus-visible,
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions button:focus-visible {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #composer button:focus-visible,
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #top-actions button:focus-visible {
     outline-offset: -3px;
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog) {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog) {
     border-color: var(--glass-rim);
     border-radius: 28px;
     box-shadow: inset 0 1px 0 var(--glass-glint), 0 20px 56px var(--glass-shade);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, .timing-panel, .script-runtime-dialog) > .panel-header {
-    background: linear-gradient(125deg, var(--soft), var(--surface) 70%);
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#panel, .timing-panel, .script-runtime-dialog) > .panel-header {
+    background: linear-gradient(var(--glass-gradient-direction, 125deg), var(--soft), var(--surface) 70%);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#panel, .timing-panel, .script-runtime-dialog) .panel-header .icon-button {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#panel, .timing-panel, .script-runtime-dialog) .panel-header .icon-button {
     border-radius: 50%;
     box-shadow: inset 0 0 0 1px var(--line);
 }
 
-:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(.select-menu, .card-action-menu, .chat-history-menu) {
+:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(.select-menu, .card-action-menu, .chat-history-menu) {
     border-radius: 18px;
     box-shadow: var(--glass-depth);
+}
+
+[data-theme="ivory-hybrid"] :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog) {
+    background-image: linear-gradient(to bottom, var(--glass-glint), transparent 220px);
+}
+
+[data-theme="ivory-hybrid"] :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog)::backdrop {
+    backdrop-filter: blur(8px);
+}
+
+:root[data-theme="ivory-hybrid"] .home-view .welcome {
+    padding-block-start: var(--space-4);
+    background: linear-gradient(to bottom, var(--glass-glint), transparent 66%), var(--glass-frost);
+    border: 1px solid var(--glass-rim);
+    border-radius: var(--card-radius);
+    box-shadow: var(--glass-depth);
+}
+
+:root[data-theme="ivory-hybrid"] :is(.home-character-grid .home-character, .character-files .character-file) {
+    background-image: linear-gradient(to bottom, var(--glass-glint), transparent 72%);
+    box-shadow: inset 0 1px 0 var(--glass-glint), 0 3px 10px color-mix(in srgb, var(--glass-shade) 35%, transparent);
+}
+
+:root[data-theme="ivory-hybrid"] :is(
+    input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=range]):not([type=hidden]),
+    select, .select-control, .select-option, .select-custom
+) {
+    --control-radius: 999px;
+    border-radius: var(--control-radius);
+}
+
+/* Cap the radius for rows that can wrap and for expanded editors. */
+:root[data-theme="ivory-hybrid"] :is(
+    #panel textarea, dialog textarea, .inline-edit textarea,
+    #panel .prompt-item, #panel .regex-rule, .resource-row, .folder-row, .persona-row,
+    .character-files.list-view .character-file, .chat-history-row
+) {
+    --control-radius: calc(var(--control-size) / 2);
+    border-radius: var(--control-radius);
 }
 
 :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) .home-view .welcome {
@@ -204,17 +265,17 @@
         --card-radius: 20px;
     }
 
-    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) #top-actions { gap: 2px; }
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) #top-actions { gap: 2px; }
 
-    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
     :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog)[open] {
         border-color: var(--glass-rim);
         border-radius: 26px 26px 0 0;
     }
 
-    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]):has(:is(#panel, .timing-panel, .script-runtime-dialog)[open])
     :is(#panel, .timing-panel, .script-runtime-dialog) > .panel-header {
-        background: linear-gradient(125deg, var(--soft), var(--surface) 70%);
+        background: linear-gradient(var(--glass-gradient-direction, 125deg), var(--soft), var(--surface) 70%);
     }
 }
 
@@ -262,9 +323,13 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) { --glass-frost: var(--surface); }
+    :root:is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) { --glass-frost: var(--surface); }
 
-    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+    :is([data-theme="aurora-glass"], [data-theme="ivory-glass"], [data-theme="ivory-hybrid"]) :is(#top-actions, #composer, #composer-tools, #quick-replies, #back-latest) {
+        backdrop-filter: none;
+    }
+
+    [data-theme="ivory-hybrid"] :is(#panel, dialog.timing-panel, dialog.script-runtime-dialog, dialog.compact-dialog)::backdrop {
         backdrop-filter: none;
     }
 }
