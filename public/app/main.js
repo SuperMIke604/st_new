@@ -42,7 +42,7 @@ import { decorateCodeBlocks, refreshHtmlVariables } from './code-blocks.js';
 import { messageMarkdown, displayNameMacros } from './message-markdown.js';
 import { embeddedWorld, hasEmbeddedWorld, importCharacterWorld, saveCharacterWorldBinding } from './character-world.js';
 import { installWorldBindingGesture, showWorldBindingDialog } from './character-world-dialog.js';
-import { readingFields, readingSettings, applyReading, sendDelaySeconds, maxSendDelay } from './reading.js';
+import { readingFields, readingSettings, applyReading, sendDelaySeconds, maxSendDelay, sendTokenLimit } from './reading.js';
 import { worldSettingsFields, validateWorldSettings } from './world-settings.js';
 import { databaseSettings, databaseForChat, findDatabaseSnapshot, storeDatabase, invalidateDatabases, databaseText, referenceDatabaseText, sheetText, fillMessages, parseUpdate, databaseUpdateNotice, sourceHash, validateDatabase, DatabaseFormatError, databaseSummaryTriggered, messageSummaryRange } from './database.js';
 import { deleteDatabaseSummaryHistory } from './database-overview.js';
@@ -207,7 +207,7 @@ function discloseProfileTools(bar, tools, button, label, groupLabel) {
     more.addEventListener('keydown', closeOnEscape);
     bar.after(extra);
 }
-function confirmAction({ title, message, confirmLabel = '确定', returnFocus = document.activeElement }) {
+function confirmAction({ title, message, confirmLabel = '确定', cancelLabel = '取消', returnFocus = document.activeElement }) {
     const dialog = el('dialog', 'compact-dialog');
     const heading = el('h2', '', title); heading.id = 'action-confirm-title';
     const description = el('p', '', message); description.id = 'action-confirm-description';
@@ -215,7 +215,7 @@ function confirmAction({ title, message, confirmLabel = '确定', returnFocus = 
     dialog.setAttribute('aria-describedby', description.id);
     const form = el('form'); form.method = 'dialog';
     const actions = el('div', 'compact-dialog-actions');
-    const cancel = el('button', 'button', '取消'); cancel.value = 'cancel'; cancel.autofocus = true;
+    const cancel = el('button', 'button', cancelLabel); cancel.value = 'cancel'; cancel.autofocus = true;
     const confirmButton = el('button', 'button primary', confirmLabel); confirmButton.value = 'confirm';
     actions.append(cancel, confirmButton); form.append(heading, description, actions); dialog.append(form);
     return new Promise(resolve => {
@@ -3824,6 +3824,42 @@ async function waitToSend(controller, seconds) {
     }
 }
 
+let composerSendPending = false;
+async function sendComposerMessage() {
+    if (composerSendPending || state.busy) return;
+    const input = $('message-input');
+    const draft = input.value;
+    const text = draft.trim();
+    const limit = sendTokenLimit(state.own.reading?.sendTokenLimit);
+    if (limit && text && !(usesBackgroundGeneration() && pendingBackgroundJob())) {
+        assertIdle();
+        const chat = state.chat;
+        const model = connection().model || 'gpt-4';
+        const current = () => state.chat === chat && !state.loading && !state.busy && !inlineEdit
+            && input.value === draft && (connection().model || 'gpt-4') === model;
+        composerSendPending = true;
+        try {
+            const result = await api.post(`/api/tokenizers/openai/count?model=${encodeURIComponent(model)}`, [{ role: 'user', content: text }], {
+                signal: AbortSignal.timeout(5000),
+            }).catch(() => null);
+            if (!current()) return;
+            const count = result?.token_count;
+            const counted = Number.isSafeInteger(count) && count > 0;
+            if ((!counted || count > limit) && !await confirmAction({
+                title: counted ? '消息超过发送确认阈值' : '无法统计消息 Token',
+                message: counted ? `本条消息为 ${count} Token，超过设定的 ${limit} Token。要继续发送吗？` : '暂时无法统计本条消息的 Token。要继续发送吗？',
+                confirmLabel: '继续发送',
+                cancelLabel: '取消发送',
+                returnFocus: input,
+            })) return;
+            if (!current()) return;
+        } finally {
+            composerSendPending = false;
+        }
+    }
+    return generate(false, null, { delaySend: true });
+}
+
 async function generate(mode = false, recovery = null, { delaySend = false, onQueued } = {}) {
     assertIdle(); if (state.chatConflict) throw new Error(state.chatConflict);
     if (state.dirty) await saveChat(); assertSaved(); if (!state.character) throw new Error('请先选择角色。');
@@ -4237,10 +4273,16 @@ async function toolsPanel() {
     const enter = field(body, '发送方式', state.own.enterSend === false ? 'button' : 'enter', { options: [['enter', '电脑 Enter 发送，Shift + Enter 换行'], ['button', '只使用发送按钮']] });
     const delay = field(body, '发送延迟（秒）', sendDelaySeconds(state.own.reading?.sendDelay), { type: 'number', hint: '默认 5 秒，设为 0 立即开始发送。等待期间可以停止发送。' });
     delay.min = 0; delay.max = maxSendDelay; delay.step = 1; delay.required = true;
+    const tokenLimit = field(body, '发送确认阈值（Token）', sendTokenLimit(state.own.reading?.sendTokenLimit), {
+        type: 'number', hint: '本条输入超过此数值时，发送前会询问是否继续。设为 0 关闭提醒。',
+    });
+    tokenLimit.min = 0; tokenLimit.max = Number.MAX_SAFE_INTEGER; tokenLimit.step = 1; tokenLimit.required = true;
     const palette = field(body, '页面配色', frontendThemes.normalize(state.own.palette), { options: frontendThemes.options });
     palette.addEventListener('change', () => frontendThemes.apply(palette.value));
     const rememberReading = value => {
-        const settings = readingSettings({ ...value, sendDelay: state.own.reading?.sendDelay }, true);
+        const settings = readingSettings({
+            ...value, sendDelay: state.own.reading?.sendDelay, sendTokenLimit: state.own.reading?.sendTokenLimit,
+        }, true);
         state.own.reading = settings;
         applyReading(settings);
         resizeInput();
@@ -4283,8 +4325,8 @@ async function toolsPanel() {
             readingInputs.get('inputFontSize').reportValidity();
             return;
         }
-        if (!delay.reportValidity()) return;
-        const reading = readingSettings({ ...values(), sendDelay: delay.value }, true);
+        if (!delay.reportValidity() || !tokenLimit.reportValidity()) return;
+        const reading = readingSettings({ ...values(), sendDelay: delay.value, sendTokenLimit: tokenLimit.value }, true);
         const selectedPalette = palette.value;
         await saveOwn({ enterSend: enter.value === 'enter', palette: selectedPalette, reading });
         try { localStorage.setItem(readingStorageKey(), JSON.stringify(reading)); } catch { /* Server save remains available. */ }
@@ -4384,7 +4426,7 @@ window.addEventListener('popstate', () => run(async () => {
 }));
 $('composer').addEventListener('submit', event => {
     event.preventDefault();
-    if (!state.busy) void afterMessageEdit(() => generate(false, null, { delaySend: true }));
+    if (!state.busy && !composerSendPending) void afterMessageEdit(sendComposerMessage);
 });
 window.addEventListener('resize', raiseNotification);
 window.visualViewport?.addEventListener('resize', raiseNotification);

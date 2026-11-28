@@ -4,7 +4,7 @@ import { readingSettings, applyReading } from '../reading.js';
 test('reading settings survive persisted values and support zero spacing', () => {
     const input = { fontSize: '96', letterSpacing: '0', lineHeight: '2.25', paragraphSpacing: '0' };
     const value = readingSettings(input, true);
-    assert.deepEqual(value, { fontSize: 96, inputFontSize: '', letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '', sendDelay: 5 });
+    assert.deepEqual(value, { fontSize: 96, inputFontSize: '', letterSpacing: 0, lineHeight: 2.25, paragraphSpacing: 0, dialogueColor: '', sendDelay: 5, sendTokenLimit: 0 });
     assert.deepEqual(readingSettings(JSON.parse(JSON.stringify(value))), value);
     const style = new Map(); applyReading(value, { style: { setProperty: (key, value) => style.set(key, value) } });
     assert.equal(style.get('--reading-fontSize'), '96px'); assert.equal(style.get('--reading-lineHeight'), '2.25'); assert.equal(style.get('--reading-paragraphSpacing'), '0px');
@@ -52,5 +52,17 @@ test('reading settings preserve immediate send and custom delays', () => {
     for (const sendDelay of [-1, 1.5, Infinity, 2147484]) {
         assert.equal(readingSettings({ sendDelay }).sendDelay, 5);
         assert.throws(() => readingSettings({ sendDelay }, true), /发送延迟/);
+    }
+});
+
+test('the message token confirmation threshold defaults to off and persists positive integers', () => {
+    assert.equal(readingSettings().sendTokenLimit, 0);
+    for (const limit of [0, 1, 4096, Number.MAX_SAFE_INTEGER]) {
+        const value = readingSettings({ sendTokenLimit: String(limit) }, true);
+        assert.equal(readingSettings(JSON.parse(JSON.stringify(value))).sendTokenLimit, limit);
+    }
+    for (const sendTokenLimit of [-1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+        assert.equal(readingSettings({ sendTokenLimit }).sendTokenLimit, 0);
+        assert.throws(() => readingSettings({ sendTokenLimit }, true), /发送确认阈值/);
     }
 });

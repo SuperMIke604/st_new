@@ -14,6 +14,13 @@ export function sendDelaySeconds(value, strict = false) {
     return 5;
 }
 
+export function sendTokenLimit(value, strict = false) {
+    const limit = Number(value ?? 0);
+    if (Number.isSafeInteger(limit) && limit >= 0) return limit;
+    if (strict) throw new Error('发送确认阈值须为有效的非负整数。');
+    return 0;
+}
+
 export function readingSettings(value = {}, strict = false) {
     const settings = Object.fromEntries(readingFields.map(([key, label, fallback, min, max]) => {
         const number = value[key] === '' || value[key] == null ? fallback : Number(value[key]);
@@ -29,6 +36,7 @@ export function readingSettings(value = {}, strict = false) {
     if (strict && color && !validColor) throw new Error('对话文字颜色请填写 3 位或 6 位十六进制色号，例如 #68280f；留空跟随主题。');
     settings.dialogueColor = validColor ? `#${color.replace(/^#/, '').toLowerCase()}` : '';
     settings.sendDelay = sendDelaySeconds(value.sendDelay, strict);
+    settings.sendTokenLimit = sendTokenLimit(value.sendTokenLimit, strict);
     return settings;
 }
 export function applyReading(value, root = document.documentElement) {
